@@ -136,7 +136,7 @@
         }
       );
       messageManager.loadFrameScript("chrome://global/content/remote-test-ipc.js", true);
-      ppm.sendAsyncMessage("cpm-async");
+      ppm.broadcastAsyncMessage("cpm-async");
 
       // 2. Test that adding message listener works, and that receiving a sync message works.
       messageManager.addMessageListener("linkclick",

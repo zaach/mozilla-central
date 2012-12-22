@@ -196,8 +196,6 @@ public:
             const bool& stickDocument);
     virtual bool DeallocPOfflineCacheUpdate(POfflineCacheUpdateParent* actor);
 
-    JSBool GetGlobalJSObject(JSContext* cx, JSObject** globalp);
-
     NS_DECL_ISUPPORTS
     NS_DECL_NSIAUTHPROMPTPROVIDER
     NS_DECL_NSISECUREBROWSERUI

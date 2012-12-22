@@ -876,7 +876,8 @@ RenderFrameParent::TriggerRepaint()
     return;
   }
 
-  docFrame->SchedulePaint();
+  //docFrame->SchedulePaint();
+  docFrame->InvalidateLayer(nsDisplayItem::TYPE_REMOTE);
 }
 
 ShadowLayersParent*

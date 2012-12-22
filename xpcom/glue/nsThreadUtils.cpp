@@ -157,7 +157,8 @@ NS_DispatchToMainThread(nsIRunnable *event, uint32_t dispatchFlags)
 {
   nsCOMPtr<nsIThread> thread;
   nsresult rv = NS_GetMainThread(getter_AddRefs(thread));
-  NS_ENSURE_SUCCESS(rv, rv);
+  if (NS_FAILED(rv))
+    return rv;
   return thread->Dispatch(event, dispatchFlags);
 }
 

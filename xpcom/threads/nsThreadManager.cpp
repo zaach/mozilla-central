@@ -247,7 +247,8 @@ NS_IMETHODIMP
 nsThreadManager::GetMainThread(nsIThread **result)
 {
   // Keep this functioning during Shutdown
-  NS_ENSURE_TRUE(mMainThread, NS_ERROR_NOT_INITIALIZED);
+  if (!mMainThread)
+    return NS_ERROR_NOT_INITIALIZED;
   NS_ADDREF(*result = mMainThread);
   return NS_OK;
 }
