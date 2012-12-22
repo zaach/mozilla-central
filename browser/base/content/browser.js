@@ -3985,11 +3985,13 @@ var XULBrowserWindow = {
         this.status = "";
         this.setDefaultStatus(msg);
 
+#if 0
         // Disable menu entries for images, enable otherwise
         if (content.document && mimeTypeIsTextBased(content.document.contentType))
           this.isImage.removeAttribute('disabled');
         else
           this.isImage.setAttribute('disabled', 'true');
+#endif
       }
 
       this.isBusy = false;
@@ -4257,6 +4259,7 @@ var XULBrowserWindow = {
         gURLBar.removeAttribute("level");
     }
 
+#if 0
     // Don't pass in the actual location object, since it can cause us to
     // hold on to the window object too long.  Just pass in the fields we
     // care about. (bug 424829)
@@ -4274,6 +4277,7 @@ var XULBrowserWindow = {
       // properties anyways, though.
     }
     gIdentityHandler.checkIdentity(this._state, locationObj);
+#endif
   },
 
   // simulate all change notifications after switching tabs

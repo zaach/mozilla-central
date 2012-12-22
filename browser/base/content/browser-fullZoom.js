@@ -139,6 +139,8 @@ var FullZoom = {
   // nsIObserver
 
   observe: function (aSubject, aTopic, aData) {
+    return;
+
     switch (aTopic) {
       case "nsPref:changed":
         switch (aData) {
@@ -158,6 +160,7 @@ var FullZoom = {
   // nsIContentPrefObserver
 
   onContentPrefSet: function FullZoom_onContentPrefSet(aGroup, aName, aValue) {
+    return;
     let contentPrefs = getContentPrefs(gBrowser.contentDocument.defaultView);
     if (aGroup == contentPrefs.grouper.group(gBrowser.currentURI))
       this._applyPrefToSetting(aValue);
@@ -173,6 +176,7 @@ var FullZoom = {
   },
 
   onContentPrefRemoved: function FullZoom_onContentPrefRemoved(aGroup, aName) {
+    return;
     let contentPrefs = getContentPrefs(gBrowser.contentDocument.defaultView);
     if (aGroup == contentPrefs.grouper.group(gBrowser.currentURI))
       this._applyPrefToSetting();
@@ -201,6 +205,8 @@ var FullZoom = {
    *        (optional) browser object displaying the document
    */
   onLocationChange: function FullZoom_onLocationChange(aURI, aIsTabSwitch, aBrowser) {
+    return;
+
     if (!aURI || (aIsTabSwitch && !this.siteSpecific))
       return;
 
@@ -285,6 +291,9 @@ var FullZoom = {
    * one.
    **/
   _applyPrefToSetting: function FullZoom__applyPrefToSetting(aValue, aBrowser) {
+    // disabled in electrolysis
+    return;
+
     if ((!this.siteSpecific) || gInPrintPreviewMode)
       return;
 
