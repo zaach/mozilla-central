@@ -50,6 +50,9 @@ JS_FRIEND_API(void) js_DumpStackFrame(JSContext *cx, js::StackFrame *start = NUL
 JS_FRIEND_API(void)
 js_DumpBacktrace(JSContext *cx);
 
+char *
+js_GetBacktrace(JSContext *cx);
+
 extern JS_PUBLIC_API(JSCompartment *)
 JS_EnterCompartmentOfScript(JSContext *cx, JSScript *target);
 

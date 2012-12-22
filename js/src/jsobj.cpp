@@ -4574,3 +4574,26 @@ js_DumpBacktrace(JSContext *cx)
     fprintf(stdout, "%s", sprinter.string());
 }
 
+char *
+js_GetBacktrace(JSContext *cx)
+{
+    AutoAssertNoGC nogc;
+    Sprinter sprinter(cx);
+    sprinter.init();
+    size_t depth = 0;
+    for (StackIter i(cx); !i.done(); ++i, ++depth) {
+        if (i.isScript()) {
+            const char *filename = JS_GetScriptFilename(cx, i.script());
+            unsigned line = JS_PCToLineNumber(cx, i.script(), i.pc());
+            RawScript script = i.script();
+            sprinter.printf("#%d %14p   %s:%d (%p @ %d)\n",
+                            depth, (i.isIon() ? 0 : i.interpFrame()), filename, line,
+                            script, i.pc() - script->code);
+        } else {
+            sprinter.printf("#%d ???\n", depth);
+        }
+    }
+    char *s = js_pod_malloc<char>(sprinter.stringEnd() - sprinter.string() + 1);
+    memcpy(s, sprinter.string(), sprinter.stringEnd() - sprinter.string() + 1);
+    return s;
+}

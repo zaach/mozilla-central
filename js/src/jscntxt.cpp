@@ -374,6 +374,8 @@ AutoResolving::alreadyStartedSlow() const
     return false;
 }
 
+char *gSavedBacktrace;
+
 static void
 ReportError(JSContext *cx, const char *message, JSErrorReport *reportp,
             JSErrorCallback callback, void *userRef)
@@ -390,6 +392,12 @@ ReportError(JSContext *cx, const char *message, JSErrorReport *reportp,
     if ((!callback || callback == js_GetErrorMessage) &&
         reportp->errorNumber == JSMSG_UNCAUGHT_EXCEPTION)
         reportp->flags |= JSREPORT_EXCEPTION;
+
+    if (gSavedBacktrace) {
+        js_free(gSavedBacktrace);
+        gSavedBacktrace = NULL;
+    }
+    gSavedBacktrace = js_GetBacktrace(cx);
 
     /*
      * Call the error reporter only if an exception wasn't raised.
@@ -926,6 +934,10 @@ js_ReportErrorAgain(JSContext *cx, const char *message, JSErrorReport *reportp)
         return;
 
     onError = cx->errorReporter;
+
+    fprintf(stdout, "Saved backtrace:\n%s", gSavedBacktrace);
+    js_free(gSavedBacktrace);
+    gSavedBacktrace = NULL;
 
     /*
      * If debugErrorHook is present then we give it a chance to veto
