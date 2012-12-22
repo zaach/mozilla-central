@@ -35,14 +35,6 @@
                 onget="return this._documentURI ? this._ios.newURI(this._documentURI, null, null) : null"
                 readonly="true"/>
 
-      <field name="contentWindowId">null</field>
-
-      <property name="messageManager"
-                onget="return this._frameLoader.messageManager;"
-                readonly="true"/>
-
-      <field name="_contentTitle">null</field>
-
       <field name="_ios">
          Components.classes["@mozilla.org/network/io-service;1"].getService(Components.interfaces.nsIIOService);
       </field>
@@ -75,10 +67,6 @@
 
               case "pagehide":
                 self.onPageHide(aMessage);
-                break;
-
-              case "DOMTitleChanged":
-                self._contentTitle = json.title;
                 break;
 
               case "DOMLinkAdded":
@@ -169,7 +157,6 @@
           _browser: this,
 
           _init: function() {
-            this._browser.messageManager.addMessageListener("Content:StateChange", this);
             this._browser.messageManager.addMessageListener("Content:LocationChange", this);
             this._browser.messageManager.addMessageListener("Content:SecurityChange", this);
           },
@@ -177,10 +164,6 @@
           receiveMessage: function(aMessage) {
             let json = aMessage.json;
             switch (aMessage.name) {
-              case "Content:StateChange":
-                this._browser.updateWindowId(json.contentWindowId);
-                break;
-
               case "Content:LocationChange":
                 try {
                   let locationURI = this._browser._ios.newURI(json.location, null, null);
@@ -190,7 +173,7 @@
                   this._browser._charset = json.charset;
                 } catch(e) {}
 
-                if (this._browser.updateWindowId(json.contentWindowId)) {
+                if (this._browser._documentURI != json.documentURI) {
                   this._browser._documentURI = json.documentURI;
                   this._browser._searchEngines = [];
                 }
@@ -214,7 +197,6 @@
                   SSLStatus: SSLStatus ? {serverCert: data} : null,
                   state: json.state
                 }
-                this._browser.updateWindowId(json.contentWindowId);
                 break;
             }
           },
@@ -537,8 +519,6 @@
           if (this._contentViewPrototype)
             this._contentViewPrototype.kDieTime = prefService.getIntPref("toolkit.browser.contentViewExpire");
 
-          this.messageManager.loadFrameScript("chrome://browser/content/bindings/browser.js", true);
-          this.messageManager.addMessageListener("DOMTitleChanged", this._messageListenerLocal);
           this.messageManager.addMessageListener("DOMLinkAdded", this._messageListenerLocal);
           this.messageManager.addMessageListener("pageshow", this._messageListenerLocal);
           this.messageManager.addMessageListener("pagehide", this._messageListenerLocal);
@@ -554,17 +534,6 @@
           this.removeEventListener("DOMPopupBlocked", this.onPopupBlocked, true);
         ]]>
       </constructor>
-
-      <method name="updateWindowId">
-         <parameter name="aNewId"/>
-         <body><![CDATA[
-            if (this.contentWindowId != aNewId) {
-               this.contentWindowId = aNewId;
-               return true;
-            }
-            return false;
-         ]]></body>
-      </method>
 
       <field name="_active">false</field>
       <property name="active" onget="return this._active;">
@@ -622,12 +591,6 @@
             }
          ]]></getter>
       </property>
-
-      <field name="_contentTitle">null</field>
-
-      <property name="contentTitle"
-                onget="return this._contentTitle;"
-                readonly="true"/>
 
       <property name="webNavigation"
                 onget="return this._remoteWebNavigation;"

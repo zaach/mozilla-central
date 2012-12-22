@@ -3933,10 +3933,12 @@ var XULBrowserWindow = {
     const nsIWebProgressListener = Ci.nsIWebProgressListener;
     const nsIChannel = Ci.nsIChannel;
 
+    let isTopLevel = aWebProgress.isTopLevel;
+
     if (aStateFlags & nsIWebProgressListener.STATE_START &&
         aStateFlags & nsIWebProgressListener.STATE_IS_NETWORK) {
 
-      if (aRequest && aWebProgress.DOMWindow == content)
+      if (isTopLevel)
         this.startDocumentLoad(aRequest);
 
       this.isBusy = true;
@@ -3954,9 +3956,7 @@ var XULBrowserWindow = {
       }
     }
     else if (aStateFlags & nsIWebProgressListener.STATE_STOP) {
-      if (aStateFlags & nsIWebProgressListener.STATE_IS_NETWORK &&
-          aWebProgress.DOMWindow == content &&
-          aRequest)
+      if (aStateFlags & nsIWebProgressListener.STATE_IS_NETWORK && isTopLevel)
         this.endDocumentLoad(aRequest, aStatus);
 
       // This (thanks to the filter) is a network stop or the last
@@ -3970,7 +3970,7 @@ var XULBrowserWindow = {
           location = aRequest.URI;
 
           // For keyword URIs clear the user typed value since they will be changed into real URIs
-          if (location.scheme == "keyword" && aWebProgress.DOMWindow == content)
+          if (location.scheme == "keyword" && isTopLevel)
             gBrowser.userTypedValue = null;
 
           if (location.spec != "about:blank") {
@@ -4012,14 +4012,17 @@ var XULBrowserWindow = {
     var location = aLocationURI ? aLocationURI.spec : "";
     this._hostChanged = true;
 
+    let isTopLevel = aWebProgress.isTopLevel;
+
     // Hide the form invalid popup.
     if (gFormSubmitObserver.panel) {
       gFormSubmitObserver.panel.hidePopup();
     }
 
+#if 0
     if (document.tooltipNode) {
       // Optimise for the common case
-      if (aWebProgress.DOMWindow == content) {
+      if (isTopLevel) {
         document.getElementById("aHTMLTooltip").hidePopup();
         document.tooltipNode = null;
       }
@@ -4036,6 +4039,7 @@ var XULBrowserWindow = {
         }
       }
     }
+#endif
 
     // This code here does not compare uris exactly when determining
     // whether or not the message should be hidden since the message
@@ -4069,11 +4073,13 @@ var XULBrowserWindow = {
       }
     }
 
+#if 0
     // Disable menu entries for images, enable otherwise
     if (content.document && mimeTypeIsTextBased(content.document.contentType))
       this.isImage.removeAttribute('disabled');
     else
       this.isImage.setAttribute('disabled', 'true');
+#endif
 
     this.hideOverLinkImmediately = true;
     this.setOverLink("", null);
@@ -4085,7 +4091,7 @@ var XULBrowserWindow = {
     // Do not update urlbar if there was a subframe navigation
 
     var browser = gBrowser.selectedBrowser;
-    if (aWebProgress.DOMWindow == content) {
+    if (isTopLevel) {
       if ((location == "about:blank" && !content.opener) ||
           location == "") {  // Second condition is for new tabs, otherwise
                              // reload function is enabled until tab is refreshed.
@@ -4298,15 +4304,15 @@ var XULBrowserWindow = {
     // clear out search-engine data
     gBrowser.selectedBrowser.engines = null;
 
-    var uri = aRequest.QueryInterface(Ci.nsIChannel).URI;
+    var uri = ""; // aRequest.QueryInterface(Ci.nsIChannel).URI;
     try {
-      Services.obs.notifyObservers(content, "StartDocumentLoad", uri.spec);
+      Services.obs.notifyObservers(content, "StartDocumentLoad", uri);
     } catch (e) {
     }
   },
 
   endDocumentLoad: function XWB_endDocumentLoad(aRequest, aStatus) {
-    var urlStr = aRequest.QueryInterface(Ci.nsIChannel).originalURI.spec;
+    var urlStr = ""; //aRequest.QueryInterface(Ci.nsIChannel).originalURI.spec;
 
     var notification = Components.isSuccessCode(aStatus) ? "EndDocumentLoad" : "FailDocumentLoad";
     try {
@@ -4475,8 +4481,10 @@ var TabsProgressListener = {
     }
 #endif
 
+    let isTopLevel = aWebProgress.isTopLevel;
+
     // Collect telemetry data about tab load times.
-    if (aWebProgress.DOMWindow == aWebProgress.DOMWindow.top &&
+    if (isTopLevel &&
         aStateFlags & Ci.nsIWebProgressListener.STATE_IS_WINDOW) {
       if (aStateFlags & Ci.nsIWebProgressListener.STATE_START)
         TelemetryStopwatch.start("FX_PAGE_LOAD_MS", aBrowser);
@@ -4491,6 +4499,7 @@ var TabsProgressListener = {
     // We can't look for this during onLocationChange since at that point the
     // document URI is not yet the about:-uri of the error page.
 
+#if 0
     if (aStateFlags & Ci.nsIWebProgressListener.STATE_STOP &&
         Components.isSuccessCode(aStatus) &&
         aWebProgress.DOMWindow.document.documentURI.startsWith("about:")) {
@@ -4505,12 +4514,13 @@ var TabsProgressListener = {
       // We also want to make changes to page UI for unprivileged about pages.
       BrowserOnAboutPageLoad(aWebProgress.DOMWindow.document);
     }
+#endif
   },
 
   onLocationChange: function (aBrowser, aWebProgress, aRequest, aLocationURI,
                               aFlags) {
     // Filter out any sub-frame loads
-    if (aBrowser.contentWindow == aWebProgress.DOMWindow) {
+    if (aWebProgress.isTopLevel) {
       // Filter out any onLocationChanges triggered by anchor navigation
       // or history.push/pop/replaceState.
       if (aRequest) {

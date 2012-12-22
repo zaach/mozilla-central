@@ -117,6 +117,9 @@ let gBrowserThumbnails = {
   },
 
   _shouldCapture: function Thumbnails_shouldCapture(aBrowser) {
+    // This is broken in e10s right now
+    return false;
+
     // Capture only if it's the currently selected tab.
     if (aBrowser != gBrowser.selectedBrowser)
       return false;

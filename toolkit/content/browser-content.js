@@ -13,22 +13,18 @@ let WebProgressListener = {
   _lastLocation: null,
 
   init: function() {
-    let flags = Ci.nsIWebProgress.NOTIFY_LOCATION |
-                Ci.nsIWebProgress.NOTIFY_SECURITY |
-                Ci.nsIWebProgress.NOTIFY_STATE_NETWORK | Ci.nsIWebProgress.NOTIFY_STATE_DOCUMENT;
+    let flags = Ci.nsIWebProgress.NOTIFY_ALL;
 
     let webProgress = docShell.QueryInterface(Ci.nsIInterfaceRequestor).getInterface(Ci.nsIWebProgress);
     webProgress.addProgressListener(this, flags);
   },
 
   onStateChange: function onStateChange(aWebProgress, aRequest, aStateFlags, aStatus) {
-    if (content != aWebProgress.DOMWindow)
-      return;
-
     let json = {
       contentWindowId: content.QueryInterface(Ci.nsIInterfaceRequestor).getInterface(Ci.nsIDOMWindowUtils).currentInnerWindowID,
       stateFlags: aStateFlags,
-      status: aStatus
+      status: aStatus,
+      isTopLevel: (content == aWebProgress.DOMWindow)
     };
 
     sendAsyncMessage("Content:StateChange", json);
@@ -40,9 +36,6 @@ let WebProgressListener = {
   _firstPaint: false,
 
   onLocationChange: function onLocationChange(aWebProgress, aRequest, aLocationURI, aFlags) {
-    if (content != aWebProgress.DOMWindow)
-      return;
-
     let spec = aLocationURI ? aLocationURI.spec : "";
     let location = spec.split("#")[0];
 
@@ -54,7 +47,8 @@ let WebProgressListener = {
       location:        spec,
       canGoBack:       docShell.canGoBack,
       canGoForward:    docShell.canGoForward,
-      charset:         charset.toString()
+      charset:         charset.toString(),
+      isTopLevel:      (content == aWebProgress.DOMWindow)
     };
 
     sendAsyncMessage("Content:LocationChange", json);
@@ -77,18 +71,23 @@ let WebProgressListener = {
   },
 
   onStatusChange: function onStatusChange(aWebProgress, aRequest, aStatus, aMessage) {
+    let json = {
+      status: aStatus,
+      message: aMessage,
+      isTopLevel: (content == aWebProgress.DOMWindow)
+    };
+
+    sendAsyncMessage("Content:StatusChange", json);
   },
 
   onSecurityChange: function onSecurityChange(aWebProgress, aRequest, aState) {
-    if (content != aWebProgress.DOMWindow)
-      return;
-
     let serialization = SecurityUI.getSSLStatusAsString();
 
     let json = {
       contentWindowId: content.QueryInterface(Ci.nsIInterfaceRequestor).getInterface(Ci.nsIDOMWindowUtils).currentInnerWindowID,
       SSLStatusAsString: serialization,
-      state: aState
+      state: aState,
+      isTopLevel: (content == aWebProgress.DOMWindow)
     };
 
     sendAsyncMessage("Content:SecurityChange", json);
@@ -505,6 +504,10 @@ let DOMEvents =  {
       }
 
       case "DOMTitleChanged":
+          if (!aEvent.isTrusted ||
+              aEvent.target.defaultView != aEvent.target.defaultView.top)
+              return;
+
         sendAsyncMessage("DOMTitleChanged", { title: document.title });
         break;
 
