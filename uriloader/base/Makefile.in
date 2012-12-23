@@ -34,6 +34,8 @@ XPIDLSRCS = 							\
 				nsITransfer.idl \
 				nsIDocumentLoader.idl		\
 				nsIWebProgressListener2.idl \
+				nsIAsyncWebProgress.idl \
+				nsIAsyncWebProgressListener.idl \
 				$(NULL)
 
 EXPORTS = 							\

@@ -2327,7 +2327,11 @@ function URLBarSetURI(aURI) {
     // Replace initial page URIs with an empty string
     // only if there's no opener (bug 370555).
     if (gInitialPages.indexOf(uri.spec) != -1)
+#if 0
       value = content.opener ? uri.spec : "";
+#else
+      value = "";
+#endif
     else
       value = losslessDecodeURI(uri);
 
@@ -4094,6 +4098,7 @@ var XULBrowserWindow = {
 
     var browser = gBrowser.selectedBrowser;
     if (isTopLevel) {
+#if 0
       if ((location == "about:blank" && !content.opener) ||
           location == "") {  // Second condition is for new tabs, otherwise
                              // reload function is enabled until tab is refreshed.
@@ -4101,6 +4106,7 @@ var XULBrowserWindow = {
       } else {
         this.reloadCommand.removeAttribute("disabled");
       }
+#endif
 
       if (gURLBar) {
         URLBarSetURI(aLocationURI);
@@ -4147,6 +4153,7 @@ var XULBrowserWindow = {
         disableFindCommands(shouldDisableFind(e.target));
       }
 
+#if 0
       // Disable find commands in documents that ask for them to be disabled.
       if (aLocationURI &&
           (aLocationURI.schemeIs("about") || aLocationURI.schemeIs("chrome"))) {
@@ -4161,6 +4168,7 @@ var XULBrowserWindow = {
         }
       } else
         disableFindCommands(false);
+#endif
 
       if (gFindBarInitialized) {
         if (gFindBar.findMode != gFindBar.FIND_NORMAL) {
@@ -6441,10 +6449,10 @@ function isTabEmpty(aTab) {
   let browser = aTab.linkedBrowser;
   if (!isBlankPageURL(browser.currentURI.spec))
     return false;
-
+#if 0
   if (browser.contentWindow.opener)
     return false;
-
+#endif
   if (browser.sessionHistory && browser.sessionHistory.count >= 2)
     return false;
 

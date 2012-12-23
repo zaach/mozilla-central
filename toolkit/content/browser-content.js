@@ -15,6 +15,9 @@ let WebProgressListener = {
   init: function() {
     let flags = Ci.nsIWebProgress.NOTIFY_ALL;
 
+    //let filter = Components.classes["@mozilla.org/appshell/component/browser-status-filter;1"]
+    //                                 .createInstance(Components.interfaces.nsIWebProgress);
+    //filter.addProgressListener(this, flags);
     let webProgress = docShell.QueryInterface(Ci.nsIInterfaceRequestor).getInterface(Ci.nsIWebProgress);
     webProgress.addProgressListener(this, flags);
   },

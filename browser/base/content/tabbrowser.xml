@@ -100,9 +100,6 @@
       <field name="mTabListeners">
         []
       </field>
-      <field name="mTabFilters">
-        []
-      </field>
       <field name="mIsBusy">
         false
       </field>
@@ -675,6 +672,7 @@
             QueryInterface: function (aIID) {
               if (aIID.equals(Components.interfaces.nsIWebProgressListener) ||
                   aIID.equals(Components.interfaces.nsIWebProgressListener2) ||
+                  aIID.equals(Components.interfaces.nsIAsyncWebProgressListener) ||
                   aIID.equals(Components.interfaces.nsISupportsWeakReference) ||
                   aIID.equals(Components.interfaces.nsISupports))
                 return this;
@@ -742,6 +740,7 @@
         <parameter name="aTab"/>
         <body>
           <![CDATA[
+            return;
             var browser = this.getBrowserForTab(aTab);
             var docURIObject = browser.contentDocument.documentURIObject;
             var icon = null;
@@ -1381,12 +1380,8 @@
 
             // wire up a progress listener for the new browser object.
             var tabListener = this.mTabProgressListener(t, b, uriIsBlankPage);
-            const filter = Components.classes["@mozilla.org/appshell/component/browser-status-filter;1"]
-                                     .createInstance(Components.interfaces.nsIWebProgress);
-            filter.addProgressListener(tabListener, Components.interfaces.nsIWebProgress.NOTIFY_ALL);
-            b.webProgress.addProgressListener(filter, Components.interfaces.nsIWebProgress.NOTIFY_ALL);
+            b.webProgress.addProgressListener(tabListener, Components.interfaces.nsIWebProgress.NOTIFY_ALL);
             this.mTabListeners[position] = tabListener;
-            this.mTabFilters[position] = filter;
 
             b._fastFind = this.fastFind;
             b.droppedLinkHandler = handleDroppedLink;
@@ -1670,9 +1665,7 @@
 #endif
 
             // Remove the tab's filter and progress listener.
-            const filter = this.mTabFilters[aTab._tPos];
-            browser.webProgress.removeProgressListener(filter);
-            filter.removeProgressListener(this.mTabListeners[aTab._tPos]);
+            browser.webProgress.removeProgressListener(this.mTabListeners[aTab._tPos]);
             this.mTabListeners[aTab._tPos].destroy();
 
             if (browser.registeredOpenURI && !aTabWillBeMoved) {
@@ -1736,7 +1729,6 @@
             // Clean up mTabFilters and mTabListeners now rather than in
             // _beginRemoveTab, so that their size is always in sync with the
             // number of tabs and browsers (the xbl destructor depends on this).
-            this.mTabFilters.splice(aTab._tPos, 1);
             this.mTabListeners.splice(aTab._tPos, 1);
 
             var browser = this.getBrowserForTab(aTab);
@@ -1950,11 +1942,9 @@
           <![CDATA[
             // Unhook our progress listener
             let index = aOurTab._tPos;
-            const filter = this.mTabFilters[index];
             let tabListener = this.mTabListeners[index];
             let ourBrowser = this.getBrowserForTab(aOurTab);
-            ourBrowser.webProgress.removeProgressListener(filter);
-            filter.removeProgressListener(tabListener);
+            ourBrowser.webProgress.removeProgressListener(tabListener);
 
             // Restore current registered open URI.
             if (ourBrowser.registeredOpenURI) {
@@ -2210,7 +2200,6 @@
 
           this._lastRelatedTab = null;
 
-          this.mTabFilters.splice(aIndex, 0, this.mTabFilters.splice(aTab._tPos, 1)[0]);
           this.mTabListeners.splice(aIndex, 0, this.mTabListeners.splice(aTab._tPos, 1)[0]);
 
           aIndex = aIndex < aTab._tPos ? aIndex: aIndex+1;
@@ -2639,12 +2628,7 @@
 
           // Hook up the event listeners to the first browser
           var tabListener = this.mTabProgressListener(this.mCurrentTab, this.mCurrentBrowser, true);
-          const nsIWebProgress = Components.interfaces.nsIWebProgress;
-          const filter = Components.classes["@mozilla.org/appshell/component/browser-status-filter;1"]
-                                   .createInstance(nsIWebProgress);
-          filter.addProgressListener(tabListener, nsIWebProgress.NOTIFY_ALL);
           this.mTabListeners[0] = tabListener;
-          this.mTabFilters[0] = filter;
           this.init();
 
           this.style.backgroundColor =
@@ -2661,7 +2645,7 @@
           if (!this._initialProgressListenerAdded) {
             this._initialProgressListenerAdded = true;
             try {
-              this.webProgress.addProgressListener(this.mTabFilters[0], Components.interfaces.nsIWebProgress.NOTIFY_ALL);
+              this.webProgress.addProgressListener(this.mTabListeners[0], Components.interfaces.nsIWebProgress.NOTIFY_ALL);
             } catch (e) {
               // The binding was constructed too early, need to try this again later. See bug 463384.
               this._initialProgressListenerAdded = false;
@@ -2678,9 +2662,7 @@
               this._placesAutocomplete.unregisterOpenPage(browser.registeredOpenURI);
               delete browser.registeredOpenURI;
             }
-            browser.webProgress.removeProgressListener(this.mTabFilters[i]);
-            this.mTabFilters[i].removeProgressListener(this.mTabListeners[i]);
-            this.mTabFilters[i] = null;
+            browser.webProgress.removeProgressListener(this.mTabListeners[i]);
             this.mTabListeners[i].destroy();
             this.mTabListeners[i] = null;
           }

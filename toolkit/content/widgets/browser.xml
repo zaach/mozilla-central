@@ -378,6 +378,9 @@
       <field name="_webProgress"><![CDATA[
         ({
           _browser: this,
+          _isDocumentLoading: false,
+          _isTopLevel: false,
+
           NOTIFY_STATE_REQUEST:  0x00000001,
           NOTIFY_STATE_DOCUMENT: 0x00000002,
           NOTIFY_STATE_NETWORK:  0x00000004,
@@ -388,18 +391,16 @@
           NOTIFY_SECURITY:       0x00000040,
           NOTIFY_LOCATION:       0x00000080,
           NOTIFY_REFRESH:        0x00000100,
-          MOTIFY_ALL:            0x000001ff,
-          DOMWindow: {},
-          isLoadingDocument: false,
-          isTopLevel: false,
+          NOTIFY_ALL:            0x000001ff,
+
+          get isLoadingDocument() { return this._isDocumentLoading },
+          get isTopLevel() { return this._isTopLevel; },
 
           mProgressListeners: [],
           addProgressListener: function WP_AddProgressListener (aListener) {
-            dump("\n\n\ntoolkit.addProgressListener " + aListener + "\n");
-            this.mProgressListeners.push(aListener.QueryInterface(Components.interfaces.nsIWebProgressListener));
+            this.mProgressListeners.push(aListener.QueryInterface(Components.interfaces.nsIAsyncWebProgressListener));
           },
           removeProgressListener: function WP_RemoveProgressListener (aListener) { 
-            dump("\n\ntoolkit.removeProgressListener\n");
             this.mProgressListeners =
               this.mProgressListeners.filter(function (l) l != aListener);
           },
@@ -414,7 +415,7 @@
           receiveMessage: function WP_ReceiveMessage(aMessage) {
 //            dump("-> toolkit.receiveMessage: " + aMessage.name);
 
-            this.isTopLevel = aMessage.json.isTopLevel;
+            this._isTopLevel = aMessage.json.isTopLevel;
 
             switch (aMessage.name) {
              case "Content:StateChange":
