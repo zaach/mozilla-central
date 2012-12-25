@@ -802,3 +802,10 @@ let IndexedDB = {
 
 IndexedDB.init();
 
+let Content = {
+  init: function init() {
+    docShell.QueryInterface(Ci.nsIDocShellHistory).useGlobalHistory = true;
+  }
+};
+
+Content.init();

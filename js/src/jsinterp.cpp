@@ -3218,7 +3218,6 @@ BEGIN_CASE(JSOP_THROW)
     CHECK_BRANCH();
     RootedValue &v = rootValue0;
     POP_COPY_TO(v);
-    js_DumpBacktrace(cx);
     JS_ALWAYS_FALSE(Throw(cx, v));
     /* let the code at error try to catch the exception. */
     goto error;
