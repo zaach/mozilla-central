@@ -301,6 +301,7 @@ var PlacesCommandHook = {
 
     // dock the panel to the star icon when possible, otherwise dock
     // it to the content area
+#if 0
     if (aBrowser.contentWindow == window.content) {
       var starIcon = aBrowser.ownerDocument.getElementById("star-button");
       if (starIcon && isElementVisible(starIcon)) {
@@ -309,6 +310,7 @@ var PlacesCommandHook = {
         return;
       }
     }
+#endif
 
     StarUI.showEditBookmarkPopup(itemId, aBrowser, "overlap");
   },
