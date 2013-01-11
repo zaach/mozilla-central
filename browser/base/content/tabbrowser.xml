@@ -1016,19 +1016,19 @@
                     gFindBar.getElement("findbar-textbox").getAttribute("focused") == "true")
                   break;
 
-                break;
-
                 // Otherwise, focus the content area.
                 let fm = Cc["@mozilla.org/focus-manager;1"].getService(Ci.nsIFocusManager);
+                let focusFlags = fm.FLAG_NOSCROLL;
+#if 0
                 let newFocusedElement = fm.getFocusedElementForWindow(window.content, true, {});
 
                 // for anchors, use FLAG_SHOWRING so that it is clear what link was
                 // last clicked when switching back to that tab
-                let focusFlags = fm.FLAG_NOSCROLL;
                 if (newFocusedElement &&
                     (newFocusedElement instanceof HTMLAnchorElement ||
                      newFocusedElement.getAttributeNS("http://www.w3.org/1999/xlink", "type") == "simple"))
                   focusFlags |= fm.FLAG_SHOWRING;
+#endif
                 fm.setFocus(newBrowser, focusFlags);
               } while (false);
             }
