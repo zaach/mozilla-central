@@ -1082,6 +1082,7 @@
               }
 
               if (title && !isBlankPageURL(title)) {
+#if 0
                 // At this point, we now have a URI.
                 // Let's try to unescape it using a character set
                 // in case the URI is not ASCII.
@@ -1091,7 +1092,7 @@
                                                  .getService(Components.interfaces.nsITextToSubURI);
                   title = textToSubURI.unEscapeNonAsciiURI(characterSet, title);
                 } catch(ex) { /* Do nothing. */ }
-
+#endif
                 crop = "center";
 
               } else // Still no title?  Fall back to our untitled string.
