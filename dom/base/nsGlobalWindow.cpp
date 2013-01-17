@@ -1776,7 +1776,9 @@ nsGlobalWindow::SetNewDocument(nsIDocument* aDocument,
     // and other browser commands.
     nsIDOMWindow* privateRoot = nsGlobalWindow::GetPrivateRoot();
 
-    if (privateRoot == static_cast<nsIDOMWindow*>(this)) {
+    if (privateRoot == static_cast<nsIDOMWindow*>(this) &&
+        XRE_GetProcessType() == GeckoProcessType_Content)
+    {
       nsXBLService::AttachGlobalKeyHandler(mChromeEventHandler);
     }
   }
