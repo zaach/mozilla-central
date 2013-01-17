@@ -31,6 +31,7 @@
 #include "nsGUIEvent.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/dom/Element.h"
+#include "nsEventStateManager.h"
 
 using namespace mozilla;
 
@@ -471,7 +472,16 @@ nsXBLWindowKeyHandler::WalkHandlersAndExecute(nsIDOMKeyEvent* aKeyEvent,
                                               uint32_t aCharCode,
                                               bool aIgnoreShiftKey)
 {
-  nsresult rv;
+  if (sXBLSpecialDocInfo && aHandler &&
+      aHandler->GetPrototypeBinding() &&
+      aHandler->GetPrototypeBinding()->XBLDocumentInfo() ==
+        sXBLSpecialDocInfo->mHTMLBindings.get()) {
+    nsCOMPtr<mozilla::dom::Element> originalTarget =
+      do_QueryInterface(aKeyEvent->GetInternalNSEvent()->originalTarget);
+    if (nsEventStateManager::IsRemoteTarget(originalTarget)) {
+      return false;
+    }
+  }
 
   // Try all of the handlers until we find one that matches the event.
   for (nsXBLPrototypeHandler *currHandler = aHandler; currHandler;
@@ -539,8 +549,7 @@ nsXBLWindowKeyHandler::WalkHandlersAndExecute(nsIDOMKeyEvent* aKeyEvent,
       piTarget = mTarget;
     }
 
-    rv = currHandler->ExecuteHandler(piTarget, aKeyEvent);
-    if (NS_SUCCEEDED(rv)) {
+    if (NS_SUCCEEDED(currHandler->ExecuteHandler(piTarget, aKeyEvent))) {
       return true;
     }
   }

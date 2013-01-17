@@ -127,6 +127,11 @@ public:
     return (mType & NS_HANDLER_ALLOW_UNTRUSTED) != 0;
   }
 
+  nsXBLPrototypeBinding* GetPrototypeBinding()
+  {
+    return mPrototypeBinding;
+  }
+
   nsresult Read(nsIScriptContext* aContext, nsIObjectInputStream* aStream);
   nsresult Write(nsIScriptContext* aContext, nsIObjectOutputStream* aStream);
 
