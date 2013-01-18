@@ -266,7 +266,7 @@ ContentParent::ShutDown()
 }
 
 /*static*/ ContentParent*
-ContentParent::GetNewOrUsed(bool aForBrowserElement)
+ContentParent::GetNewOrUsed(bool aForBrowserElement, uint32_t processNum)
 {
     if (!gNonAppContentParents)
         gNonAppContentParents = new nsTArray<ContentParent*>();
@@ -274,6 +274,13 @@ ContentParent::GetNewOrUsed(bool aForBrowserElement)
     int32_t maxContentProcesses = Preferences::GetInt("dom.ipc.processCount", 1);
     if (maxContentProcesses < 1)
         maxContentProcesses = 1;
+
+    if (processNum < gNonAppContentParents->Length()) {
+        ContentParent* p = (*gNonAppContentParents)[processNum];
+        if (p->IsAlive()) {
+            return p;
+        }
+    }
 
     if (gNonAppContentParents->Length() >= uint32_t(maxContentProcesses)) {
         uint32_t idx = rand() % gNonAppContentParents->Length();
@@ -288,6 +295,18 @@ ContentParent::GetNewOrUsed(bool aForBrowserElement)
     p->Init();
     gNonAppContentParents->AppendElement(p);
     return p;
+}
+
+uint32_t
+ContentParent::GetProcessNumber()
+{
+    for (size_t i = 0; i < gNonAppContentParents->Length(); i++) {
+        ContentParent* p = (*gNonAppContentParents)[i];
+        if (p == this)
+            return i;
+    }
+
+    MOZ_NOT_REACHED("process not found");
 }
 
 namespace {
@@ -322,10 +341,10 @@ PrivilegesForApp(mozIApplication* aApp)
 }
 
 /*static*/ TabParent*
-ContentParent::CreateBrowserOrApp(const TabContext& aContext)
+ContentParent::CreateBrowserOrApp(const TabContext& aContext, uint32_t processNum)
 {
     if (aContext.IsBrowserElement() || !aContext.HasOwnApp()) {
-        if (ContentParent* cp = GetNewOrUsed(aContext.IsBrowserElement())) {
+        if (ContentParent* cp = GetNewOrUsed(aContext.IsBrowserElement(), processNum)) {
             nsRefPtr<TabParent> tp(new TabParent(aContext));
             PBrowserParent* browser = cp->SendPBrowserConstructor(
                 tp.forget().get(), // DeallocPBrowserParent() releases this ref.

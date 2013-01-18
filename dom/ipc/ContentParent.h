@@ -72,12 +72,15 @@ public:
     /** Shut down the content-process machinery. */
     static void ShutDown();
 
-    static ContentParent* GetNewOrUsed(bool aForBrowserElement = false);
+    static ContentParent* GetNewOrUsed(bool aForBrowserElement = false,
+                                       uint32_t processNum = uint32_t(-1));
+
+    uint32_t GetProcessNumber();
 
     /**
      * Get or create a content process for the given TabContext.
      */
-    static TabParent* CreateBrowserOrApp(const TabContext& aContext);
+    static TabParent* CreateBrowserOrApp(const TabContext& aContext, uint32_t processNum);
 
     static void GetAll(nsTArray<ContentParent*>& aArray);
 

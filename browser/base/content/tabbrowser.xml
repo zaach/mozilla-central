@@ -1127,6 +1127,7 @@
             var aFromExternal;
             var aRelatedToCurrent;
             var aIsUTF8;
+            var aProcessNumber;
             if (arguments.length == 2 &&
                 typeof arguments[1] == "object" &&
                 !(arguments[1] instanceof Ci.nsIURI)) {
@@ -1139,6 +1140,7 @@
               aFromExternal         = params.fromExternal;
               aRelatedToCurrent     = params.relatedToCurrent;
               aIsUTF8               = params.isUTF8;
+              aProcessNumber        = params.processNumber;
             }
 
             var bgLoad = (aLoadInBackground != null) ? aLoadInBackground :
@@ -1152,7 +1154,8 @@
                                   allowThirdPartyFixup: aAllowThirdPartyFixup,
                                   fromExternal: aFromExternal,
                                   relatedToCurrent: aRelatedToCurrent,
-                                  isUTF8: aIsUTF8});
+                                  isUTF8: aIsUTF8,
+                                  processNumber: aProcessNumber});
             if (!bgLoad)
               this.selectedTab = tab;
 
@@ -1226,6 +1229,7 @@
             var aRelatedToCurrent;
             var aSkipAnimation;
             var aIsUTF8;
+            var aProcessNumber;
             if (arguments.length == 2 &&
                 typeof arguments[1] == "object" &&
                 !(arguments[1] instanceof Ci.nsIURI)) {
@@ -1239,6 +1243,7 @@
               aRelatedToCurrent     = params.relatedToCurrent;
               aSkipAnimation        = params.skipAnimation;
               aIsUTF8               = params.isUTF8;
+              aProcessNumber        = params.processNumber;
             }
 
             // if we're adding tabs, we're past interrupt mode, ditch the owner
@@ -1312,6 +1317,8 @@
             if (Services.prefs.getPrefType("browser.tabs.remote") == Services.prefs.PREF_BOOL &&
                 Services.prefs.getBoolPref("browser.tabs.remote")) {
               b.setAttribute("remote", "true");
+              if (aProcessNumber)
+                b.setAttribute("processnumber", aProcessNumber);
             }
 
             if (window.gShowPageResizers && document.getElementById("addon-bar").collapsed &&

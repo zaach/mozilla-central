@@ -4659,7 +4659,7 @@ nsBrowserAccess.prototype = {
 
         newWindow = browser.contentWindow;
         if (needToFocusWin || (!loadInBackground && isExternal))
-          newWindow.focus();
+          browser.focus();
         break;
       default : // OPEN_CURRENTWINDOW or an illegal value
         newWindow = content;
@@ -4674,6 +4674,42 @@ nsBrowserAccess.prototype = {
           window.focus();
     }
     return newWindow;
+  },
+
+  openURIInFrame: function browser_openURIInFrame(aURI, aOpener, aWhere, aContext, aProcessNum) {
+    var newWindow = null;
+    var isExternal = false;
+
+    let win, needToFocusWin;
+
+    // try the current window.  if we're in a popup, fall back on the most recent browser window
+    if (window.toolbar.visible)
+      win = window;
+    else {
+      win = Cc["@mozilla.org/browser/browserglue;1"]
+              .getService(Ci.nsIBrowserGlue)
+              .getMostRecentBrowserWindow();
+      needToFocusWin = true;
+    }
+
+    if (!win) {
+      // we couldn't find a suitable window, a new one needs to be opened.
+      return null;
+    }
+
+    let loadInBackground = gPrefService.getBoolPref("browser.tabs.loadDivertedInBackground");
+    let referrer = aOpener ? makeURI(aOpener.location.href) : null;
+
+    let tab = win.gBrowser.loadOneTab(aURI ? aURI.spec : "about:blank", {
+                                      referrerURI: referrer,
+                                      fromExternal: isExternal,
+                                      inBackground: loadInBackground,
+                                      processNumber: aProcessNum });
+    let browser = win.gBrowser.getBrowserForTab(tab);
+
+    if (needToFocusWin)
+      browser.focus();
+    return browser.QueryInterface(Ci.nsIFrameLoaderOwner);
   },
 
   isTabContentWindow: function (aWindow) {

@@ -2059,7 +2059,15 @@ nsFrameLoader::TryRemoteBrowser()
     context.SetTabContextForBrowserFrame(containingApp, scrollingBehavior);
   }
 
-  mRemoteBrowser = ContentParent::CreateBrowserOrApp(context);
+  uint32_t processNum = uint32_t(-1);
+  if (mOwnerContent->HasAttr(kNameSpaceID_None, nsGkAtoms::ProcessNumber)) {
+    nsAutoString str;
+    mOwnerContent->GetAttr(kNameSpaceID_None, nsGkAtoms::ProcessNumber, str);
+    nsAutoCString cstr = NS_LossyConvertUTF16toASCII(str);
+    processNum = atoi(cstr.get());
+  }
+
+  mRemoteBrowser = ContentParent::CreateBrowserOrApp(context, processNum);
   if (mRemoteBrowser) {
     nsCOMPtr<nsIDOMElement> element = do_QueryInterface(mOwnerContent);
     mRemoteBrowser->SetOwnerElement(element);

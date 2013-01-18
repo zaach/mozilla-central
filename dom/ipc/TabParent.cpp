@@ -200,9 +200,11 @@ TabParent::AnswerCreateWindow(PBrowserParent** retval)
     // Get a new rendering area from the browserDOMWin.  We don't want
     // to be starting any loads here, so get it with a null URI.
     nsCOMPtr<nsIFrameLoaderOwner> frameLoaderOwner;
+    ContentParent* parent = static_cast<ContentParent*>(Manager());
     mBrowserDOMWindow->OpenURIInFrame(nullptr, nullptr,
                                       nsIBrowserDOMWindow::OPEN_NEWTAB,
                                       nsIBrowserDOMWindow::OPEN_NEW,
+                                      parent->GetProcessNumber(),
                                       getter_AddRefs(frameLoaderOwner));
     if (!frameLoaderOwner) {
         return false;

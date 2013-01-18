@@ -1950,6 +1950,7 @@ GK_ATOM(DeleteTxnName, "Deleting")
 
 // IPC stuff
 GK_ATOM(Remote, "remote")
+GK_ATOM(ProcessNumber, "processnumber")
 GK_ATOM(RemoteId, "_remote_id")
 GK_ATOM(DisplayPort, "_displayport")
 GK_ATOM(CriticalDisplayPort, "_critical_displayport")
