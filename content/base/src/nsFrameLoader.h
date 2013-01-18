@@ -19,6 +19,7 @@
 #include "nsIURI.h"
 #include "nsAutoPtr.h"
 #include "nsFrameMessageManager.h"
+#include "nsIBrowserDOMWindow.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/Attributes.h"
 #include "FrameMetrics.h"
@@ -181,6 +182,8 @@ public:
   nsIDocShell* GetExistingDocShell() { return mDocShell; }
   nsIDOMEventTarget* GetTabChildGlobalAsEventTarget();
   nsresult CreateStaticClone(nsIFrameLoader* aDest);
+
+  nsIBrowserDOMWindow* GetBrowserDOMWindow();
 
   /**
    * MessageManagerCallback methods that we override.

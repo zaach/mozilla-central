@@ -189,7 +189,10 @@ bool
 TabParent::AnswerCreateWindow(PBrowserParent** retval)
 {
     if (!mBrowserDOMWindow) {
-        return false;
+        nsRefPtr<nsFrameLoader> localFrameLoader = GetFrameLoader();
+        mBrowserDOMWindow = localFrameLoader->GetBrowserDOMWindow();
+        if (!mBrowserDOMWindow)
+          return false;
     }
 
     // Only non-app, non-browser processes may call CreateWindow.

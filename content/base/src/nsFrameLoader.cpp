@@ -1981,6 +1981,33 @@ nsFrameLoader::GetSubDocumentSize(const nsIFrame *aIFrame)
                    presContext->AppUnitsToDevPixels(docSizeAppUnits.height));
 }
 
+nsIBrowserDOMWindow*
+nsFrameLoader::GetBrowserDOMWindow()
+{
+  nsIDocument* doc = mOwnerContent->GetDocument();
+  if (!doc) {
+    return NULL;
+  }
+
+  nsCOMPtr<nsIWebNavigation> parentAsWebNav =
+    do_GetInterface(doc->GetScriptGlobalObject());
+  if (!parentAsWebNav) {
+    return NULL;
+  }
+
+  nsCOMPtr<nsIDocShellTreeItem> parentAsItem(do_QueryInterface(parentAsWebNav));
+
+  nsCOMPtr<nsIDocShellTreeItem> rootItem;
+  parentAsItem->GetRootTreeItem(getter_AddRefs(rootItem));
+  nsCOMPtr<nsIDOMWindow> rootWin = do_GetInterface(rootItem);
+  nsCOMPtr<nsIDOMChromeWindow> rootChromeWin = do_QueryInterface(rootWin);
+  NS_ABORT_IF_FALSE(rootChromeWin, "How did we not get a chrome window here?");
+
+  nsCOMPtr<nsIBrowserDOMWindow> browserDOMWin;
+  rootChromeWin->GetBrowserDOMWindow(getter_AddRefs(browserDOMWin));
+  return browserDOMWin;
+}
+
 bool
 nsFrameLoader::TryRemoteBrowser()
 {
