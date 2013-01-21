@@ -380,6 +380,7 @@ XRE_InitChildProcess(int aArgc,
       char buf[1024];
       sprintf(buf, "%s %s %d", PR_GetEnv("MOZ_DEBUG_CHILD_PROCESS_CMD"), gArgv[0], getpid());
       system(buf);
+      sleep(5);
 #elif defined(OS_WIN)
       printf("\n\nCHILDCHILDCHILDCHILD\n  debug me @%d\n\n", _getpid());
       Sleep(30000);
