@@ -108,6 +108,8 @@
 #include "BluetoothService.h"
 #endif
 
+#include "JavaScriptParent.h"
+
 static NS_DEFINE_CID(kCClipboardCID, NS_CLIPBOARD_CID);
 static const char* sClipboardTextFlavors[] = { kUnicodeMime };
 
@@ -119,6 +121,7 @@ using namespace mozilla::dom::sms;
 using namespace mozilla::dom::indexedDB;
 using namespace mozilla::hal_sandbox;
 using namespace mozilla::ipc;
+using namespace mozilla::jsipc;
 using namespace mozilla::layers;
 using namespace mozilla::net;
 
@@ -708,10 +711,20 @@ ContentParent::NotifyTabDestroyed(PBrowserParent* aTab)
     }
 }
 
+jsipc::JavaScriptParent*
+ContentParent::GetJavaScript()
+{
+    if (ManagedPJavaScriptParent().Length()) {
+        return static_cast<JavaScriptParent*>(ManagedPJavaScriptParent()[0]);
+    }
+    JavaScriptParent* actor = static_cast<JavaScriptParent*>(SendPJavaScriptConstructor());
+    return actor;
+}
+
 TestShellParent*
 ContentParent::CreateTestShell()
 {
-  return static_cast<TestShellParent*>(SendPTestShellConstructor());
+    return static_cast<TestShellParent*>(SendPTestShellConstructor());
 }
 
 bool
@@ -1211,6 +1224,25 @@ ContentParent::RecvGetXPCOMProcessAttributes(bool* aIsOffline)
     DebugOnly<nsresult> rv = io->GetOffline(aIsOffline);
     NS_ASSERTION(NS_SUCCEEDED(rv), "Failed getting offline?");
 
+    return true;
+}
+
+mozilla::jsipc::PJavaScriptParent *
+ContentParent::AllocPJavaScript()
+{
+    mozilla::jsipc::JavaScriptParent *compartment = new mozilla::jsipc::JavaScriptParent();
+    if (!compartment->init()) {
+        delete compartment;
+        return NULL;
+    }
+    return compartment;
+}
+
+bool
+ContentParent::DeallocPJavaScript(PJavaScriptParent *compartment)
+{
+    mozilla::jsipc::JavaScriptParent* parent = static_cast<mozilla::jsipc::JavaScriptParent *>(compartment);
+    delete parent;
     return true;
 }
 

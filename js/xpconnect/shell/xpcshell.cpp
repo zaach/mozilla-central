@@ -678,19 +678,6 @@ SendCommand(JSContext* cx,
     return true;
 }
 
-static JSBool
-GetChildGlobalObject(JSContext* cx,
-                     unsigned,
-                     jsval* vp)
-{
-    JSObject* global;
-    if (XRE_GetChildGlobalObject(cx, &global)) {
-        JS_SET_RVAL(cx, vp, OBJECT_TO_JSVAL(global));
-        return true;
-    }
-    return false;
-}
-
 /*
  * JSContext option name to flag map. The option names are in alphabetical
  * order for better reporting.
@@ -842,7 +829,6 @@ static JSFunctionSpec glob_functions[] = {
     JS_FS("dumpHeap",        DumpHeap,       5,0),
 #endif
     JS_FS("sendCommand",     SendCommand,    1,0),
-    JS_FS("getChildGlobalObject", GetChildGlobalObject, 0,0),
     JS_FS("atob",            Atob,           1,0),
     JS_FS("btoa",            Btoa,           1,0),
     JS_FS_END
