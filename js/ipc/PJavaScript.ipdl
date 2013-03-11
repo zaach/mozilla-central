@@ -35,12 +35,12 @@ child:
     async DropObject(uint32_t objId);
 
     // JSAPI call wrappers.
-    rpc AddProperty(uint32_t objId, nsString id) returns (ReturnStatus rs);
-    rpc GetProperty(uint32_t objId, nsString id) returns (ReturnStatus rs, JSVariant result);
-    rpc SetProperty(uint32_t objId, nsString id, JSVariant val) returns (ReturnStatus rs, JSVariant result);
-    rpc DeleteProperty(uint32_t objId, nsString id) returns (ReturnStatus rs, JSVariant result);
-    rpc NewResolve(uint32_t objId, nsString id, uint32_t flags) returns (ReturnStatus rs, uint32_t obj2);
-    rpc Call(JSVariant[] argv) returns (ReturnStatus rs, JSVariant result);
+    urgent AddProperty(uint32_t objId, nsString id) returns (ReturnStatus rs);
+    urgent GetProperty(uint32_t objId, nsString id) returns (ReturnStatus rs, JSVariant result);
+    urgent SetProperty(uint32_t objId, nsString id, JSVariant val) returns (ReturnStatus rs, JSVariant result);
+    urgent DeleteProperty(uint32_t objId, nsString id) returns (ReturnStatus rs, JSVariant result);
+    urgent NewResolve(uint32_t objId, nsString id, uint32_t flags) returns (ReturnStatus rs, uint32_t obj2);
+    urgent Call(JSVariant[] argv) returns (ReturnStatus rs, JSVariant result);
 
 parent:
     async __delete__();
