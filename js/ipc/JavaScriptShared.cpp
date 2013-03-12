@@ -156,7 +156,7 @@ JavaScriptShared::toValue(JSContext *cx, const JSVariant &from, jsval *to)
 
         case JSVariant::Tuint32_t:
           if (from.get_uint32_t()) {
-              JSObject *obj = wrap(cx, from.get_uint32_t());
+              JSObject *obj = unwrap(cx, from.get_uint32_t());
               if (!obj)
                   return false;
               *to = OBJECT_TO_JSVAL(obj);

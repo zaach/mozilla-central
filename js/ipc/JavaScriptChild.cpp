@@ -106,7 +106,7 @@ JavaScriptChild::makeId(JSContext *cx, JSObject *obj, ObjectId *idp)
 }
 
 JSObject *
-JavaScriptChild::wrap(JSContext *cx, ObjectId id)
+JavaScriptChild::unwrap(JSContext *cx, ObjectId id)
 {
     JSObject *obj = objects_.find(id);
     if (!obj) {

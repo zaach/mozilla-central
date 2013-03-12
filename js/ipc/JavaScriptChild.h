@@ -39,7 +39,7 @@ class JavaScriptChild
     }
 
   protected:
-    JSObject *wrap(JSContext *cx, ObjectId id);
+    JSObject *unwrap(JSContext *cx, ObjectId id);
 
   private:
     bool makeId(JSContext *cx, JSObject *obj, ObjectId *idp);

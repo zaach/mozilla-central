@@ -79,7 +79,7 @@ class JavaScriptShared
     bool toValue(JSContext *cx, const JSVariant &from, jsval *to);
 
     virtual bool makeId(JSContext *cx, JSObject *obj, ObjectId *idp) = 0;
-    virtual JSObject *wrap(JSContext *cx, ObjectId id) = 0;
+    virtual JSObject *unwrap(JSContext *cx, ObjectId id) = 0;
 
   protected:
     ObjectStore objects_;

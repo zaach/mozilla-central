@@ -64,7 +64,7 @@ JavaScriptParent::makeId(JSContext *cx, JSObject *obj, ObjectId *idp)
 }
 
 JSObject *
-JavaScriptParent::wrap(JSContext *cx, ObjectId objId)
+JavaScriptParent::unwrap(JSContext *cx, ObjectId objId)
 {
     if (JSObject *obj = objects_.find(objId))
         return obj;
@@ -222,7 +222,7 @@ JavaScriptParent::resolve(JSContext *cx, JSHandleObject obj, JSHandleId id, unsi
     if (!obj2) {
         objp.set(NULL);
     } else {
-        JSObject *wrapped = wrap(cx, obj2);
+        JSObject *wrapped = unwrap(cx, obj2);
         if (!wrapped)
             return JS_FALSE;
         objp.set(wrapped);

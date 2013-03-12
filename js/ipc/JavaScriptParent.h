@@ -35,9 +35,9 @@ class JavaScriptParent
     static void Finalize(JSFreeOp *fop, JSObject *obj);
     static JSBool Call(JSContext *cx, unsigned argc, jsval *vp);
 
-    JSObject *Wrap(JSContext *cx, ObjectId objId) {
+    JSObject *Unwrap(JSContext *cx, ObjectId objId) {
         JSAutoRequest request(cx);
-        return wrap(cx, objId);
+        return unwrap(cx, objId);
     }
 
   private:
@@ -52,7 +52,7 @@ class JavaScriptParent
     JSBool call(JSContext *cx, JSObject *callee, unsigned argc, jsval *vp);
 
   protected:
-    JSObject *wrap(JSContext *cx, ObjectId objId);
+    JSObject *unwrap(JSContext *cx, ObjectId objId);
 
   private:
     bool makeId(JSContext *cx, JSObject *obj, ObjectId *idp);
