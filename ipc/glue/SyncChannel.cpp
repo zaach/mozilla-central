@@ -250,7 +250,7 @@ SyncChannel::OnMessageReceivedFromLink(const Message& msg)
         return;
     }
 
-    if (!AwaitingSyncReply() && mRecvd.type() == 0) {
+    if (!AwaitingSyncReply() || mRecvd.type() != 0) {
         // Since we process urgent messages before the reply, we could
         // potentially receive another synchronous message. To avoid
         // overwriting mRecvd, we let the second message go to the normal
