@@ -106,13 +106,13 @@ public:
     return !frameLoader || frameLoader->ShouldClampScrollPosition();
   }
 
+  nsFrameLoader* FrameLoader();
+
 protected:
   friend class AsyncFrameInit;
 
   // Helper method to look up the HTML marginwidth & marginheight attributes
   nsIntSize GetMarginAttributes();
-
-  nsFrameLoader* FrameLoader();
 
   bool IsInline() { return mIsInline; }
 

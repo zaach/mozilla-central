@@ -33,6 +33,7 @@ class JavaScriptChild
     bool AnswerCall(const InfallibleTArray<JSVariant> &argv, ReturnStatus *rs, JSVariant *result);
 
     ObjectId Send(JSObject *obj);
+    ObjectId Send(JSContext *cx, JSObject *obj);
 
     JSContext *GetContext() {
         return cx;

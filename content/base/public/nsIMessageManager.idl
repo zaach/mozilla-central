@@ -279,6 +279,13 @@ interface nsISyncMessageSender : nsIMessageSender
   [implicit_jscontext, optional_argc]
   jsval sendSyncMessage([optional] in AString messageName,
                         [optional] in jsval obj);
+
+  /**
+   * Create an ID that can be sent to the parent process and queried as if it
+   * were a local JSObject.
+   */
+  [implicit_jscontext]
+  unsigned long wrap(in jsval obj);
 };
 
 [scriptable, builtinclass, uuid(894ff2d4-39a3-4df8-9d76-8ee329975488)]

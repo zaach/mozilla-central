@@ -1,4 +1,5 @@
 /* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
+/* vim: set ts=2 sw=2 tw=79 et: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -14,6 +15,14 @@
 #include "nsIDocument.h"
 #include "nsIFrame.h"
 #include "nsSubDocumentFrame.h"
+#include "nsIJavaScriptParent.h"
+#include "ContentParent.h"
+#include "TabParent.h"
+#include "JavaScriptParent.h"
+
+using namespace mozilla;
+using namespace mozilla::dom;
+using namespace mozilla::jsipc;
 
 /**
  * nsContainerBoxObject implements deprecated nsIBrowserBoxObject,
@@ -43,6 +52,32 @@ NS_INTERFACE_MAP_END_INHERITING(nsBoxObject)
 
 NS_IMPL_ADDREF_INHERITED(nsContainerBoxObject, nsBoxObject)
 NS_IMPL_RELEASE_INHERITED(nsContainerBoxObject, nsBoxObject)
+
+NS_IMETHODIMP nsContainerBoxObject::GetJsParent(nsIJavaScriptParent** aResult)
+{
+  *aResult = nullptr;
+
+  nsIFrame* frame = GetFrame(false);
+  if (!frame)
+    return NS_OK;
+
+  nsSubDocumentFrame* subDocFrame = do_QueryFrame(frame);
+  if (!subDocFrame)
+    return NS_OK;
+
+  nsFrameLoader* frameLoader = subDocFrame->FrameLoader();
+  PBrowserParent* browser = frameLoader->GetRemoteBrowser();
+  if (!browser)
+    return NS_OK;
+
+  ContentParent* content = static_cast<ContentParent *>(browser->Manager());
+  JavaScriptParent* js = content->GetJavaScript();
+  if (!js)
+    return NS_OK;
+
+  js->GetUtils(aResult);
+  return NS_OK;
+}
 
 NS_IMETHODIMP nsContainerBoxObject::GetDocShell(nsIDocShell** aResult)
 {

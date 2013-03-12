@@ -75,6 +75,12 @@ ToId(JSContext *cx, const nsString &from, jsid *to)
 ObjectId
 JavaScriptChild::Send(JSObject *obj)
 {
+    return Send(cx, obj);
+}
+
+ObjectId
+JavaScriptChild::Send(JSContext *cx, JSObject *obj)
+{
     ObjectId objId;
     if (!makeId(cx, obj, &objId)) {
         JS_ReportError(cx, "child IPC error %d", __LINE__);

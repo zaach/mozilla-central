@@ -9,6 +9,7 @@
 #define mozilla_jsipc_JavaScriptParent__
 
 #include "mozilla/jsipc/PJavaScriptParent.h"
+#include "nsIJavaScriptParent.h"
 #include "JavaScriptShared.h"
 
 namespace mozilla {
@@ -40,6 +41,8 @@ class JavaScriptParent
         return unwrap(cx, objId);
     }
 
+    void GetUtils(nsIJavaScriptParent **parent);
+
   private:
     void drop(JSObject *obj);
     JSBool addProperty(JSContext *cx, JSHandleObject obj, JSHandleId id);
@@ -63,6 +66,9 @@ class JavaScriptParent
 
     // Check whether a return status is okay, and if not, propagate its error.
     bool ok(JSContext *cx, const ReturnStatus &status);
+
+  private:
+    nsCOMPtr<nsIJavaScriptParent> utils_;
 };
 
 } // jsipc

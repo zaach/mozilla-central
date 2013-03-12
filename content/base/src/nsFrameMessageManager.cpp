@@ -1,4 +1,5 @@
 /* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
+/* vim: set ts=2 sw=2 tw=79 et: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -31,6 +32,7 @@
 #include "xpcpublic.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/dom/StructuredCloneUtils.h"
+#include "JavaScriptChild.h"
 
 #ifdef ANDROID
 #include <android/log.h>
@@ -42,6 +44,7 @@
 using namespace mozilla;
 using namespace mozilla::dom;
 using namespace mozilla::dom::ipc;
+using namespace mozilla::jsipc;
 
 
 static bool
@@ -239,6 +242,32 @@ GetParamsForMessage(JSContext* aCx,
 
 
 // nsISyncMessageSender
+
+NS_IMETHODIMP
+nsFrameMessageManager::Wrap(JS::Value const& val, JSContext* cx, unsigned int* retval)
+{
+  MOZ_ASSERT(!IsGlobal());
+  MOZ_ASSERT(!IsWindowLevel());
+  MOZ_ASSERT(!mParentManager);
+
+  *retval = 0;
+
+  ContentChild* cc = ContentChild::GetSingleton();
+  if (!cc)
+    return NS_ERROR_ABORT;
+
+  JavaScriptChild* js = cc->GetJavaScript();
+  if (!val.isObject())
+    return NS_ERROR_ILLEGAL_VALUE;
+
+  JSObject *obj = &val.toObject();
+  ObjectId objId = js->Send(cx, obj);
+  if (!objId)
+    return NS_ERROR_ABORT;
+
+  *retval = objId;
+  return NS_OK;
+}
 
 NS_IMETHODIMP
 nsFrameMessageManager::SendSyncMessage(const nsAString& aMessageName,

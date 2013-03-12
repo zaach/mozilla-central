@@ -8,10 +8,37 @@
 #include "JavaScriptParent.h"
 #include "mozilla/dom/ContentParent.h"
 #include "nsJSUtils.h"
+#include "jsfriendapi.h"
+#include "js/public/HeapAPI.h"
 
 using namespace js;
 using namespace mozilla;
 using namespace mozilla::jsipc;
+
+class JavaScriptParentUtils : public nsIJavaScriptParent
+{
+  public:
+    JavaScriptParentUtils(JavaScriptParent *parent)
+      : parent_(parent)
+    {
+    }
+
+    NS_DECL_ISUPPORTS
+
+    NS_IMETHODIMP Unwrap(uint32_t objId, JSContext* cx, JS::Value *_retval) {
+        JSObject *obj = parent_->Unwrap(cx, objId);
+        if (!obj)
+            return NS_ERROR_UNEXPECTED;
+
+        *_retval = OBJECT_TO_JSVAL(obj);
+        return NS_OK;
+    }
+
+  private:
+    JavaScriptParent *parent_;
+};
+
+NS_IMPL_ISUPPORTS1(JavaScriptParentUtils, nsIJavaScriptParent)
 
 JavaScriptParent::JavaScriptParent()
 {
@@ -66,8 +93,10 @@ JavaScriptParent::makeId(JSContext *cx, JSObject *obj, ObjectId *idp)
 JSObject *
 JavaScriptParent::unwrap(JSContext *cx, ObjectId objId)
 {
-    if (JSObject *obj = objects_.find(objId))
+    if (JSObject *obj = objects_.find(objId)) {
+        JS_ASSERT(GetObjectCompartment(obj) == GetContextCompartment(cx));
         return obj;
+    }
 
     JSObject *obj = JS_NewObject(cx, &CpowClass, NULL, NULL);
     if (!obj)
@@ -335,5 +364,16 @@ void
 JavaScriptParent::Finalize(JSFreeOp *fop, JSObject *obj)
 {
     ParentOf(obj)->drop(obj);
+}
+
+void
+JavaScriptParent::GetUtils(nsIJavaScriptParent **parent)
+{
+    if (!utils_)
+        utils_ = new JavaScriptParentUtils(this);
+
+    NS_IF_ADDREF(utils_);
+    *parent = utils_;
+    return;
 }
 

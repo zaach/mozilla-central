@@ -88,6 +88,12 @@ public:
       ? mMessageManager->SendSyncMessage(aMessageName, aObject, aCx, aArgc, aRetval)
       : NS_ERROR_NULL_POINTER;
   }
+  NS_IMETHOD Wrap(const JS::Value & obj, JSContext* cx, uint32_t *_retval)
+  {
+    return mMessageManager
+      ? mMessageManager->Wrap(obj, cx, _retval)
+      : NS_ERROR_NULL_POINTER;
+  }
   NS_IMETHOD GetContent(nsIDOMWindow** aContent);
   NS_IMETHOD GetDocShell(nsIDocShell** aDocShell);
   NS_IMETHOD Dump(const nsAString& aStr)

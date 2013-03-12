@@ -15,11 +15,25 @@ LIBXUL_LIBRARY = 1
 FORCE_STATIC_LIB = 1
 EXPORT_LIBRARY = 1
 
+EXPORTS_NAMESPACES = mozilla/jsipc
+
 CPPSRCS = \
   JavaScriptChild.cpp \
   JavaScriptParent.cpp \
   JavaScriptShared.cpp \
   $(NULL)
+
+EXPORTS_mozilla/jsipc = \
+  JavaScriptParent.h \
+  $(NULL)
+
+XPIDLSRCS = \
+	nsIJavaScriptParent.idl \
+	$(NULL)
+
+XPIDL_FLAGS += \
+	-I$(topsrcdir)/dom/interfaces/base \
+	$(NULL)
 
 LOCAL_INCLUDES += \
   -I$(topsrcdir)/dom/base \
