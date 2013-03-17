@@ -121,11 +121,13 @@ RPCChannel::Send(Message* msg, Message* reply)
 bool
 RPCChannel::Call(Message* _msg, Message* reply)
 {
+    NS_ABORT_IF_FALSE(!mPendingReply, "cannot nest sync");
+    if (mPendingReply)
+        return false;
+
     nsAutoPtr<Message> msg(_msg);
     AssertWorkerThread();
     mMonitor->AssertNotCurrentThreadOwns();
-    RPC_ASSERT(!ProcessingSyncMessage(),
-               "violation of sync handler invariant");
     RPC_ASSERT(msg->is_rpc(), "can only Call() RPC messages here");
 
 #ifdef OS_WIN
@@ -694,6 +696,14 @@ RPCChannel::OnMessageReceivedFromLink(const Message& msg)
     if (AwaitingSyncReply() && msg.is_sync()) {
         // wake up worker thread waiting at SyncChannel::Send
         mRecvd = msg;
+        NotifyWorkerThread();
+        return;
+    }
+
+    if (AwaitingSyncReply() && msg.priority() == IPC::Message::PRIORITY_HIGH) {
+        // If the message is high priority, we skip the worker entirely, and
+        // wake up the loop that's spinning for a reply.
+        mUrgent.push(msg);
         NotifyWorkerThread();
         return;
     }

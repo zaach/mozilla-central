@@ -218,6 +218,20 @@
                 onget="return this.mPrefs.QueryInterface(Components.interfaces.nsIPrefService);"
                 readonly="true"/>
 
+      <field name="_jsParentUtils">null</field>
+
+      <property name="jsParentUtils">
+        <getter>
+          <![CDATA[
+            if (this._jsParentUtils)
+              return this._jsParentUtils;
+
+            this._jsParentUtils = this.boxObject.QueryInterface(Components.interfaces.nsIContainerBoxObject).jsParent;
+            return this._jsParentUtils;
+          ]]>
+        </getter>
+      </property>
+
       <field name="_docShell">null</field>
 
       <property name="docShell"

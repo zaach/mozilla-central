@@ -51,9 +51,11 @@
 #include "nsThreadUtils.h"
 #include "StructuredCloneUtils.h"
 #include "TabChild.h"
+#include "JavaScriptParent.h"
 
 using namespace mozilla::dom;
 using namespace mozilla::ipc;
+using namespace mozilla::jsipc;
 using namespace mozilla::layers;
 using namespace mozilla::layout;
 using namespace mozilla::services;

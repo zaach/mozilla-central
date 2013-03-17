@@ -76,6 +76,8 @@
 #include "StructuredCloneUtils.h"
 #include "xpcpublic.h"
 #include "nsViewportInfo.h"
+#include "JavaScriptChild.h"
+#include "nsDocShell.h"
 
 #define BROWSER_ELEMENT_CHILD_SCRIPT \
     NS_LITERAL_STRING("chrome://global/content/BrowserElementChild.js")
@@ -84,6 +86,7 @@ using namespace mozilla;
 using namespace mozilla::dom;
 using namespace mozilla::dom::ipc;
 using namespace mozilla::ipc;
+using namespace mozilla::jsipc;
 using namespace mozilla::layers;
 using namespace mozilla::layout;
 using namespace mozilla::docshell;
@@ -2058,3 +2061,4 @@ TabChildGlobal::GetPrincipal()
     return nullptr;
   return mTabChild->GetPrincipal();
 }
+
