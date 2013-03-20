@@ -18,6 +18,7 @@ var gProxyFavIcon = null;
 var gLastValidURLStr = "";
 var gInPrintPreviewMode = false;
 var gContextMenu = null; // nsContextMenu instance
+var gContextMenuContext = null;
 
 #ifndef XP_MACOSX
 var gEditUIVisible = true;

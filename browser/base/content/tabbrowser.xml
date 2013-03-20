@@ -2696,6 +2696,8 @@
               Services.prefs.getCharPref("browser.display.background_color");
 
           messageManager.addMessageListener("DOMTitleChanged", this._messageListener);
+          messageManager.loadFrameScript("chrome://browser/content/nsContextMenu-content.js", true);
+          messageManager.addMessageListener("contextmenu", this._messageListener);
         ]]>
       </constructor>
 
@@ -2797,6 +2799,12 @@
                 let titleChanged = self.setTabTitle(tab);
                 if (titleChanged && !tab.selected && !tab.hasAttribute("busy"))
                   tab.setAttribute("titlechanged", "true");
+                break;
+              case "contextmenu":
+                gContextMenuContext = json.contextMenuContext;
+                let popup = browser.ownerDocument.getElementById("contentAreaContextMenu");
+                popup.openPopup(browser, "overlap", json.screenX, json.screenY, true, false, null);
+                break;
             }
           }
         })

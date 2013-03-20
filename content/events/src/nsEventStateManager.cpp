@@ -1602,6 +1602,7 @@ CrossProcessSafeEvent(const nsEvent& aEvent)
     case NS_MOUSE_BUTTON_DOWN:
     case NS_MOUSE_BUTTON_UP:
     case NS_MOUSE_MOVE:
+    case NS_CONTEXTMENU:
       return true;
     default:
       return false;

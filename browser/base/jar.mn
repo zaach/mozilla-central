@@ -110,6 +110,7 @@ browser.jar:
 *       content/browser/web-panels.xul                (content/web-panels.xul)
 *       content/browser/baseMenuOverlay.xul           (content/baseMenuOverlay.xul)
 *       content/browser/nsContextMenu.js              (content/nsContextMenu.js)
+*       content/browser/nsContextMenu-content.js      (content/nsContextMenu-content.js)
 # XXX: We should exclude this one as well (bug 71895)
 *       content/browser/hiddenWindow.xul              (content/hiddenWindow.xul)
 #ifdef XP_MACOSX
