@@ -2415,8 +2415,18 @@ JS_UnlockGCThingRT(JSRuntime *rt, void *gcthing);
  *          JS_CallTracer whenever the root contains a traceable thing.
  * data:    the data argument to pass to each invocation of traceOp.
  */
+extern JS_PUBLIC_API(JSBool)
+JS_AddExtraGCRootsTracer(JSRuntime *rt, JSTraceDataOp traceOp, void *data);
+
+/*
+ * Register externally maintained GC roots.
+ *
+ * traceOp: the trace operation. For each root the implementation should call
+ *          JS_CallTracer whenever the root contains a traceable thing.
+ * data:    the data argument to pass to each invocation of traceOp.
+ */
 extern JS_PUBLIC_API(void)
-JS_SetExtraGCRootsTracer(JSRuntime *rt, JSTraceDataOp traceOp, void *data);
+JS_RemoveExtraGCRootsTracer(JSRuntime *rt, JSTraceDataOp traceOp, void *data);
 
 /*
  * JS_CallTracer API and related macros for implementors of JSTraceOp, to

@@ -823,10 +823,6 @@ JSRuntime::JSRuntime(JSUseHelperThreads useHelperThreads)
     analysisPurgeCallback(NULL),
     analysisPurgeTriggerBytes(0),
     gcMallocBytes(0),
-    gcBlackRootsTraceOp(NULL),
-    gcBlackRootsData(NULL),
-    gcGrayRootsTraceOp(NULL),
-    gcGrayRootsData(NULL),
     autoGCRooters(NULL),
     scriptAndCountsVector(NULL),
     NaNValue(UndefinedValue()),
@@ -2428,12 +2424,24 @@ JS_UnlockGCThingRT(JSRuntime *rt, void *gcthing)
     return true;
 }
 
-JS_PUBLIC_API(void)
-JS_SetExtraGCRootsTracer(JSRuntime *rt, JSTraceDataOp traceOp, void *data)
+JS_PUBLIC_API(JSBool)
+JS_AddExtraGCRootsTracer(JSRuntime *rt, JSTraceDataOp traceOp, void *data)
 {
     AssertHeapIsIdle(rt);
-    rt->gcBlackRootsTraceOp = traceOp;
-    rt->gcBlackRootsData = data;
+    return !!rt->gcBlackRootTracers.append(JSRuntime::ExtraTracer(traceOp, data));
+}
+
+JS_PUBLIC_API(void)
+JS_RemoveExtraGCRootsTracer(JSRuntime *rt, JSTraceDataOp traceOp, void *data)
+{
+    AssertHeapIsIdle(rt);
+    for (size_t i = 0; i < rt->gcBlackRootTracers.length(); i++) {
+        JSRuntime::ExtraTracer *e = &rt->gcBlackRootTracers[i];
+        if (e->op == traceOp && e->data == data) {
+            rt->gcBlackRootTracers.erase(e);
+            break;
+        }
+    }
 }
 
 JS_PUBLIC_API(void)

@@ -1652,7 +1652,7 @@ bool
 ContentParent::DeallocPJavaScript(PJavaScriptParent *compartment)
 {
     mozilla::jsipc::JavaScriptParent* parent = static_cast<mozilla::jsipc::JavaScriptParent *>(compartment);
-    delete parent;
+    parent->DestroyFromContent();
     return true;
 }
 

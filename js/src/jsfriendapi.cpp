@@ -47,8 +47,8 @@ JS_SetSourceHook(JSRuntime *rt, JS_SourceHook hook)
 JS_FRIEND_API(void)
 JS_SetGrayGCRootsTracer(JSRuntime *rt, JSTraceDataOp traceOp, void *data)
 {
-    rt->gcGrayRootsTraceOp = traceOp;
-    rt->gcGrayRootsData = data;
+    rt->gcGrayRootTracer.op = traceOp;
+    rt->gcGrayRootTracer.data = data;
 }
 
 JS_FRIEND_API(JSString *)

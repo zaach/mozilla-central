@@ -2662,7 +2662,8 @@ XPCJSRuntime::XPCJSRuntime(nsXPConnect* aXPConnect)
     JS_SetGCCallback(mJSRuntime, GCCallback);
     mPrevGCSliceCallback = JS::SetGCSliceCallback(mJSRuntime, GCSliceCallback);
     JS_SetFinalizeCallback(mJSRuntime, FinalizeCallback);
-    JS_SetExtraGCRootsTracer(mJSRuntime, TraceBlackJS, this);
+    if (!JS_AddExtraGCRootsTracer(mJSRuntime, TraceBlackJS, this))
+      NS_RUNTIMEABORT("JS_AddExtraGCRootsTracer failed.");
     JS_SetGrayGCRootsTracer(mJSRuntime, TraceGrayJS, this);
     JS_SetWrapObjectCallbacks(mJSRuntime,
                               xpc::WrapperFactory::Rewrap,

@@ -28,6 +28,7 @@ Trace(JSTracer *trc, void *data)
 
 JavaScriptChild::~JavaScriptChild()
 {
+    JS_RemoveExtraGCRootsTracer(rt_, Trace, this);
 }
 
 void
@@ -45,7 +46,7 @@ JavaScriptChild::init()
     if (!ids_.init())
         return false;
 
-    JS_SetExtraGCRootsTracer(rt_, Trace, this);
+    JS_AddExtraGCRootsTracer(rt_, Trace, this);
     return true;
 }
 

@@ -26,6 +26,11 @@ class JavaScriptParentUtils : public nsIJavaScriptParent
     NS_DECL_ISUPPORTS
 
     NS_IMETHODIMP Unwrap(uint32_t objId, JSContext* cx, JS::Value *_retval) {
+        if (!objId) {
+            *_retval = JSVAL_NULL;
+            return NS_OK;
+        }
+
         JSObject *obj = parent_->Unwrap(cx, objId);
         if (!obj)
             return NS_ERROR_UNEXPECTED;
@@ -41,6 +46,8 @@ class JavaScriptParentUtils : public nsIJavaScriptParent
 NS_IMPL_ISUPPORTS1(JavaScriptParentUtils, nsIJavaScriptParent)
 
 JavaScriptParent::JavaScriptParent()
+  : refcount_(1),
+    inactive_(false)
 {
 }
 
@@ -105,6 +112,9 @@ JavaScriptParent::unwrap(JSContext *cx, ObjectId objId)
     if (!objects_.add(objId, obj))
         return NULL;
 
+    // Incref once we know the decref will be called.
+    IncRef();
+
     JS_SetPrivate(obj, this);
     JS_SetReservedSlot(obj, ID_SLOT, INT_TO_JSVAL(objId));
     return obj;
@@ -119,7 +129,11 @@ ParentOf(JSObject *obj)
 ObjectId
 JavaScriptParent::IdOf(JSObject *obj)
 {
-    ObjectId objId = JSVAL_TO_INT(JS_GetReservedSlot(obj, ID_SLOT));
+    jsval val = JS_GetReservedSlot(obj, ID_SLOT);
+    if (!JSVAL_IS_INT(val))
+        return 0;
+
+    ObjectId objId = JSVAL_TO_INT(val);
     MOZ_ASSERT(objects_.find(objId) == obj);
     return objId;
 }
@@ -146,12 +160,16 @@ ToGecko(JSContext *cx, JSHandleId id, nsString *to)
 void
 JavaScriptParent::drop(JSObject *obj)
 {
+    if (inactive_)
+        return;
+
     uint32_t objId = IdOf(obj);
+    if (!objId)
+        return;
 
     objects_.remove(objId);
-    
-    if (!SendDropObject(objId))
-        return;
+    SendDropObject(objId);
+    DecRef();
 }
 
 JSBool
@@ -375,5 +393,26 @@ JavaScriptParent::GetUtils(nsIJavaScriptParent **parent)
     NS_IF_ADDREF(utils_);
     *parent = utils_;
     return;
+}
+
+void
+JavaScriptParent::DecRef()
+{
+    refcount_--;
+    if (!refcount_)
+        delete this;
+}
+
+void
+JavaScriptParent::IncRef()
+{
+    refcount_++;
+}
+
+void
+JavaScriptParent::DestroyFromContent()
+{
+    inactive_ = true;
+    DecRef();
 }
 

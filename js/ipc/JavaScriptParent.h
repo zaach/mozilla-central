@@ -42,6 +42,9 @@ class JavaScriptParent
     }
 
     void GetUtils(nsIJavaScriptParent **parent);
+    void DecRef();
+    void IncRef();
+    void DestroyFromContent();
 
   private:
     void drop(JSObject *obj);
@@ -69,6 +72,8 @@ class JavaScriptParent
 
   private:
     nsCOMPtr<nsIJavaScriptParent> utils_;
+    uint64_t refcount_;
+    bool inactive_;
 };
 
 } // jsipc
