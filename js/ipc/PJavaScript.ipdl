@@ -13,12 +13,27 @@ using mozilla::void_t;
 namespace mozilla {
 namespace jsipc {
 
+struct JSIID {
+    uint32_t m0;
+    uint16_t m1;
+    uint16_t m2;
+    uint8_t m3_0;
+    uint8_t m3_1;
+    uint8_t m3_2;
+    uint8_t m3_3;
+    uint8_t m3_4;
+    uint8_t m3_5;
+    uint8_t m3_6;
+    uint8_t m3_7;
+};
+
 union JSVariant {
     void_t;     /* |undefined| */
     nsString;   /* StringValue(x) */
     uint32_t;   /* 0 for null, >0 for object ID */
     double;     /* NumberValue(x) */
     bool;       /* BooleanValue(x) */
+    JSIID;      /* XPC nsIID */
 };
 
 struct ReturnStatus {

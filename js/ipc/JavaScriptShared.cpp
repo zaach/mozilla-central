@@ -6,6 +6,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "JavaScriptShared.h"
+#include "jsfriendapi.h"
+#include "xpcprivate.h"
 
 using namespace js;
 using namespace mozilla;
@@ -115,11 +117,38 @@ JavaScriptShared::toVariant(JSContext *cx, jsval from, JSVariant *to)
 
       case JSTYPE_OBJECT:
       case JSTYPE_FUNCTION:
+      {
+        JSObject *obj = JSVAL_TO_OBJECT(from);
+        if (!obj) {
+            JS_ASSERT(from == JSVAL_NULL);
+            *to = ObjectId(0);
+            return true;
+        }
+
+        if (xpc_JSObjectIsID(cx, obj)) {
+            JSIID iid;
+            const nsID *id = xpc_JSObjectToID(cx, obj);
+            iid.m0() = id->m0;
+            iid.m1() = id->m1;
+            iid.m2() = id->m2;
+            iid.m3_0() = id->m3[0];
+            iid.m3_1() = id->m3[1];
+            iid.m3_2() = id->m3[2];
+            iid.m3_3() = id->m3[3];
+            iid.m3_4() = id->m3[4];
+            iid.m3_5() = id->m3[5];
+            iid.m3_6() = id->m3[6];
+            iid.m3_7() = id->m3[7];
+            *to = iid;
+            return true;
+        }
+
         ObjectId id;
-        if (!makeId(cx, JSVAL_TO_OBJECT(from), &id))
+        if (!makeId(cx, obj, &id))
             return false;
         *to = id;
         return true;
+      }
 
       case JSTYPE_STRING:
       {
@@ -180,6 +209,32 @@ JavaScriptShared::toValue(JSContext *cx, const JSVariant &from, jsval *to)
           if (!str)
               return false;
           *to = STRING_TO_JSVAL(str);
+          return true;
+        }
+
+        case JSVariant::TJSIID:
+        {
+          nsID iid;
+          const JSIID &id = from.get_JSIID();
+
+          iid.m0 = id.m0();
+          iid.m1 = id.m1();
+          iid.m2 = id.m2();
+          iid.m3[0] = id.m3_0();
+          iid.m3[1] = id.m3_1();
+          iid.m3[2] = id.m3_2();
+          iid.m3[3] = id.m3_3();
+          iid.m3[4] = id.m3_4();
+          iid.m3[5] = id.m3_5();
+          iid.m3[6] = id.m3_6();
+          iid.m3[7] = id.m3_7();
+
+          JSCompartment *compartment = GetContextCompartment(cx);
+          JSObject *global = JS_GetGlobalForCompartmentOrNull(cx, compartment);
+          JSObject *obj = xpc_NewIDObject(cx, global, iid);
+          if (!obj)
+              return false;
+          *to = OBJECT_TO_JSVAL(obj);
           return true;
         }
 
