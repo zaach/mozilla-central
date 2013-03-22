@@ -32,25 +32,19 @@ class JavaScriptChild
     bool AnswerNewResolve(const ObjectId &objId, const nsString &id, const uint32_t &flags, ReturnStatus *rs, ObjectId *obj2);
     bool AnswerCall(const InfallibleTArray<JSVariant> &argv, ReturnStatus *rs, JSVariant *result);
 
-    ObjectId Send(JSObject *obj);
     ObjectId Send(JSContext *cx, JSObject *obj);
-
-    JSContext *GetContext() {
-        return cx;
-    }
 
   protected:
     JSObject *unwrap(JSContext *cx, ObjectId id);
 
   private:
     bool makeId(JSContext *cx, JSObject *obj, ObjectId *idp);
-    bool fail(ReturnStatus *rs);
+    bool fail(JSContext *cx, ReturnStatus *rs);
     bool ok(ReturnStatus *rs);
 
   private:
     ObjectId lastId_;
     JSRuntime *rt_;
-    JSContext *cx;
     ObjectIdCache ids_;
 };
 

@@ -7,14 +7,16 @@
 
 #include "JavaScriptChild.h"
 #include "mozilla/dom/ContentChild.h"
+#include "nsContentUtils.h"
 
 using namespace mozilla;
 using namespace mozilla::jsipc;
 
+using mozilla::SafeAutoJSContext;
+
 JavaScriptChild::JavaScriptChild(JSRuntime *rt)
   : lastId_(0),
-    rt_(rt),
-    cx(NULL)
+    rt_(rt)
 {
 }
 
@@ -26,8 +28,6 @@ Trace(JSTracer *trc, void *data)
 
 JavaScriptChild::~JavaScriptChild()
 {
-    // :TODO: remove global Trace hook.
-    JS_DestroyContext(cx);
 }
 
 void
@@ -43,8 +43,6 @@ JavaScriptChild::init()
     if (!JavaScriptShared::init())
         return false;
     if (!ids_.init())
-        return false;
-    if ((cx = JS_NewContext(rt_, 0)) == NULL)
         return false;
 
     JS_SetExtraGCRootsTracer(rt_, Trace, this);
@@ -70,12 +68,6 @@ ToId(JSContext *cx, const nsString &from, jsid *to)
         return false;
 
     return JS_ValueToId(cx, STRING_TO_JSVAL(str), to);
-}
-
-ObjectId
-JavaScriptChild::Send(JSObject *obj)
-{
-    return Send(cx, obj);
 }
 
 ObjectId
@@ -123,7 +115,7 @@ JavaScriptChild::unwrap(JSContext *cx, ObjectId id)
 }
 
 bool
-JavaScriptChild::fail(ReturnStatus *rs)
+JavaScriptChild::fail(JSContext *cx, ReturnStatus *rs)
 {
     // By default, we set |undefined| unless we can get a more meaningful
     // exception.
@@ -158,6 +150,7 @@ JavaScriptChild::ok(ReturnStatus *rs)
 bool
 JavaScriptChild::AnswerAddProperty(const ObjectId &objId, const nsString &id, ReturnStatus *rs)
 {
+    SafeAutoJSContext cx;
     JSAutoRequest request(cx);
 
     JSObject *obj = objects_.find(objId);
@@ -168,10 +161,10 @@ JavaScriptChild::AnswerAddProperty(const ObjectId &objId, const nsString &id, Re
 
     jsid internedId;
     if (!ToId(cx, id, &internedId))
-        return fail(rs);
+        return fail(cx, rs);
 
     if (!JS_DefinePropertyById(cx, obj, internedId, JSVAL_VOID, NULL, NULL, 0))
-        return fail(rs);
+        return fail(cx, rs);
 
     return ok(rs);
 }
@@ -182,6 +175,7 @@ JavaScriptChild::AnswerGetProperty(const ObjectId &objId,
                                     ReturnStatus *rs,
                                     JSVariant *result)
 {
+    SafeAutoJSContext cx;
     JSAutoRequest request(cx);
 
     JSObject *obj = objects_.find(objId);
@@ -194,14 +188,14 @@ JavaScriptChild::AnswerGetProperty(const ObjectId &objId,
 
     jsid internedId;
     if (!ToId(cx, id, &internedId))
-        return fail(rs);
+        return fail(cx, rs);
 
     jsval val;
     if (!JS_GetPropertyById(cx, obj, internedId, &val))
-        return fail(rs);
+        return fail(cx, rs);
 
     if (!toVariant(cx, val, result))
-        return fail(rs);
+        return fail(cx, rs);
 
     return ok(rs);
 }
@@ -213,6 +207,7 @@ JavaScriptChild::AnswerSetProperty(const ObjectId &objId,
                                     ReturnStatus *rs,
                                     JSVariant *result)
 {
+    SafeAutoJSContext cx;
     JSAutoRequest request(cx);
 
     JSObject *obj = objects_.find(objId);
@@ -225,17 +220,17 @@ JavaScriptChild::AnswerSetProperty(const ObjectId &objId,
 
     jsid internedId;
     if (!ToId(cx, id, &internedId))
-        return fail(rs);
+        return fail(cx, rs);
 
     jsval val;
     if (!toValue(cx, value, &val))
-        return fail(rs);
+        return fail(cx, rs);
 
     if (!JS_SetPropertyById(cx, obj, internedId, &val))
-        return fail(rs);
+        return fail(cx, rs);
 
     if (!toVariant(cx, val, result))
-        return fail(rs);
+        return fail(cx, rs);
 
     return ok(rs);
 }
@@ -246,6 +241,7 @@ JavaScriptChild::AnswerDeleteProperty(const ObjectId &objId,
                                        ReturnStatus *rs,
                                        JSVariant *result)
 {
+    SafeAutoJSContext cx;
     JSAutoRequest request(cx);
 
     JSObject *obj = objects_.find(objId);
@@ -258,14 +254,14 @@ JavaScriptChild::AnswerDeleteProperty(const ObjectId &objId,
 
     jsid internedId;
     if (!ToId(cx, id, &internedId))
-        return fail(rs);
+        return fail(cx, rs);
 
     jsval val;
     if (!JS_DeletePropertyById2(cx, obj, internedId, &val))
-        return fail(rs);
+        return fail(cx, rs);
 
     if (!toVariant(cx, val, result))
-        return fail(rs);
+        return fail(cx, rs);
 
     return ok(rs);
 }
@@ -277,6 +273,7 @@ JavaScriptChild::AnswerNewResolve(const ObjectId &objId,
                                    ReturnStatus *rs,
                                    ObjectId *obj2)
 {
+    SafeAutoJSContext cx;
     JSAutoRequest request(cx);
 
     JSObject *obj = objects_.find(objId);
@@ -289,14 +286,14 @@ JavaScriptChild::AnswerNewResolve(const ObjectId &objId,
 
     jsid internedId;
     if (!ToId(cx, id, &internedId))
-        return fail(rs);
+        return fail(cx, rs);
 
     JSPropertyDescriptor desc;
     if (!JS_GetPropertyDescriptorById(cx, obj, internedId, flags, &desc))
-        return fail(rs);
+        return fail(cx, rs);
 
     if (desc.obj && !makeId(cx, desc.obj, obj2))
-        return fail(rs);
+        return fail(cx, rs);
 
     return ok(rs);
 }
@@ -304,13 +301,14 @@ JavaScriptChild::AnswerNewResolve(const ObjectId &objId,
 bool
 JavaScriptChild::AnswerCall(const InfallibleTArray<JSVariant> &argv, ReturnStatus *rs, JSVariant *result)
 {
+    SafeAutoJSContext cx;
     JSAutoRequest request(cx);
 
     MOZ_ASSERT(argv.Length() >= 2);
 
     jsval objv;
     if (!toValue(cx, argv[0], &objv))
-        return fail(rs);
+        return fail(cx, rs);
 
     JSAutoCompartment comp(cx, JSVAL_TO_OBJECT(objv));
 
@@ -320,17 +318,17 @@ JavaScriptChild::AnswerCall(const InfallibleTArray<JSVariant> &argv, ReturnStatu
     for (size_t i = 0; i < argv.Length(); i++) {
         jsval v;
         if (!toValue(cx, argv[i], &v))
-            return fail(rs);
+            return fail(cx, rs);
         if (!vals.append(v))
-            return fail(rs);
+            return fail(cx, rs);
     }
 
     jsval rval;
     if (!JS::Call(cx, vals[1], vals[0], vals.length() - 2, vals.begin() + 2, &rval))
-        return fail(rs);
+        return fail(cx, rs);
 
     if (!toVariant(cx, rval, result))
-        return fail(rs);
+        return fail(cx, rs);
 
     return ok(rs);
 }
