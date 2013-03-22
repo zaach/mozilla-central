@@ -460,6 +460,7 @@ ReportError(JSContext *cx, const char *message, JSErrorReport *reportp,
 
     printf("Pending backtrace:\n");
     js_DumpBacktrace(cx);
+    fprintf(stdout, "$$$$ ERROR: %s\n", message);
 
     /*
      * Call the error reporter only if an exception wasn't raised.
@@ -934,6 +935,8 @@ js_ReportErrorNumberVA(JSContext *cx, unsigned flags, JSErrorCallback callback,
     }
 
     ReportError(cx, message, &report, callback, userRef);
+
+    fprintf(stdout, "$$$$ ERROR: %s\n", message);
 
     if (message)
         js_free(message);
