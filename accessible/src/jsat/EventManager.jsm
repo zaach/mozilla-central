@@ -125,11 +125,11 @@ this.EventManager = {
       {
         let event = aEvent.QueryInterface(Ci.nsIAccessibleStateChangeEvent);
         if (event.state == Ci.nsIAccessibleStates.STATE_CHECKED &&
-            !(event.isExtraState())) {
+            !(event.isExtraState)) {
           this.present(
             Presentation.
               actionInvoked(aEvent.accessible,
-                            event.isEnabled() ? 'check' : 'uncheck'));
+                            event.isEnabled ? 'check' : 'uncheck'));
         }
         break;
       }
@@ -191,7 +191,7 @@ this.EventManager = {
             if (txtIface.characterCount)
               throw x;
           }
-          this.present(Presentation, textChanged(
+          this.present(Presentation.textChanged(
                          isInserted, event.start, event.length,
                          text, event.modifiedText));
         }

@@ -9,6 +9,7 @@
 #include "nsCSSValue.h"
 
 #include "imgIRequest.h"
+#include "nsIDocument.h"
 #include "nsIPrincipal.h"
 #include "nsCSSProps.h"
 #include "nsContentUtils.h"
@@ -833,6 +834,13 @@ nsCSSValue::AppendToString(nsCSSProperty aProperty, nsAString& aResult) const
                                            NS_STYLE_PAGE_MARKS_REGISTER,
                                            aResult);
       }
+    }
+    else if (eCSSProperty_paint_order == aProperty) {
+      MOZ_STATIC_ASSERT
+        (NS_STYLE_PAINT_ORDER_BITWIDTH * NS_STYLE_PAINT_ORDER_LAST_VALUE <= 8,
+         "SVGStyleStruct::mPaintOrder and the following cast not big enough");
+      nsStyleUtil::AppendPaintOrderValue(static_cast<uint8_t>(GetIntValue()),
+                                         aResult);
     }
     else {
       const nsAFlatCString& name = nsCSSProps::LookupPropertyValue(aProperty, GetIntValue());
@@ -1714,14 +1722,22 @@ css::ImageValue::ImageValue(nsIURI* aURI, nsStringBuffer* aString,
                             nsIDocument* aDocument)
   : URLValue(aURI, aString, aReferrer, aOriginPrincipal)
 {
-  if (aDocument->GetOriginalDocument()) {
-    aDocument = aDocument->GetOriginalDocument();
+  // NB: If aDocument is not the original document, we may not be able to load
+  // images from aDocument.  Instead we do the image load from the original doc
+  // and clone it to aDocument.
+  nsIDocument* loadingDoc = aDocument->GetOriginalDocument();
+  if (!loadingDoc) {
+    loadingDoc = aDocument;
   }
 
   mRequests.Init();
 
-  aDocument->StyleImageLoader()->LoadImage(aURI, aOriginPrincipal, aReferrer,
-                                           this);
+  loadingDoc->StyleImageLoader()->LoadImage(aURI, aOriginPrincipal, aReferrer,
+                                            this);
+
+  if (loadingDoc != aDocument) {
+    aDocument->StyleImageLoader()->MaybeRegisterCSSImage(this);
+  }
 }
 
 static PLDHashOperator

@@ -86,9 +86,7 @@ public:
   // nsWrapperCache
   nsPIDOMWindow* GetParentObject() { return GetOwner(); }
 
-  JSObject* WrapObject(JSContext *cx,
-                       JSObject *scope,
-                       bool *triedToWrap);
+  JSObject* WrapObject(JSContext *cx, JSObject *scope) MOZ_OVERRIDE;
 
 public: // static helpers:
 
@@ -98,19 +96,19 @@ public: // static helpers:
 public: // WebIDL interface:
 
   // Constructor:
-  static already_AddRefed<WebSocket> Constructor(JSContext *aCx,
-                                                 nsISupports* aGlobal,
+  static already_AddRefed<WebSocket> Constructor(const GlobalObject& aGlobal,
+                                                 JSContext *aCx,
                                                  const nsAString& aUrl,
                                                  ErrorResult& rv);
 
-  static already_AddRefed<WebSocket> Constructor(JSContext *aCx,
-                                                 nsISupports* aGlobal,
+  static already_AddRefed<WebSocket> Constructor(const GlobalObject& aGlobal,
+                                                 JSContext *aCx,
                                                  const nsAString& aUrl,
                                                  const nsAString& aProtocol,
                                                  ErrorResult& rv);
 
-  static already_AddRefed<WebSocket> Constructor(JSContext *aCx,
-                                                 nsISupports* aGlobal,
+  static already_AddRefed<WebSocket> Constructor(const GlobalObject& aGlobal,
+                                                 JSContext *aCx,
                                                  const nsAString& aUrl,
                                                  const Sequence<nsString>& aProtocols,
                                                  ErrorResult& rv);
@@ -182,8 +180,8 @@ protected:
   nsresult EstablishConnection();
 
   // These methods when called can release the WebSocket object
-  nsresult FailConnection(uint16_t reasonCode,
-                          const nsACString& aReasonString = EmptyCString());
+  void FailConnection(uint16_t reasonCode,
+                      const nsACString& aReasonString = EmptyCString());
   nsresult CloseConnection(uint16_t reasonCode,
                            const nsACString& aReasonString = EmptyCString());
   nsresult Disconnect();

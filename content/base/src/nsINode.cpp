@@ -1,5 +1,5 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=2 sw=2 et tw=79: */
+/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
+/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -10,6 +10,7 @@
 
 #include "nsINode.h"
 
+#include "AccessCheck.h"
 #include "jsapi.h"
 #include "mozAutoDocUpdate.h"
 #include "mozilla/CORSMode.h"
@@ -58,7 +59,6 @@
 #include "nsIDOMMutationEvent.h"
 #include "nsIDOMNodeList.h"
 #include "nsIDOMUserDataHandler.h"
-#include "nsIEditorDocShell.h"
 #include "nsIEditor.h"
 #include "nsIEditorIMESupport.h"
 #include "nsIFrame.h"
@@ -73,8 +73,8 @@
 #include "nsIScrollableFrame.h"
 #include "nsIServiceManager.h"
 #include "nsIURL.h"
-#include "nsIView.h"
-#include "nsIViewManager.h"
+#include "nsView.h"
+#include "nsViewManager.h"
 #include "nsIWebNavigation.h"
 #include "nsIWidget.h"
 #include "nsLayoutStatics.h"
@@ -97,11 +97,16 @@
 #include "nsXBLInsertionPoint.h"
 #include "nsXBLPrototypeBinding.h"
 #include "prprf.h"
+#include "xpcprivate.h" // XBLScopesEnabled
 #include "xpcpublic.h"
 #include "nsCSSRuleProcessor.h"
 #include "nsCSSParser.h"
-#include "nsHTMLLegendElement.h"
+#include "HTMLLegendElement.h"
 #include "nsWrapperCacheInlines.h"
+#include "WrapperFactory.h"
+#include "DocumentType.h"
+#include <algorithm>
+#include "nsDOMEvent.h"
 
 using namespace mozilla;
 using namespace mozilla::dom;
@@ -221,9 +226,8 @@ nsINode::GetTextEditorRootContent(nsIEditor** aEditor)
         !node->AsElement()->IsHTML())
       continue;
 
-    nsCOMPtr<nsIEditor> editor;
-    static_cast<nsGenericHTMLElement*>(node)->
-        GetEditorInternal(getter_AddRefs(editor));
+    nsCOMPtr<nsIEditor> editor =
+      static_cast<nsGenericHTMLElement*>(node)->GetEditorInternal();
     if (!editor)
       continue;
 
@@ -361,7 +365,7 @@ nsresult
 nsINode::GetParentElement(nsIDOMElement** aParentElement)
 {
   *aParentElement = nullptr;
-  nsINode* parent = GetElementParent();
+  nsINode* parent = GetParentElement();
   return parent ? CallQueryInterface(parent, aParentElement) : NS_OK;
 }
 
@@ -697,6 +701,7 @@ nsINode::SetUserData(JSContext* aCx, const nsAString& aKey, JS::Value aData,
   }
 
   JS::Value result;
+  JSAutoCompartment ac(aCx, GetWrapper());
   aError = nsContentUtils::XPConnect()->VariantToJS(aCx, GetWrapper(), oldData,
                                                     &result);
   return result;
@@ -711,9 +716,20 @@ nsINode::GetUserData(JSContext* aCx, const nsAString& aKey, ErrorResult& aError)
   }
 
   JS::Value result;
+  JSAutoCompartment ac(aCx, GetWrapper());
   aError = nsContentUtils::XPConnect()->VariantToJS(aCx, GetWrapper(), data,
                                                     &result);
   return result;
+}
+
+//static
+bool
+nsINode::ShouldExposeUserData(JSContext* aCx, JSObject* /* unused */)
+{
+  JSCompartment* compartment = js::GetContextCompartment(aCx);
+  return xpc::AccessCheck::isChrome(compartment) ||
+         xpc::IsXBLScope(compartment) ||
+         !XPCJSRuntime::Get()->XBLScopesEnabled();
 }
 
 uint16_t
@@ -803,7 +819,7 @@ nsINode::CompareDocumentPosition(nsINode& aOtherNode) const
   // Find where the parent chain differs and check indices in the parent.
   const nsINode* parent = top1;
   uint32_t len;
-  for (len = NS_MIN(pos1, pos2); len > 0; --len) {
+  for (len = std::min(pos1, pos2); len > 0; --len) {
     const nsINode* child1 = parents1.ElementAt(--pos1);
     const nsINode* child2 = parents2.ElementAt(--pos2);
     if (child1 != child2) {
@@ -1442,7 +1458,7 @@ bool IsAllowedAsChild(nsIContent* aNewChild, nsINode* aParent,
         return true;
       }
 
-      nsIContent* docTypeContent = parentDocument->GetDocumentType();
+      nsIContent* docTypeContent = parentDocument->GetDoctype();
       if (!docTypeContent) {
         // It's all good.
         return true;
@@ -1465,7 +1481,7 @@ bool IsAllowedAsChild(nsIContent* aNewChild, nsINode* aParent,
       }
 
       nsIDocument* parentDocument = static_cast<nsIDocument*>(aParent);
-      nsIContent* docTypeContent = parentDocument->GetDocumentType();
+      nsIContent* docTypeContent = parentDocument->GetDoctype();
       if (docTypeContent) {
         // Already have a doctype, so this is only OK if we're replacing it
         return aIsReplace && docTypeContent == aRefChild;
@@ -2017,7 +2033,7 @@ nsINode::SizeOfExcludingThis(nsMallocSizeOfFun aMallocSizeOf) const
 
   // Measurement of the following members may be added later if DMD finds it is
   // worthwhile:
-  // - mNodeInfo (Nb: allocated in nsNodeInfo.cpp with a nsFixedSizeAllocator)
+  // - mNodeInfo
   // - mSlots
   //
   // The following members are not measured:
@@ -2330,7 +2346,7 @@ nsINode::QuerySelectorAll(const nsAString& aSelector, ErrorResult& aResult)
 }
 
 JSObject*
-nsINode::WrapObject(JSContext *aCx, JSObject *aScope, bool *aTriedToWrap)
+nsINode::WrapObject(JSContext *aCx, JSObject *aScope)
 {
   MOZ_ASSERT(IsDOMBinding());
 
@@ -2348,23 +2364,23 @@ nsINode::WrapObject(JSContext *aCx, JSObject *aScope, bool *aTriedToWrap)
       !hasHadScriptHandlingObject &&
       !nsContentUtils::IsCallerChrome()) {
     Throw<true>(aCx, NS_ERROR_UNEXPECTED);
-    *aTriedToWrap = true;
     return nullptr;
   }
 
-  return WrapNode(aCx, aScope, aTriedToWrap);
-}
-
-bool
-nsINode::IsSupported(const nsAString& aFeature, const nsAString& aVersion)
-{
-  return nsContentUtils::InternalIsSupported(this, aFeature, aVersion);
-}
-
-Element*
-nsINode::GetParentElement() const
-{
-  return GetElementParent();
+  JSObject* obj = WrapNode(aCx, aScope);
+  if (obj && ChromeOnlyAccess() &&
+      !nsContentUtils::IsSystemPrincipal(NodePrincipal()))
+  {
+    // Create a new wrapper and cache it.
+    JSAutoCompartment ac(aCx, obj);
+    JSObject* wrapper = xpc::WrapperFactory::WrapSOWObject(aCx, obj);
+    if (!wrapper) {
+      ClearWrapper();
+      return nullptr;
+    }
+    dom::SetSystemOnlyWrapper(obj, this, *wrapper);
+  }
+  return obj;
 }
 
 already_AddRefed<nsINode>
@@ -2385,15 +2401,14 @@ nsINode::GetAttributes()
   if (!IsElement()) {
     return nullptr;
   }
-  return AsElement()->GetAttributes();
+  return AsElement()->Attributes();
 }
 
-nsresult
-nsINode::GetAttributes(nsIDOMNamedNodeMap** aAttributes)
+bool
+EventTarget::DispatchEvent(nsDOMEvent& aEvent,
+                           ErrorResult& aRv)
 {
-  if (!IsElement()) {
-    *aAttributes = nullptr;
-    return NS_OK;
-  }
-  return CallQueryInterface(GetAttributes(), aAttributes);
+  bool result = false;
+  aRv = DispatchEvent(&aEvent, &result);
+  return result;
 }

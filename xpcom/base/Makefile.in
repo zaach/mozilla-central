@@ -10,8 +10,6 @@ VPATH		= @srcdir@
 
 include $(DEPTH)/config/autoconf.mk
 
-MODULE		= xpcom
-XPIDL_MODULE	= xpcom_base
 LIBRARY_NAME	= xpcombase_s
 GRE_MODULE	= 1
 MOZILLA_INTERNAL_API =1
@@ -54,6 +52,10 @@ ifeq (cocoa,$(MOZ_WIDGET_TOOLKIT))
 CPPSRCS		+= nsMacUtilsImpl.cpp
 endif
 
+CSRCS = \
+		nsErrorAssertsC.c \
+		$(NULL)
+
 EXPORTS		= \
 		nsAgg.h \
 		nsAutoRef.h \
@@ -95,21 +97,12 @@ endif
 
 endif #if OS_ARCH == WINNT
 
-SDK_XPIDLSRCS   = \
-		nsIDebug.idl               \
-		nsIInterfaceRequestor.idl  \
-		nsIMemory.idl		   \
-		nsIProgrammingLanguage.idl \
-		nsISupports.idl		   \
-		nsITraceRefcnt.idl         \
-		nsIWeakReference.idl	   \
-		nsrootidl.idl
-
 SDK_HEADERS     = \
 		nsAutoPtr.h \
 		nsError.h \
 		ErrorList.h \
-		ErrorListDefines.h \
+		ErrorListCxxDefines.h \
+		ErrorListCDefines.h \
 		nsISupportsBase.h \
 		nscore.h \
 		nsAtomicRefcnt.h \
@@ -120,28 +113,6 @@ ifeq ($(OS_ARCH),WINNT)
 SDK_HEADERS += \
 		nsWindowsHelpers.h \
 		$(NULL)
-endif
-
-XPIDLSRCS	= \
-		nsIConsoleListener.idl \
-		nsIConsoleMessage.idl \
-		nsIConsoleService.idl \
-		nsICycleCollectorListener.idl \
-		nsIDebug2.idl \
-		nsIErrorService.idl \
-		nsIException.idl \
-		nsIExceptionService.idl \
-		nsIVersionComparator.idl \
-		nsIUUIDGenerator.idl \
-		nsIMutable.idl \
-		nsIMemoryInfoDumper.idl \
-		nsIMemoryReporter.idl \
-		nsIGZFileWriter.idl \
-		nsIMessageLoop.idl \
-		$(NULL)
-
-ifeq (cocoa,$(MOZ_WIDGET_TOOLKIT))
-XPIDLSRCS	+= nsIMacUtils.idl
 endif
 
 # we don't want the shared lib, but we want to force the creation of a static lib.
@@ -163,10 +134,16 @@ LOCAL_INCLUDES += \
 		-I$(topsrcdir)/xpcom/ds \
 		$(NULL)
 
-# We generate ErrorListDefines.h from ErrorList.h using regex.  The -n option
+# We generate ErrorListCxxDefines.h from ErrorList.h using regex.  The -n option
 # suppresses printing the pattern space, and the p at the end prints it anyway,
 # so we don't print lines that don't match the pattern to start with.
-ErrorListDefines.h: ErrorList.h
+ErrorListCxxDefines.h: ErrorList.h Makefile
 		sed -n 's/.*ERROR(\([A-Z_0-9]*\).*/#define \1 nsresult::\1/p' < $< > $@
 
-GARBAGE += ErrorListDefines.h
+ErrorListCDefines.h: ErrorList.h Makefile
+		sed 's/.*ERROR(\([A-Z_0-9]*\),\( *\)\(.*\))[^)]*/#define \1 \2((nsresult)(\3))/' < $< > $@
+
+GARBAGE += \
+	ErrorListCxxDefines.h \
+	ErrorListCDefines.h \
+	$(NULL)

@@ -21,9 +21,7 @@ relativesrcdir   = @relativesrcdir@
 
 include $(DEPTH)/config/autoconf.mk
 
-MODULE           = dom
 LIBRARY_NAME     = domsystemgonk_s
-XPIDL_MODULE     = dom_system_gonk
 LIBXUL_LIBRARY   = 1
 FORCE_STATIC_LIB = 1
 FAIL_ON_WARNINGS := 1
@@ -32,18 +30,6 @@ include $(topsrcdir)/dom/dom-config.mk
 
 CPPSRCS = \
   SystemWorkerManager.cpp \
-  $(NULL)
-
-XPIDLSRCS = \
-  nsIAudioManager.idl \
-  nsINetworkManager.idl \
-  nsIRadioInterfaceLayer.idl \
-  nsIVolume.idl \
-  nsIVolumeService.idl \
-  nsIVolumeStat.idl \
-  nsIWorkerHolder.idl \
-  nsIAudioChannelManager.idl \
-  nsINavigatorAudioChannelManager.idl \
   $(NULL)
 
 LOCAL_INCLUDES = \
@@ -63,6 +49,7 @@ CPPSRCS += \
   GonkGPSGeolocationProvider.cpp \
   AudioChannelManager.cpp \
   nsVolume.cpp \
+  nsVolumeMountLock.cpp \
   nsVolumeService.cpp \
   nsVolumeStat.cpp \
   TimeZoneSettingObserver.cpp \
@@ -72,11 +59,9 @@ CPPSRCS += \
   VolumeServiceIOThread.cpp \
   VolumeServiceTest.cpp \
   $(NULL)
-# for our local copy of AudioSystem.h
-LOCAL_INCLUDES += -I$(topsrcdir)/media/libsydneyaudio/src
 EXPORTS = \
-  nsVolume.h \
   GonkGPSGeolocationProvider.h \
+  nsVolume.h \
   $(NULL)
 endif
 
@@ -102,6 +87,3 @@ endif
 include $(topsrcdir)/config/rules.mk
 include $(topsrcdir)/ipc/chromium/chromium-config.mk
 
-XPIDL_FLAGS += \
-  -I$(topsrcdir)/dom/network/interfaces \
-  $(NULL)

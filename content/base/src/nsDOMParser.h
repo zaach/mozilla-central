@@ -32,11 +32,12 @@ public:
 
   // WebIDL API
   static already_AddRefed<nsDOMParser>
-  Constructor(nsISupports* aOwner, mozilla::ErrorResult& rv);
+  Constructor(const mozilla::dom::GlobalObject& aOwner,
+              mozilla::ErrorResult& rv);
 
   static already_AddRefed<nsDOMParser>
-  Constructor(nsISupports* aOwner, nsIPrincipal* aPrincipal,
-              nsIURI* aDocumentURI, nsIURI* aBaseURI,
+  Constructor(const mozilla::dom::GlobalObject& aOwner,
+              nsIPrincipal* aPrincipal, nsIURI* aDocumentURI, nsIURI* aBaseURI,
               mozilla::ErrorResult& rv);
 
   already_AddRefed<nsIDocument>
@@ -66,11 +67,9 @@ public:
     return mOwner;
   }
 
-  virtual JSObject* WrapObject(JSContext* aCx, JSObject* aScope,
-                               bool* aTriedToWrap) MOZ_OVERRIDE
+  virtual JSObject* WrapObject(JSContext* aCx, JSObject* aScope) MOZ_OVERRIDE
   {
-    return mozilla::dom::DOMParserBinding::Wrap(aCx, aScope, this,
-                                                aTriedToWrap);
+    return mozilla::dom::DOMParserBinding::Wrap(aCx, aScope, this);
   }
 
 private:

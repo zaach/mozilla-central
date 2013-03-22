@@ -26,8 +26,8 @@
 #include "nsIContent.h"
 #include "mozilla/dom/Element.h"
 #include "nsIFrame.h"
-#include "nsIView.h"
-#include "nsIViewManager.h"
+#include "nsView.h"
+#include "nsViewManager.h"
 #include "nsCOMPtr.h"
 #include "nsIServiceManager.h"
 #include "nsIScriptSecurityManager.h"
@@ -45,7 +45,6 @@
 #include "nsContentCID.h"
 #include "nsEventDispatcher.h"
 #include "nsDOMJSUtils.h"
-#include "nsDOMScriptObjectHolder.h"
 #include "nsDataHashtable.h"
 #include "nsCOMArray.h"
 #include "nsEventListenerService.h"
@@ -150,8 +149,6 @@ nsEventListenerManager::Shutdown()
 {
   nsDOMEvent::Shutdown();
 }
-
-NS_IMPL_CYCLE_COLLECTION_NATIVE_CLASS(nsEventListenerManager)
 
 NS_IMPL_CYCLE_COLLECTION_ROOT_NATIVE(nsEventListenerManager, AddRef)
 NS_IMPL_CYCLE_COLLECTION_UNROOT_NATIVE(nsEventListenerManager, Release)
@@ -341,6 +338,14 @@ nsEventListenerManager::AddEventListenerInternal(
 #endif
       window->SetHasMouseEnterLeaveEventListeners();
     }
+#ifdef MOZ_GAMEPAD
+  } else if (aType >= NS_GAMEPAD_START &&
+             aType <= NS_GAMEPAD_END) {
+    nsPIDOMWindow* window = GetInnerWindowForTarget();
+    if (window) {
+      window->SetHasGamepadEventListener();
+    }
+#endif
   }
 }
 
@@ -751,9 +756,15 @@ nsEventListenerManager::CompileEventHandlerInternal(nsListenerStruct *aListenerS
                "What is there to compile?");
 
   nsIScriptContext *context = listener->GetEventContext();
-  nsScriptObjectHolder<JSObject> handler(context);
+  JSContext *cx = context->GetNativeContext();
+  JS::Rooted<JSObject*> handler(cx);
 
   nsCOMPtr<nsPIDOMWindow> win; // Will end up non-null if mTarget is a window
+
+  nsCxPusher pusher;
+  if (aNeedsCxPush) {
+    pusher.Push(cx);
+  }
 
   if (aListenerStruct->mHandlerIsString) {
     // OK, we didn't find an existing compiled event handler.  Flag us
@@ -818,11 +829,6 @@ nsEventListenerManager::CompileEventHandlerInternal(nsListenerStruct *aListenerS
       }
     }
 
-    nsCxPusher pusher;
-    if (aNeedsCxPush && !pusher.Push(context->GetNativeContext())) {
-      return NS_ERROR_FAILURE;
-    }
-
     uint32_t argCount;
     const char **argNames;
     // If no content, then just use kNameSpaceID_None for the
@@ -835,32 +841,33 @@ nsEventListenerManager::CompileEventHandlerInternal(nsListenerStruct *aListenerS
                                      aListenerStruct->mTypeAtom,
                                      &argCount, &argNames);
 
-    result = context->CompileEventHandler(aListenerStruct->mTypeAtom,
-                                          argCount, argNames,
-                                          *body,
-                                          url.get(), lineNo,
-                                          SCRIPTVERSION_DEFAULT, // for now?
-                                          /* aIsXBL = */ false,
-                                          handler);
-    if (result == NS_ERROR_ILLEGAL_VALUE) {
-      NS_WARNING("Probably a syntax error in the event handler!");
-      return NS_SUCCESS_LOSS_OF_INSIGNIFICANT_DATA;
-    }
+    JSAutoRequest ar(cx);
+    JSAutoCompartment ac(cx, context->GetNativeGlobal());
+    JS::CompileOptions options(cx);
+    options.setFileAndLine(url.get(), lineNo)
+           .setVersion(SCRIPTVERSION_DEFAULT);
+
+    JS::RootedObject rootedNull(cx, nullptr); // See bug 781070.
+    JSObject *handlerFun = nullptr;
+    result = nsJSUtils::CompileFunction(cx, rootedNull, options,
+                                        nsAtomCString(aListenerStruct->mTypeAtom),
+                                        argCount, argNames, *body, &handlerFun);
     NS_ENSURE_SUCCESS(result, result);
+    handler = handlerFun;
+    NS_ENSURE_TRUE(handler, NS_ERROR_FAILURE);
   }
 
   if (handler) {
     // Bind it
-    nsScriptObjectHolder<JSObject> boundHandler(context);
+    JS::Rooted<JSObject*> boundHandler(cx);
     context->BindCompiledEventHandler(mTarget, listener->GetEventScope(),
-                                      handler.get(), boundHandler);
+                                      handler, &boundHandler);
     if (listener->EventName() == nsGkAtoms::onerror && win) {
       bool ok;
-      JSAutoRequest ar(context->GetNativeContext());
+      JSAutoRequest ar(cx);
       nsRefPtr<OnErrorEventHandlerNonNull> handlerCallback =
-        new OnErrorEventHandlerNonNull(context->GetNativeContext(),
-                                       listener->GetEventScope(),
-                                       boundHandler.get(), &ok);
+        new OnErrorEventHandlerNonNull(cx, listener->GetEventScope(),
+                                       boundHandler, &ok);
       if (!ok) {
         // JS_WrapObject failed, which means OOM allocating the JSObject.
         return NS_ERROR_OUT_OF_MEMORY;
@@ -868,11 +875,10 @@ nsEventListenerManager::CompileEventHandlerInternal(nsListenerStruct *aListenerS
       listener->SetHandler(handlerCallback);
     } else if (listener->EventName() == nsGkAtoms::onbeforeunload && win) {
       bool ok;
-      JSAutoRequest ar(context->GetNativeContext());
+      JSAutoRequest ar(cx);
       nsRefPtr<BeforeUnloadEventHandlerNonNull> handlerCallback =
-        new BeforeUnloadEventHandlerNonNull(context->GetNativeContext(),
-                                            listener->GetEventScope(),
-                                            boundHandler.get(), &ok);
+        new BeforeUnloadEventHandlerNonNull(cx, listener->GetEventScope(),
+                                            boundHandler, &ok);
       if (!ok) {
         // JS_WrapObject failed, which means OOM allocating the JSObject.
         return NS_ERROR_OUT_OF_MEMORY;
@@ -880,11 +886,10 @@ nsEventListenerManager::CompileEventHandlerInternal(nsListenerStruct *aListenerS
       listener->SetHandler(handlerCallback);
     } else {
       bool ok;
-      JSAutoRequest ar(context->GetNativeContext());
+      JSAutoRequest ar(cx);
       nsRefPtr<EventHandlerNonNull> handlerCallback =
-        new EventHandlerNonNull(context->GetNativeContext(),
-                                listener->GetEventScope(),
-                                boundHandler.get(), &ok);
+        new EventHandlerNonNull(cx, listener->GetEventScope(),
+                                boundHandler, &ok);
       if (!ok) {
         // JS_WrapObject failed, which means OOM allocating the JSObject.
         return NS_ERROR_OUT_OF_MEMORY;
@@ -958,8 +963,11 @@ nsEventListenerManager::HandleEventInternal(nsPresContext* aPresContext,
       if (ls->IsListening(aEvent) &&
           (aEvent->mFlags.mIsTrusted || ls->mFlags.mAllowUntrustedEvents)) {
         if (!*aDOMEvent) {
-          nsEventDispatcher::CreateEvent(aPresContext, aEvent,
-                                         EmptyString(), aDOMEvent);
+          // This is tiny bit slow, but happens only once per event.
+          nsCOMPtr<mozilla::dom::EventTarget> et =
+            do_QueryInterface(aEvent->originalTarget);
+          nsEventDispatcher::CreateEvent(et, aPresContext,
+                                         aEvent, EmptyString(), aDOMEvent);
         }
         if (*aDOMEvent) {
           if (!aEvent->currentTarget) {

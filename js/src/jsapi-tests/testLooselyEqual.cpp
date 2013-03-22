@@ -12,7 +12,7 @@ struct LooseEqualityFixture : public JSAPITest
 {
     virtual ~LooseEqualityFixture() {}
 
-    bool leq(jsval x, jsval y) {
+    bool leq(JS::HandleValue x, JS::HandleValue y) {
         JSBool equal;
         CHECK(JS_LooselyEqual(cx, x, y, &equal) && equal);
         CHECK(JS_LooselyEqual(cx, y, x, &equal) && equal);
@@ -29,15 +29,15 @@ struct LooseEqualityFixture : public JSAPITest
 
 struct LooseEqualityData
 {
-    js::RootedValue qNaN;
-    js::RootedValue sNaN;
-    js::RootedValue d42;
-    js::RootedValue i42;
-    js::RootedValue undef;
-    js::RootedValue null;
-    js::RootedValue obj;
-    js::RootedValue poszero;
-    js::RootedValue negzero;
+    JS::RootedValue qNaN;
+    JS::RootedValue sNaN;
+    JS::RootedValue d42;
+    JS::RootedValue i42;
+    JS::RootedValue undef;
+    JS::RootedValue null;
+    JS::RootedValue obj;
+    JS::RootedValue poszero;
+    JS::RootedValue negzero;
 
     LooseEqualityData(JSContext *cx)
       : qNaN(cx),

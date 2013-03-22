@@ -10,7 +10,6 @@ VPATH		= @srcdir@
 
 include $(DEPTH)/config/autoconf.mk
 
-MODULE		= widget
 LIBRARY_NAME	= wdgtos2
 EXPORT_LIBRARY	= 1
 IS_COMPONENT	= 1
@@ -65,8 +64,11 @@ endif
 libs::	install-readme
 	$(INSTALL) $(srcdir)/MozSounds.cmd $(DIST)/bin/
 
-export::
-	test -d ./res || mkdir ./res
+export-preqs = \
+    $(call mkdir_deps,res) \
+    $(NULL)
+
+export:: $(export-preqs)
 	test -f ./res/aliasb.ptr || cp $(srcdir)/res/*.* ./res
 
 

@@ -39,7 +39,7 @@
 #include "jsapi.h"
 #include "nsContentUtils.h"
 #include "mozilla/Preferences.h"
-#include "nsIViewManager.h"
+#include "nsViewManager.h"
 #include "sampler.h"
 #include "nsNPAPIPluginInstance.h"
 
@@ -208,10 +208,14 @@ protected:
 
   virtual void StartTimer()
   {
+    // pretend we just fired, and we schedule the next tick normally
+    mLastFireEpoch = JS_Now();
     mLastFireTime = TimeStamp::Now();
-    mTargetTime = mLastFireTime;
 
-    mTimer->InitWithFuncCallback(TimerTick, this, 0, nsITimer::TYPE_ONE_SHOT);
+    mTargetTime = mLastFireTime + mRateDuration;
+
+    uint32_t delay = static_cast<uint32_t>(mRateMilliseconds);
+    mTimer->InitWithFuncCallback(TimerTick, this, delay, nsITimer::TYPE_ONE_SHOT);
   }
 
   virtual void StopTimer()
@@ -248,6 +252,13 @@ protected:
     // to an int number of intervals.
     int numElapsedIntervals = static_cast<int>((aNowTime - mTargetTime) / mRateDuration);
 
+    if (numElapsedIntervals < 0) {
+      // It's possible that numElapsedIntervals is negative (e.g. timer compensation
+      // may result in (aNowTime - mTargetTime) < -1.0/mRateDuration, which will result in
+      // negative numElapsedIntervals), so make sure we don't target the same timestamp.
+      numElapsedIntervals = 0;
+    }
+
     // the last "tick" that may or may not have been actually sent was
     // at this time.  For example, if the rate is 15ms, the target
     // time is 200ms, and it's now 225ms, the last effective tick
@@ -278,6 +289,7 @@ protected:
         delay);
 
     // then schedule the timer
+    LOG("[%p] scheduling callback for %d ms (2)", this, delay);
     mTimer->InitWithFuncCallback(TimerTick, this, delay, nsITimer::TYPE_ONE_SHOT);
 
     mTargetTime = newTarget;
@@ -340,10 +352,13 @@ public:
 protected:
   virtual void StartTimer()
   {
+    mLastFireEpoch = JS_Now();
     mLastFireTime = TimeStamp::Now();
-    mTargetTime = mLastFireTime;
 
-    mTimer->InitWithFuncCallback(TimerTickOne, this, 0, nsITimer::TYPE_ONE_SHOT);
+    mTargetTime = mLastFireTime + mRateDuration;
+
+    uint32_t delay = static_cast<uint32_t>(mRateMilliseconds);
+    mTimer->InitWithFuncCallback(TimerTickOne, this, delay, nsITimer::TYPE_ONE_SHOT);
   }
 
   virtual void StopTimer()
@@ -513,6 +528,8 @@ nsRefreshDriver::nsRefreshDriver(nsPresContext* aPresContext)
   mMostRecentRefreshEpochTime = JS_Now();
   mMostRecentRefresh = TimeStamp::Now();
 
+  mPaintFlashing = Preferences::GetBool("nglayout.debug.paint_flashing");
+
   mRequests.Init();
 }
 
@@ -547,10 +564,8 @@ nsRefreshDriver::AdvanceTimeAndRefresh(int64_t aMilliseconds)
   mMostRecentRefresh += TimeDuration::FromMilliseconds((double) aMilliseconds);
 
   nsCxPusher pusher;
-  if (pusher.PushNull()) {
-    DoTick();
-    pusher.Pop();
-  }
+  pusher.PushNull();
+  DoTick();
 }
 
 void
@@ -563,12 +578,16 @@ nsRefreshDriver::RestoreNormalRefresh()
 TimeStamp
 nsRefreshDriver::MostRecentRefresh() const
 {
+  const_cast<nsRefreshDriver*>(this)->EnsureTimerStarted(false);
+
   return mMostRecentRefresh;
 }
 
 int64_t
 nsRefreshDriver::MostRecentRefreshEpochTime() const
 {
+  const_cast<nsRefreshDriver*>(this)->EnsureTimerStarted(false);
+
   return mMostRecentRefreshEpochTime;
 }
 
@@ -641,6 +660,9 @@ nsRefreshDriver::EnsureTimerStarted(bool aAdjustingTimer)
     mActiveTimer = newTimer;
     mActiveTimer->AddRefreshDriver(this);
   }
+
+  mMostRecentRefresh = mActiveTimer->MostRecentRefresh();
+  mMostRecentRefreshEpochTime = mActiveTimer->MostRecentRefreshEpochTime();
 }
 
 void
@@ -800,7 +822,7 @@ nsRefreshDriver::Tick(int64_t aNowEpoch, TimeStamp aNowTime)
   NS_PRECONDITION(!nsContentUtils::GetCurrentJSContext(),
                   "Shouldn't have a JSContext on the stack");
 
-  if (nsNPAPIPluginInstance::InPluginCall()) {
+  if (nsNPAPIPluginInstance::InPluginCallUnsafeForReentry()) {
     NS_ERROR("Refresh driver should not run during plugin call!");
     // Try to survive this by just ignoring the refresh tick.
     return;
@@ -927,8 +949,16 @@ nsRefreshDriver::Tick(int64_t aNowEpoch, TimeStamp aNowTime)
 #ifdef DEBUG_INVALIDATIONS
     printf("Starting ProcessPendingUpdates\n");
 #endif
+#ifndef MOZ_WIDGET_GONK
+    // Waiting for bug 830475 to work on B2G.
+    nsRefPtr<layers::LayerManager> mgr = mPresContext->GetPresShell()->GetLayerManager();
+    if (mgr) {
+      mgr->SetPaintStartTime(mMostRecentRefresh);
+    }
+#endif
+
     mViewManagerFlushIsPending = false;
-    nsCOMPtr<nsIViewManager> vm = mPresContext->GetPresShell()->GetViewManager();
+    nsRefPtr<nsViewManager> vm = mPresContext->GetPresShell()->GetViewManager();
     vm->ProcessPendingUpdates();
 #ifdef DEBUG_INVALIDATIONS
     printf("Ending ProcessPendingUpdates\n");

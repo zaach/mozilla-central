@@ -410,7 +410,7 @@ class AutoDetectInvalidation
     }
 };
 
-bool InvokeFunction(JSContext *cx, JSFunction *fun, uint32_t argc, Value *argv, Value *rval);
+bool InvokeFunction(JSContext *cx, HandleFunction fun0, uint32_t argc, Value *argv, Value *rval);
 JSObject *NewGCThing(JSContext *cx, gc::AllocKind allocKind, size_t thingSize);
 
 bool CheckOverRecursed(JSContext *cx);
@@ -419,15 +419,15 @@ bool DefVarOrConst(JSContext *cx, HandlePropertyName dn, unsigned attrs, HandleO
 bool InitProp(JSContext *cx, HandleObject obj, HandlePropertyName name, HandleValue value);
 
 template<bool Equal>
-bool LooselyEqual(JSContext *cx, HandleValue lhs, HandleValue rhs, JSBool *res);
+bool LooselyEqual(JSContext *cx, MutableHandleValue lhs, MutableHandleValue rhs, JSBool *res);
 
 template<bool Equal>
-bool StrictlyEqual(JSContext *cx, HandleValue lhs, HandleValue rhs, JSBool *res);
+bool StrictlyEqual(JSContext *cx, MutableHandleValue lhs, MutableHandleValue rhs, JSBool *res);
 
-bool LessThan(JSContext *cx, HandleValue lhs, HandleValue rhs, JSBool *res);
-bool LessThanOrEqual(JSContext *cx, HandleValue lhs, HandleValue rhs, JSBool *res);
-bool GreaterThan(JSContext *cx, HandleValue lhs, HandleValue rhs, JSBool *res);
-bool GreaterThanOrEqual(JSContext *cx, HandleValue lhs, HandleValue rhs, JSBool *res);
+bool LessThan(JSContext *cx, MutableHandleValue lhs, MutableHandleValue rhs, JSBool *res);
+bool LessThanOrEqual(JSContext *cx, MutableHandleValue lhs, MutableHandleValue rhs, JSBool *res);
+bool GreaterThan(JSContext *cx, MutableHandleValue lhs, MutableHandleValue rhs, JSBool *res);
+bool GreaterThanOrEqual(JSContext *cx, MutableHandleValue lhs, MutableHandleValue rhs, JSBool *res);
 
 template<bool Equal>
 bool StringsEqual(JSContext *cx, HandleString left, HandleString right, JSBool *res);
@@ -436,7 +436,8 @@ JSBool ObjectEmulatesUndefined(RawObject obj);
 
 bool IteratorMore(JSContext *cx, HandleObject obj, JSBool *res);
 
-// Allocation functions for JSOP_NEWARRAY and JSOP_NEWOBJECT
+// Allocation functions for JSOP_NEWARRAY and JSOP_NEWOBJECT and parallel array inlining
+JSObject *NewInitParallelArray(JSContext *cx, HandleObject templateObj);
 JSObject *NewInitArray(JSContext *cx, uint32_t count, types::TypeObject *type);
 JSObject *NewInitObject(JSContext *cx, HandleObject templateObject);
 
@@ -463,6 +464,12 @@ bool SPSExit(JSContext *cx, HandleScript script);
 bool OperatorIn(JSContext *cx, HandleValue key, HandleObject obj, JSBool *out);
 
 bool GetIntrinsicValue(JSContext *cx, HandlePropertyName name, MutableHandleValue rval);
+
+bool CreateThis(JSContext *cx, HandleObject callee, MutableHandleValue rval);
+
+void GetDynamicName(JSContext *cx, JSObject *scopeChain, JSString *str, Value *vp);
+
+JSBool FilterArguments(JSContext *cx, JSString *str);
 
 } // namespace ion
 } // namespace js

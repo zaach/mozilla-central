@@ -8,23 +8,28 @@
 #ifndef nsComputedDOMStyle_h__
 #define nsComputedDOMStyle_h__
 
-#include "mozilla/Attributes.h"
-#include "nsDOMCSSDeclaration.h"
-
-#include "nsDOMCSSRGBColor.h"
-#include "nsCSSProps.h"
-
-#include "nsIContent.h"
-#include "nsCOMPtr.h"
-#include "nsWeakReference.h"
 #include "nsAutoPtr.h"
-#include "nsStyleStruct.h"
+#include "mozilla/Attributes.h"
+#include "nsCOMPtr.h"
+#include "nscore.h"
+#include "nsCSSProperty.h"
+#include "nsDOMCSSDeclaration.h"
 #include "nsStyleContext.h"
+#include "nsStyleStruct.h"
+#include "nsIWeakReferenceUtils.h"
+#include "nsIContent.h"
+
+namespace mozilla {
+namespace dom {
+class Element;
+}
+}
 
 class nsIFrame;
 class nsIPresShell;
 class nsDOMCSSValueList;
 class nsROCSSPrimitiveValue;
+class nsStyleContext;
 
 class nsComputedDOMStyle MOZ_FINAL : public nsDOMCSSDeclaration
 {
@@ -95,8 +100,8 @@ private:
   }
 
 #define STYLE_STRUCT(name_, checkdata_cb_, ctor_args_)                  \
-  const nsStyle##name_ * GetStyle##name_() {                            \
-    return mStyleContextHolder->GetStyle##name_();                      \
+  const nsStyle##name_ * Style##name_() {                               \
+    return mStyleContextHolder->Style##name_();                         \
   }
 #include "nsStyleStructList.h"
 #undef STYLE_STRUCT
@@ -421,6 +426,8 @@ private:
   mozilla::dom::CSSValue* DoGetClipPath();
   mozilla::dom::CSSValue* DoGetFilter();
   mozilla::dom::CSSValue* DoGetMask();
+  mozilla::dom::CSSValue* DoGetMaskType();
+  mozilla::dom::CSSValue* DoGetPaintOrder();
 
   nsROCSSPrimitiveValue* GetROCSSPrimitiveValue();
   nsDOMCSSValueList* GetROCSSValueList(bool aCommaDelimited);

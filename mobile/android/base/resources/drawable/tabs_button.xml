@@ -10,9 +10,13 @@
         <selector>
 
             <item android:state_pressed="true"
-                  android:drawable="@drawable/highlight"/>
+                  android:drawable="@color/highlight_tabs"/>
 
-            <item android:drawable="@drawable/tabs_tray_bg_repeat"/>
+            <item android:state_focused="true"
+                  android:state_pressed="false"
+                  android:drawable="@color/highlight_tabs_focused"/>
+
+            <item android:drawable="@color/background_tabs_light"/>
 
         </selector>
 

@@ -52,6 +52,8 @@ namespace ion {
     _(Safepoints)                           \
     /* Debug info about Pools*/             \
     _(Pools)                                \
+    /* Calls to js::ion::Trace() */         \
+    _(Trace)                                \
     /* Debug info about the I$ */           \
     _(CacheFlush)
 
@@ -79,7 +81,6 @@ class IonSpewer
     JSONSpewer jsonSpewer;
     bool inited_;
 
-
   public:
     IonSpewer()
       : graph(NULL), function(NullPtr()), inited_(false)
@@ -90,6 +91,7 @@ class IonSpewer
 
     bool init();
     void beginFunction(MIRGraph *graph, HandleScript);
+    bool isSpewingFunction() const;
     void spewPass(const char *pass);
     void spewPass(const char *pass, LinearScanAllocator *ra);
     void endFunction();

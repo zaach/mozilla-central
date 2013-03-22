@@ -12,12 +12,11 @@
 #include "nsIDOMCSSPrimitiveValue.h"
 #include "nsCSSKeywords.h"
 #include "CSSValue.h"
-#include "nsAutoPtr.h"
+#include "nsCOMPtr.h"
 #include "nsCoord.h"
-#include "nsWrapperCache.h"
 
 class nsIURI;
-class nsComputedDOMStyle;
+class nsDOMCSSRect;
 class nsDOMCSSRGBColor;
 
 /**
@@ -54,7 +53,7 @@ public:
   void SetStringValue(uint16_t aUnitType, const nsAString& aString,
                       mozilla::ErrorResult& aRv);
   already_AddRefed<nsIDOMCounter> GetCounterValue(mozilla::ErrorResult& aRv);
-  already_AddRefed<nsIDOMRect> GetRectValue(mozilla::ErrorResult& aRv);
+  nsDOMCSSRect* GetRectValue(mozilla::ErrorResult& aRv);
   nsDOMCSSRGBColor *GetRGBColorValue(mozilla::ErrorResult& aRv);
 
   // nsROCSSPrimitiveValue
@@ -74,7 +73,7 @@ public:
   void SetString(const nsAString& aString, uint16_t aType = CSS_STRING);
   void SetURI(nsIURI *aURI);
   void SetColor(nsDOMCSSRGBColor* aColor);
-  void SetRect(nsIDOMRect* aRect);
+  void SetRect(nsDOMCSSRect* aRect);
   void SetTime(float aValue);
   void Reset();
 
@@ -83,7 +82,7 @@ public:
     return nullptr;
   }
 
-  virtual JSObject *WrapObject(JSContext *cx, JSObject *scope, bool *triedToWrap);
+  virtual JSObject *WrapObject(JSContext *cx, JSObject *scope) MOZ_OVERRIDE;
 
 private:
   uint16_t mType;
@@ -92,12 +91,18 @@ private:
     nscoord         mAppUnits;
     float           mFloat;
     nsDOMCSSRGBColor* mColor;
-    nsIDOMRect*     mRect;
+    nsDOMCSSRect*     mRect;
     PRUnichar*      mString;
     nsIURI*         mURI;
     nsCSSKeyword    mKeyword;
   } mValue;
 };
+
+inline nsROCSSPrimitiveValue *mozilla::dom::CSSValue::AsPrimitiveValue()
+{
+  return CssValueType() == nsIDOMCSSValue::CSS_PRIMITIVE_VALUE ?
+    static_cast<nsROCSSPrimitiveValue*>(this) : nullptr;
+}
 
 #endif /* nsROCSSPrimitiveValue_h___ */
 

@@ -14,13 +14,16 @@
 #include "nsIDOMClientInformation.h"
 #include "nsINavigatorBattery.h"
 #include "nsIDOMNavigatorSms.h"
+#include "nsIDOMNavigatorMobileMessage.h"
 #include "nsIDOMNavigatorNetwork.h"
+#include "nsIObserver.h"
 #ifdef MOZ_AUDIO_CHANNEL_MANAGER
 #include "nsINavigatorAudioChannelManager.h"
 #endif
 #ifdef MOZ_B2G_RIL
 #include "nsINavigatorMobileConnection.h"
 #include "nsINavigatorCellBroadcast.h"
+#include "nsINavigatorVoicemail.h"
 #endif
 #include "nsAutoPtr.h"
 #include "nsIDOMNavigatorTime.h"
@@ -41,7 +44,6 @@ class nsIDOMMozConnection;
 #ifdef MOZ_B2G_RIL
 #include "nsIDOMNavigatorTelephony.h"
 class nsIDOMTelephony;
-class nsIDOMMozVoicemail;
 #endif
 
 #ifdef MOZ_B2G_BT
@@ -64,9 +66,8 @@ namespace battery {
 class BatteryManager;
 } // namespace battery
 
-namespace sms {
 class SmsManager;
-} // namespace sms
+class MobileMessageManager;
 
 namespace network {
 class Connection;
@@ -96,6 +97,8 @@ class Navigator : public nsIDOMNavigator
                 , public nsIDOMNavigatorDesktopNotification
                 , public nsINavigatorBattery
                 , public nsIDOMMozNavigatorSms
+                , public nsIDOMMozNavigatorMobileMessage
+                , public nsIObserver
 #ifdef MOZ_MEDIA_NAVIGATOR
                 , public nsINavigatorUserMedia
                 , public nsIDOMNavigatorUserMedia
@@ -107,6 +110,7 @@ class Navigator : public nsIDOMNavigator
 #ifdef MOZ_B2G_RIL
                 , public nsIMozNavigatorMobileConnection
                 , public nsIMozNavigatorCellBroadcast
+                , public nsIMozNavigatorVoicemail
 #endif
 #ifdef MOZ_B2G_BT
                 , public nsIDOMNavigatorBluetooth
@@ -132,6 +136,8 @@ public:
   NS_DECL_NSIDOMNAVIGATORDESKTOPNOTIFICATION
   NS_DECL_NSINAVIGATORBATTERY
   NS_DECL_NSIDOMMOZNAVIGATORSMS
+  NS_DECL_NSIDOMMOZNAVIGATORMOBILEMESSAGE
+  NS_DECL_NSIOBSERVER
 #ifdef MOZ_MEDIA_NAVIGATOR
   NS_DECL_NSINAVIGATORUSERMEDIA
   NS_DECL_NSIDOMNAVIGATORUSERMEDIA
@@ -143,6 +149,7 @@ public:
 #ifdef MOZ_B2G_RIL
   NS_DECL_NSIMOZNAVIGATORMOBILECONNECTION
   NS_DECL_NSIMOZNAVIGATORCELLBROADCAST
+  NS_DECL_NSIMOZNAVIGATORVOICEMAIL
 #endif
 
 #ifdef MOZ_B2G_BT
@@ -192,7 +199,8 @@ private:
   nsRefPtr<nsDesktopNotificationCenter> mNotification;
   nsRefPtr<battery::BatteryManager> mBatteryManager;
   nsRefPtr<power::PowerManager> mPowerManager;
-  nsRefPtr<sms::SmsManager> mSmsManager;
+  nsRefPtr<SmsManager> mSmsManager;
+  nsRefPtr<MobileMessageManager> mMobileMessageManager;
 #ifdef MOZ_B2G_RIL
   nsCOMPtr<nsIDOMTelephony> mTelephony;
   nsCOMPtr<nsIDOMMozVoicemail> mVoicemail;

@@ -9,8 +9,6 @@ VPATH = @srcdir@
 
 include $(DEPTH)/config/autoconf.mk
 
-MODULE = testing_mozbase
-
 include $(topsrcdir)/config/rules.mk
 
 # Harness packages from the srcdir;
@@ -27,11 +25,11 @@ MOZBASE_PACKAGES = \
   mozprofile \
   mozrunner \
   mozdevice \
+  mozcrash \
   $(NULL)
 
 MOZBASE_EXTRAS = \
   setup_development.py \
-  README \
   $(NULL)
 
 _DEST_DIR = $(DEPTH)/_tests/mozbase

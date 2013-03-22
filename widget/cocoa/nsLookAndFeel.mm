@@ -5,13 +5,15 @@
 
 #include "nsLookAndFeel.h"
 #include "nsCocoaFeatures.h"
-#include "nsObjCExceptions.h"
 #include "nsIServiceManager.h"
 #include "nsNativeThemeColors.h"
 #include "nsStyleConsts.h"
 #include "gfxFont.h"
 
 #import <Cocoa/Cocoa.h>
+
+// This must be included last:
+#include "nsObjCExceptions.h"
 
 nsLookAndFeel::nsLookAndFeel() : nsXPLookAndFeel()
 {
@@ -368,6 +370,9 @@ nsLookAndFeel::GetIntImpl(IntID aID, int32_t &aResult)
       break;
     case eIntID_MacLionTheme:
       aResult = nsCocoaFeatures::OnLionOrLater();
+      break;
+    case eIntID_AlertNotificationOrigin:
+      aResult = NS_ALERT_TOP;
       break;
     case eIntID_TabFocusModel:
     {

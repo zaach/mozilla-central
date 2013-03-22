@@ -104,7 +104,7 @@ LayoutView.prototype = {
       this.browser.removeEventListener("MozAfterPaint", this.update, true);
     }
     if (this.inspector.highlighter) {
-      this.inspector.highlighter.on("locked", this.onHighlighterLocked);
+      this.inspector.highlighter.off("locked", this.onHighlighterLocked);
     }
     this.sizeHeadingLabel = null;
     this.sizeLabel = null;
@@ -122,10 +122,10 @@ LayoutView.prototype = {
         this.inspector.selection.reason != "highlighter") {
       this.cssLogic.highlight(this.inspector.selection.node);
       this.undim();
-      this.update();
     } else {
       this.dim();
     }
+    this.update();
   },
 
   /**

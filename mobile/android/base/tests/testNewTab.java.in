@@ -7,7 +7,6 @@ import android.view.View;
 
 /* A simple test that creates 2 new tabs and checks that the tab count increases. */
 public class testNewTab extends BaseTest {
-    private static final int MAX_WAIT_MS = 3000;
     private Element tabCount = null;
     private Element tabs = null;
     private Element addTab = null;
@@ -29,11 +28,9 @@ public class testNewTab extends BaseTest {
         tabCount = mDriver.findElement(activity, "tabs_count");
         tabs = mDriver.findElement(activity, "tabs");
         addTab = mDriver.findElement(activity, "add_tab");
-        closeTab = mDriver.findElement(activity, "close");
         mAsserter.ok(tabCount != null &&
                      tabs != null &&
-                     addTab != null &&
-                     closeTab != null,
+                     addTab != null, 
                      "Checking elements", "all elements present");
 
         int expectedTabCount = 1;
@@ -54,7 +51,7 @@ public class testNewTab extends BaseTest {
         mAsserter.is(tabCountInt, expectedTabCount, "Number of tabs increased");
 
         // cleanup: close all opened tabs
-        closeTabs();
+        //closeTabs();
     }
 
     private void closeTabs() {
@@ -69,6 +66,7 @@ public class testNewTab extends BaseTest {
 
         // wait for closeTab to appear (this is usually immediate)
         boolean success = waitForTest(new BooleanTest() {
+            @Override
             public boolean test() {
                 View closeTabView = getActivity().findViewById(closeTabId);
                 if (closeTabView == null) {
@@ -91,6 +89,7 @@ public class testNewTab extends BaseTest {
             }
 
             success = waitForTest(new BooleanTest() {
+                @Override
                 public boolean test() {
                     String newTabCountText = tabCount.getText();
                     int newTabCount = Integer.parseInt(newTabCountText);

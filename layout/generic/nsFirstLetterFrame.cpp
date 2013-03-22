@@ -46,21 +46,15 @@ nsFirstLetterFrame::GetType() const
   return nsGkAtoms::letterFrame;
 }
 
-int
-nsFirstLetterFrame::GetSkipSides() const
-{
-  return 0;
-}
-
-NS_IMETHODIMP
+void
 nsFirstLetterFrame::BuildDisplayList(nsDisplayListBuilder*   aBuilder,
                                      const nsRect&           aDirtyRect,
                                      const nsDisplayListSet& aLists)
 {
-  return BuildDisplayListForInline(aBuilder, aDirtyRect, aLists);
+  BuildDisplayListForInline(aBuilder, aDirtyRect, aLists);
 }
 
-NS_IMETHODIMP
+void
 nsFirstLetterFrame::Init(nsIContent*      aContent,
                          nsIFrame*        aParent,
                          nsIFrame*        aPrevInFlow)
@@ -72,14 +66,14 @@ nsFirstLetterFrame::Init(nsIContent*      aContent,
     // a style context like we would for a text node.
     nsStyleContext* parentStyleContext = mStyleContext->GetParent();
     if (parentStyleContext) {
-      newSC = mStyleContext->GetRuleNode()->GetPresContext()->StyleSet()->
+      newSC = PresContext()->StyleSet()->
         ResolveStyleForNonElement(parentStyleContext);
       if (newSC)
         SetStyleContextWithoutNotification(newSC);
     }
   }
 
-  return nsContainerFrame::Init(aContent, aParent, aPrevInFlow);
+  nsContainerFrame::Init(aContent, aParent, aPrevInFlow);
 }
 
 NS_IMETHODIMP
@@ -200,12 +194,12 @@ nsFirstLetterFrame::Reflow(nsPresContext*          aPresContext,
     // multiple paragraphs with different base direction
     uint8_t direction;
     nsIFrame* containerFrame = ll.GetLineContainerFrame();
-    if (containerFrame->GetStyleTextReset()->mUnicodeBidi &
+    if (containerFrame->StyleTextReset()->mUnicodeBidi &
         NS_STYLE_UNICODE_BIDI_PLAINTEXT) {
       FramePropertyTable *propTable = aPresContext->PropertyTable();
       direction = NS_PTR_TO_INT32(propTable->Get(kid, BaseLevelProperty())) & 1;
     } else {
-      direction = containerFrame->GetStyleVisibility()->mDirection;
+      direction = containerFrame->StyleVisibility()->mDirection;
     }
     ll.BeginLineReflow(bp.left, bp.top, availSize.width, NS_UNCONSTRAINEDSIZE,
                        false, true, direction);
@@ -322,17 +316,13 @@ nsFirstLetterFrame::CreateContinuationForFloatingParent(nsPresContext* aPresCont
     presShell->FrameManager()->GetPlaceholderFrameFor(this);
   nsIFrame* parent = placeholderFrame->GetParent();
 
-  nsIFrame* continuation;
-  rv = presShell->FrameConstructor()->
-    CreateContinuingFrame(aPresContext, aChild, parent, &continuation, aIsFluid);
-  if (NS_FAILED(rv) || !continuation) {
-    return rv;
-  }
+  nsIFrame* continuation = presShell->FrameConstructor()->
+    CreateContinuingFrame(aPresContext, aChild, parent, aIsFluid);
 
   // The continuation will have gotten the first letter style from it's
   // prev continuation, so we need to repair the style context so it
   // doesn't have the first letter styling.
-  nsStyleContext* parentSC = this->GetStyleContext()->GetParent();
+  nsStyleContext* parentSC = this->StyleContext()->GetParent();
   if (parentSC) {
     nsRefPtr<nsStyleContext> newSC;
     newSC = presShell->StyleSet()->ResolveStyleForNonElement(parentSC);

@@ -27,7 +27,7 @@
 
 class nsIURI;
 class nsSubDocumentFrame;
-class nsIView;
+class nsView;
 class nsIInProcessContentFrameMessageManager;
 class AutoResetInShow;
 class nsITabParent;
@@ -192,7 +192,8 @@ public:
   virtual bool DoSendAsyncMessage(const nsAString& aMessage,
                                   const mozilla::dom::StructuredCloneData& aData);
   virtual bool CheckPermission(const nsAString& aPermission);
-
+  virtual bool CheckManifestURL(const nsAString& aManifestURL);
+  virtual bool CheckAppHasPermission(const nsAString& aPermission);
 
   /**
    * Called from the layout frame associated with this frame loader;
@@ -299,14 +300,14 @@ public:
    * document has changed during reframe, so we can discard the presentation 
    * in that case.
    */
-  void SetDetachedSubdocView(nsIView* aDetachedView,
+  void SetDetachedSubdocView(nsView* aDetachedView,
                              nsIDocument* aContainerDoc);
 
   /**
    * Retrieves the detached view and the document containing the view,
    * as set by SetDetachedSubdocView().
    */
-  nsIView* GetDetachedSubdocView(nsIDocument** aContainerDoc) const;
+  nsView* GetDetachedSubdocView(nsIDocument** aContainerDoc) const;
 
 private:
 
@@ -359,12 +360,11 @@ private:
   NS_HIDDEN_(void) GetURL(nsString& aURL);
 
   // Properly retrieves documentSize of any subdocument type.
-  NS_HIDDEN_(nsIntSize) GetSubDocumentSize(const nsIFrame *aIFrame);
   nsresult GetWindowDimensions(nsRect& aRect);
 
   // Updates the subdocument position and size. This gets called only
   // when we have our own in-process DocShell.
-  NS_HIDDEN_(nsresult) UpdateBaseWindowPositionAndSize(nsIFrame *aIFrame);
+  NS_HIDDEN_(nsresult) UpdateBaseWindowPositionAndSize(nsSubDocumentFrame *aIFrame);
   nsresult CheckURILoad(nsIURI* aURI);
   void FireErrorEvent();
   nsresult ReallyStartLoadingInternal();
@@ -373,7 +373,8 @@ private:
   bool TryRemoteBrowser();
 
   // Tell the remote browser that it's now "virtually visible"
-  bool ShowRemoteFrame(const nsIntSize& size);
+  bool ShowRemoteFrame(const nsIntSize& size,
+                       nsSubDocumentFrame *aFrame = nullptr);
 
   bool AddTreeItemToTreeOwner(nsIDocShellTreeItem* aItem,
                               nsIDocShellTreeOwner* aOwner,
@@ -384,9 +385,16 @@ private:
     return mOwnerContent->IsXUL() ? nsGkAtoms::type : nsGkAtoms::mozframetype;
   }
 
+  // Update the permission manager's app-id refcount based on mOwnerContent's
+  // own-or-containing-app.
+  void ResetPermissionManagerStatus();
+
   nsCOMPtr<nsIDocShell> mDocShell;
   nsCOMPtr<nsIURI> mURIToLoad;
   mozilla::dom::Element* mOwnerContent; // WEAK
+
+  // Note: this variable must be modified only by ResetPermissionManagerStatus()
+  uint32_t mAppIdSentToPermissionManager;
 
 public:
   // public because a callback needs these.
@@ -395,7 +403,7 @@ public:
 private:
   // Stores the root view of the subdocument while the subdocument is being
   // reframed. Used to restore the presentation after reframing.
-  nsIView* mDetachedSubdocViews;
+  nsView* mDetachedSubdocViews;
   // Stores the containing document of the frame corresponding to this
   // frame loader. This is reference is kept valid while the subframe's
   // presentation is detached and stored in mDetachedSubdocViews. This

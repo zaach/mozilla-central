@@ -12,6 +12,7 @@
 #include "assembler/assembler/X86Assembler.h"
 #include "ion/CompactBuffer.h"
 #include "ion/IonCode.h"
+#include "mozilla/Util.h"
 
 #include "jsscriptinlines.h"
 
@@ -55,13 +56,41 @@ static const Register CallTempReg3 = ecx;
 static const Register CallTempReg4 = esi;
 static const Register CallTempReg5 = edx;
 
+// We have no arg regs, so our NonArgRegs are just our CallTempReg*
+static const Register CallTempNonArgRegs[] = { edi, eax, ebx, ecx, esi, edx };
+static const uint32_t NumCallTempNonArgRegs =
+    mozilla::ArrayLength(CallTempNonArgRegs);
+
+class ABIArgGenerator
+{
+    uint32_t stackOffset_;
+    ABIArg current_;
+
+  public:
+    ABIArgGenerator();
+    ABIArg next(MIRType argType);
+    ABIArg &current() { return current_; }
+    uint32_t stackBytesConsumedSoFar() const { return stackOffset_; }
+
+    // Note: these registers are all guaranteed to be different
+    static const Register NonArgReturnVolatileReg1;
+    static const Register NonArgReturnVolatileReg2;
+    static const Register NonVolatileReg;
+};
+
 static const Register OsrFrameReg = edx;
 static const Register PreBarrierReg = edx;
 
 // GCC stack is aligned on 16 bytes, but we don't maintain the invariant in
 // jitted code.
+#if defined(__GNUC__)
 static const uint32_t StackAlignment = 16;
+#else
+static const uint32_t StackAlignment = 4;
+#endif
 static const bool StackKeptAligned = false;
+static const uint32_t NativeFrameSize = sizeof(void*);
+static const uint32_t AlignmentAtPrologue = sizeof(void*);
 
 struct ImmTag : public Imm32
 {
@@ -137,6 +166,16 @@ class Operand
       : kind_(ADDRESS),
         base_(reinterpret_cast<int32_t>(address))
     { }
+
+    Address toAddress() {
+        JS_ASSERT(kind() == REG_DISP);
+        return Address(Register::FromCode(base()), disp());
+    }
+
+    BaseIndex toBaseIndex() {
+        JS_ASSERT(kind() == SCALE);
+        return BaseIndex(Register::FromCode(base()), Register::FromCode(index()), scale(), disp());
+    }
 
     Kind kind() const {
         return kind_;
@@ -219,10 +258,6 @@ class Assembler : public AssemblerX86Shared
 
     static void TraceJumpRelocations(JSTracer *trc, IonCode *code, CompactBufferReader &reader);
 
-    // The buffer is about to be linked, make sure any constant pools or excess
-    // bookkeeping has been flushed to the instruction stream.
-    void flush() { }
-
     // Copy the assembly code to the given buffer, and perform any pending
     // relocations relying on the target address.
     void executableCopy(uint8_t *buffer);
@@ -283,6 +318,9 @@ class Assembler : public AssemblerX86Shared
     void mov(const Register &src, const Operand &dest) {
         movl(src, dest);
     }
+    void mov(Imm32 imm, const Operand &dest) {
+        movl(imm, dest);
+    }
     void mov(AbsoluteLabel *label, const Register &dest) {
         JS_ASSERT(!label->bound());
         // Thread the patch list through the unpatched address word in the
@@ -294,19 +332,7 @@ class Assembler : public AssemblerX86Shared
         movl(src, dest);
     }
     void lea(const Operand &src, const Register &dest) {
-        switch (src.kind()) {
-          case Operand::REG_DISP:
-            masm.leal_mr(src.disp(), src.base(), dest.code());
-            break;
-          case Operand::SCALE:
-            masm.leal_mr(src.disp(), src.base(), src.index(), src.scale(), dest.code());
-            break;
-          default:
-            JS_NOT_REACHED("unexpected operand kind");
-        }
-    }
-    void cvttsd2s(const FloatRegister &src, const Register &dest) {
-        cvttsd2si(src, dest);
+        return leal(src, dest);
     }
 
     void cmpl(const Register src, ImmWord ptr) {
@@ -337,6 +363,10 @@ class Assembler : public AssemblerX86Shared
             JS_NOT_REACHED("unexpected operand kind");
         }
     }
+    CodeOffsetLabel cmplWithPatch(const Register &lhs, Imm32 rhs) {
+        masm.cmpl_ir_force32(rhs.value, lhs.code());
+        return masm.currentOffset();
+    }
 
     void jmp(void *target, Relocation::Kind reloc = Relocation::HARDCODED) {
         JmpSrc src = masm.jmp();
@@ -363,6 +393,15 @@ class Assembler : public AssemblerX86Shared
         addPendingJump(src, target.asPointer(), Relocation::HARDCODED);
     }
 
+    // Emit a CALL or CMP (nop) instruction. ToggleCall can be used to patch
+    // this instruction.
+    CodeOffsetLabel toggledCall(IonCode *target, bool enabled) {
+        CodeOffsetLabel offset(size());
+        JmpSrc src = enabled ? masm.call() : masm.cmp_eax();
+        addPendingJump(src, target->raw(), Relocation::IONCODE);
+        return offset;
+    }
+
     // Re-routes pending jumps to an external target, flushing the label in the
     // process.
     void retarget(Label *label, void *target, Relocation::Kind reloc) {
@@ -383,14 +422,106 @@ class Assembler : public AssemblerX86Shared
     void movsd(const double *dp, const FloatRegister &dest) {
         masm.movsd_mr((const void *)dp, dest.code());
     }
-    void movsd(AbsoluteLabel *label, const FloatRegister &dest) {
-        JS_ASSERT(!label->bound());
-        // Thread the patch list through the unpatched address word in the
-        // instruction stream.
-        masm.movsd_mr(reinterpret_cast<void *>(label->prev()), dest.code());
-        label->setPrev(masm.size());
+
+    // Move a 32-bit immediate into a register where the immediate can be
+    // patched.
+    CodeOffsetLabel movlWithPatch(Imm32 imm, Register dest) {
+        masm.movl_i32r(imm.value, dest.code());
+        return masm.currentOffset();
+    }
+
+    // Load from *addr where addr can be patched.
+    CodeOffsetLabel movlWithPatch(void *addr, Register dest) {
+        masm.movl_mr(addr, dest.code());
+        return masm.currentOffset();
+    }
+    CodeOffsetLabel movsdWithPatch(void *addr, FloatRegister dest) {
+        masm.movsd_mr(addr, dest.code());
+        return masm.currentOffset();
+    }
+
+    // Store to *addr where addr can be patched
+    CodeOffsetLabel movlWithPatch(Register src, void *addr) {
+        masm.movl_rm(src.code(), addr);
+        return masm.currentOffset();
+    }
+    CodeOffsetLabel movsdWithPatch(FloatRegister dest, void *addr) {
+        masm.movsd_rm(dest.code(), addr);
+        return masm.currentOffset();
+    }
+
+    // Load from *(base + disp32) where disp32 can be patched.
+    CodeOffsetLabel movxblWithPatch(Address src, Register dest) {
+        masm.movxbl_mr_disp32(src.offset, src.base.code(), dest.code());
+        return masm.currentOffset();
+    }
+    CodeOffsetLabel movzblWithPatch(Address src, Register dest) {
+        masm.movzbl_mr_disp32(src.offset, src.base.code(), dest.code());
+        return masm.currentOffset();
+    }
+    CodeOffsetLabel movxwlWithPatch(Address src, Register dest) {
+        masm.movxwl_mr_disp32(src.offset, src.base.code(), dest.code());
+        return masm.currentOffset();
+    }
+    CodeOffsetLabel movzwlWithPatch(Address src, Register dest) {
+        masm.movzwl_mr_disp32(src.offset, src.base.code(), dest.code());
+        return masm.currentOffset();
+    }
+    CodeOffsetLabel movlWithPatch(Address src, Register dest) {
+        masm.movl_mr_disp32(src.offset, src.base.code(), dest.code());
+        return masm.currentOffset();
+    }
+    CodeOffsetLabel movssWithPatch(Address src, FloatRegister dest) {
+        masm.movss_mr_disp32(src.offset, src.base.code(), dest.code());
+        return masm.currentOffset();
+    }
+    CodeOffsetLabel movsdWithPatch(Address src, FloatRegister dest) {
+        masm.movsd_mr_disp32(src.offset, src.base.code(), dest.code());
+        return masm.currentOffset();
+    }
+
+    // Store to *(base + disp32) where disp32 can be patched.
+    CodeOffsetLabel movbWithPatch(Register src, Address dest) {
+        masm.movb_rm_disp32(src.code(), dest.offset, dest.base.code());
+        return masm.currentOffset();
+    }
+    CodeOffsetLabel movwWithPatch(Register src, Address dest) {
+        masm.movw_rm_disp32(src.code(), dest.offset, dest.base.code());
+        return masm.currentOffset();
+    }
+    CodeOffsetLabel movlWithPatch(Register src, Address dest) {
+        masm.movl_rm_disp32(src.code(), dest.offset, dest.base.code());
+        return masm.currentOffset();
+    }
+    CodeOffsetLabel movssWithPatch(FloatRegister src, Address dest) {
+        masm.movss_rm_disp32(src.code(), dest.offset, dest.base.code());
+        return masm.currentOffset();
+    }
+    CodeOffsetLabel movsdWithPatch(FloatRegister src, Address dest) {
+        masm.movsd_rm_disp32(src.code(), dest.offset, dest.base.code());
+        return masm.currentOffset();
+    }
+
+    // Load from *(addr + index*scale) where addr can be patched.
+    CodeOffsetLabel movlWithPatch(void *addr, Register index, Scale scale, Register dest) {
+        masm.movl_mr(addr, index.code(), scale, dest.code());
+        return masm.currentOffset();
     }
 };
+
+// Get a register in which we plan to put a quantity that will be used as an
+// integer argument.  This differs from GetIntArgReg in that if we have no more
+// actual argument registers to use we will fall back on using whatever
+// CallTempReg* don't overlap the argument registers, and only fail once those
+// run out too.
+static inline bool
+GetTempRegForIntArg(uint32_t usedIntArgs, uint32_t usedFloatArgs, Register *out)
+{
+    if (usedIntArgs >= NumCallTempNonArgRegs)
+        return false;
+    *out = CallTempNonArgRegs[usedIntArgs];
+    return true;
+}
 
 } // namespace ion
 } // namespace js

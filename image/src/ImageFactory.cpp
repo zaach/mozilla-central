@@ -4,20 +4,30 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#include <algorithm>
+
 #include "mozilla/Preferences.h"
 #include "mozilla/Likely.h"
 
 #include "nsIHttpChannel.h"
+#include "nsIFileChannel.h"
+#include "nsIFile.h"
+#include "nsSimpleURI.h"
+#include "nsMimeTypes.h"
+#include "nsIURI.h"
+#include "nsIRequest.h"
 
+#include "imgIContainer.h"
+#include "imgStatusTracker.h"
 #include "RasterImage.h"
 #include "VectorImage.h"
+#include "FrozenImage.h"
+#include "Image.h"
 
 #include "ImageFactory.h"
 
 namespace mozilla {
 namespace image {
-
-const char* SVG_MIMETYPE = "image/svg+xml";
 
 // Global preferences related to image containers.
 static bool gInitializedPrefCaches = false;
@@ -37,12 +47,12 @@ ComputeImageFlags(nsIURI* uri, bool isMultiPart)
 {
   nsresult rv;
 
-  // We default to the static globals
+  // We default to the static globals.
   bool isDiscardable = gDiscardable;
   bool doDecodeOnDraw = gDecodeOnDraw;
 
   // We want UI to be as snappy as possible and not to flicker. Disable discarding
-  // and decode-on-draw for chrome URLS
+  // and decode-on-draw for chrome URLS.
   bool isChrome = false;
   rv = uri->SchemeIs("chrome", &isChrome);
   if (NS_SUCCEEDED(rv) && isChrome)
@@ -60,7 +70,7 @@ ComputeImageFlags(nsIURI* uri, bool isMultiPart)
   if (isMultiPart)
     isDiscardable = doDecodeOnDraw = false;
 
-  // We have all the information we need
+  // We have all the information we need.
   uint32_t imageFlags = Image::INIT_FLAG_NONE;
   if (isDiscardable)
     imageFlags |= Image::INIT_FLAG_DISCARDABLE;
@@ -80,28 +90,20 @@ ImageFactory::CreateImage(nsIRequest* aRequest,
                           bool aIsMultiPart,
                           uint32_t aInnerWindowId)
 {
-  nsresult rv;
-
   // Register our pref observers if we haven't yet.
   if (MOZ_UNLIKELY(!gInitializedPrefCaches))
     InitPrefCaches();
-
-  // Get the image's URI string.
-  nsAutoCString uriString;
-  rv = aURI ? aURI->GetSpec(uriString) : NS_ERROR_FAILURE;
-  if (NS_FAILED(rv))
-    uriString.Assign("<unknown image URI>");
 
   // Compute the image's initialization flags.
   uint32_t imageFlags = ComputeImageFlags(aURI, aIsMultiPart);
 
   // Select the type of image to create based on MIME type.
-  if (aMimeType.Equals(SVG_MIMETYPE)) {
+  if (aMimeType.EqualsLiteral(IMAGE_SVG_XML)) {
     return CreateVectorImage(aRequest, aStatusTracker, aMimeType,
-                             uriString, imageFlags, aInnerWindowId);
+                             aURI, imageFlags, aInnerWindowId);
   } else {
     return CreateRasterImage(aRequest, aStatusTracker, aMimeType,
-                             uriString, imageFlags, aInnerWindowId);
+                             aURI, imageFlags, aInnerWindowId);
   }
 }
 
@@ -123,55 +125,93 @@ ImageFactory::CreateAnonymousImage(const nsCString& aMimeType)
 
   nsRefPtr<RasterImage> newImage = new RasterImage();
 
-  rv = newImage->Init(nullptr, aMimeType.get(), "<unknown>", Image::INIT_FLAG_NONE);
+  rv = newImage->Init(aMimeType.get(), Image::INIT_FLAG_NONE);
   NS_ENSURE_SUCCESS(rv, BadImage(newImage));
 
   return newImage.forget();
 }
 
-/* static */ already_AddRefed<Image>
+int32_t
+SaturateToInt32(int64_t val)
+{
+  if (val > INT_MAX)
+    return INT_MAX;
+  if (val < INT_MIN)
+    return INT_MIN;
 
+  return static_cast<int32_t>(val);
+}
+
+uint32_t
+GetContentSize(nsIRequest* aRequest)
+{
+  // Use content-length as a size hint for http channels.
+  nsCOMPtr<nsIHttpChannel> httpChannel(do_QueryInterface(aRequest));
+  if (httpChannel) {
+    nsAutoCString contentLength;
+    nsresult rv = httpChannel->GetResponseHeader(NS_LITERAL_CSTRING("content-length"),
+                                                 contentLength);
+    if (NS_SUCCEEDED(rv)) {
+      return std::max(contentLength.ToInteger(&rv), 0);
+    }
+  }
+
+  // Use the file size as a size hint for file channels.
+  nsCOMPtr<nsIFileChannel> fileChannel(do_QueryInterface(aRequest));
+  if (fileChannel) {
+    nsCOMPtr<nsIFile> file;
+    nsresult rv = fileChannel->GetFile(getter_AddRefs(file));
+    if (NS_SUCCEEDED(rv)) {
+      int64_t filesize;
+      rv = file->GetFileSize(&filesize);
+      if (NS_SUCCEEDED(rv)) {
+        return std::max(SaturateToInt32(filesize), 0);
+      }
+    }
+  }
+
+  // Fallback - neither http nor file. We'll use dynamic allocation.
+  return 0;
+}
+
+/* static */ already_AddRefed<Image>
+ImageFactory::Freeze(Image* aImage)
+{
+  nsRefPtr<Image> frozenImage = new FrozenImage(aImage);
+  return frozenImage.forget();
+}
+
+/* static */ already_AddRefed<Image>
 ImageFactory::CreateRasterImage(nsIRequest* aRequest,
                                 imgStatusTracker* aStatusTracker,
                                 const nsCString& aMimeType,
-                                const nsCString& aURIString,
+                                nsIURI* aURI,
                                 uint32_t aImageFlags,
                                 uint32_t aInnerWindowId)
 {
   nsresult rv;
 
-  nsRefPtr<RasterImage> newImage = new RasterImage(aStatusTracker);
+  nsRefPtr<RasterImage> newImage = new RasterImage(aStatusTracker, aURI);
 
-  rv = newImage->Init(aStatusTracker->GetDecoderObserver(),
-                      aMimeType.get(), aURIString.get(), aImageFlags);
+  rv = newImage->Init(aMimeType.get(), aImageFlags);
   NS_ENSURE_SUCCESS(rv, BadImage(newImage));
 
   newImage->SetInnerWindowID(aInnerWindowId);
 
-  // Use content-length as a size hint for http channels.
-  nsCOMPtr<nsIHttpChannel> httpChannel(do_QueryInterface(aRequest));
-  if (httpChannel) {
-    nsAutoCString contentLength;
-    rv = httpChannel->GetResponseHeader(NS_LITERAL_CSTRING("content-length"),
-                                        contentLength);
-    if (NS_SUCCEEDED(rv)) {
-      int32_t len = contentLength.ToInteger(&rv);
+  uint32_t len = GetContentSize(aRequest);
 
-      // Pass anything usable on so that the RasterImage can preallocate
-      // its source buffer
-      if (len > 0) {
-        uint32_t sizeHint = (uint32_t) len;
-        sizeHint = NS_MIN<uint32_t>(sizeHint, 20000000); // Bound by something reasonable
-        rv = newImage->SetSourceSizeHint(sizeHint);
-        if (NS_FAILED(rv)) {
-          // Flush memory, try to get some back, and try again
-          rv = nsMemory::HeapMinimize(true);
-          nsresult rv2 = newImage->SetSourceSizeHint(sizeHint);
-          // If we've still failed at this point, things are going downhill
-          if (NS_FAILED(rv) || NS_FAILED(rv2)) {
-            NS_WARNING("About to hit OOM in imagelib!");
-          }
-        }
+  // Pass anything usable on so that the RasterImage can preallocate
+  // its source buffer.
+  if (len > 0) {
+    uint32_t sizeHint = std::min<uint32_t>(len, 20000000); // Bound by something reasonable
+    rv = newImage->SetSourceSizeHint(sizeHint);
+    if (NS_FAILED(rv)) {
+      // Flush memory, try to get some back, and try again.
+      rv = nsMemory::HeapMinimize(true);
+      nsresult rv2 = newImage->SetSourceSizeHint(sizeHint);
+      // If we've still failed at this point, things are going downhill.
+      if (NS_FAILED(rv) || NS_FAILED(rv2)) {
+        NS_WARNING("About to hit OOM in imagelib!");
       }
     }
   }
@@ -183,16 +223,15 @@ ImageFactory::CreateRasterImage(nsIRequest* aRequest,
 ImageFactory::CreateVectorImage(nsIRequest* aRequest,
                                 imgStatusTracker* aStatusTracker,
                                 const nsCString& aMimeType,
-                                const nsCString& aURIString,
+                                nsIURI* aURI,
                                 uint32_t aImageFlags,
                                 uint32_t aInnerWindowId)
 {
   nsresult rv;
 
-  nsRefPtr<VectorImage> newImage = new VectorImage(aStatusTracker);
+  nsRefPtr<VectorImage> newImage = new VectorImage(aStatusTracker, aURI);
 
-  rv = newImage->Init(aStatusTracker->GetDecoderObserver(),
-                      aMimeType.get(), aURIString.get(), aImageFlags);
+  rv = newImage->Init(aMimeType.get(), aImageFlags);
   NS_ENSURE_SUCCESS(rv, BadImage(newImage));
 
   newImage->SetInnerWindowID(aInnerWindowId);

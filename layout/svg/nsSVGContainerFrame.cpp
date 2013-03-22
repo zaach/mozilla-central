@@ -80,7 +80,7 @@ nsSVGContainerFrame::UpdateOverflow()
   return nsSVGContainerFrameBase::UpdateOverflow();
 }
 
-NS_IMETHODIMP
+void
 nsSVGDisplayContainerFrame::Init(nsIContent* aContent,
                                  nsIFrame* aParent,
                                  nsIFrame* aPrevInFlow)
@@ -89,18 +89,17 @@ nsSVGDisplayContainerFrame::Init(nsIContent* aContent,
     AddStateBits(aParent->GetStateBits() &
       (NS_STATE_SVG_NONDISPLAY_CHILD | NS_STATE_SVG_CLIPPATH_CHILD));
   }
-  nsresult rv = nsSVGContainerFrame::Init(aContent, aParent, aPrevInFlow);
-  return rv;
+  nsSVGContainerFrame::Init(aContent, aParent, aPrevInFlow);
 }
 
-NS_IMETHODIMP
+void
 nsSVGDisplayContainerFrame::BuildDisplayList(nsDisplayListBuilder*   aBuilder,
                                              const nsRect&           aDirtyRect,
                                              const nsDisplayListSet& aLists)
 {
   if (mContent->IsSVG() &&
       !static_cast<const nsSVGElement*>(mContent)->HasValidDimensions()) {
-    return NS_OK;
+    return;
   }
   return BuildDisplayListForNonBlockChildren(aBuilder, aDirtyRect, aLists);
 }
@@ -205,7 +204,7 @@ nsSVGDisplayContainerFrame::PaintSVG(nsRenderingContext* aContext,
                "If display lists are enabled, only painting of non-display "
                "SVG should take this code path");
 
-  const nsStyleDisplay *display = mStyleContext->GetStyleDisplay();
+  const nsStyleDisplay *display = StyleDisplay();
   if (display->mOpacity == 0.0)
     return NS_OK;
 
@@ -271,6 +270,7 @@ nsSVGDisplayContainerFrame::ReflowSVG()
     if (SVGFrame) {
       NS_ABORT_IF_FALSE(!(kid->GetStateBits() & NS_STATE_SVG_NONDISPLAY_CHILD),
                         "Check for this explicitly in the |if|, then");
+      kid->AddStateBits(mState & NS_FRAME_IS_DIRTY);
       SVGFrame->ReflowSVG();
 
       // We build up our child frame overflows here instead of using

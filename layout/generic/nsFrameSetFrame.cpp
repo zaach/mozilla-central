@@ -21,8 +21,8 @@
 #include "nsIURL.h"
 #include "nsIDocument.h"
 #include "nsINodeInfo.h"
-#include "nsIView.h"
-#include "nsIViewManager.h"
+#include "nsView.h"
+#include "nsViewManager.h"
 #include "nsWidgetsCID.h"
 #include "nsGkAtoms.h"
 #include "nsStyleCoord.h"
@@ -42,11 +42,12 @@
 #include "nsNodeUtils.h"
 #include "mozAutoDocUpdate.h"
 #include "mozilla/Preferences.h"
-#include "nsHTMLFrameSetElement.h"
+#include "mozilla/dom/HTMLFrameSetElement.h"
 #include "mozilla/LookAndFeel.h"
 #include "nsSubDocumentFrame.h"
 
 using namespace mozilla;
+using namespace mozilla::dom;
 
 // masks for mEdgeVisibility
 #define LEFT_VIS   0x0001
@@ -102,9 +103,9 @@ public:
   NS_IMETHOD GetCursor(const nsPoint&    aPoint,
                        nsIFrame::Cursor& aCursor);
 
-  NS_IMETHOD BuildDisplayList(nsDisplayListBuilder*   aBuilder,
-                              const nsRect&           aDirtyRect,
-                              const nsDisplayListSet& aLists);
+  virtual void BuildDisplayList(nsDisplayListBuilder*   aBuilder,
+                                const nsRect&           aDirtyRect,
+                                const nsDisplayListSet& aLists) MOZ_OVERRIDE;
 
   NS_IMETHOD Reflow(nsPresContext*           aPresContext,
                     nsHTMLReflowMetrics&     aDesiredSize,
@@ -149,9 +150,9 @@ public:
                   uint32_t aFlags = 0) const MOZ_OVERRIDE;
 #endif
 
-  NS_IMETHOD BuildDisplayList(nsDisplayListBuilder*   aBuilder,
-                              const nsRect&           aDirtyRect,
-                              const nsDisplayListSet& aLists);
+  virtual void BuildDisplayList(nsDisplayListBuilder*   aBuilder,
+                                const nsRect&           aDirtyRect,
+                                const nsDisplayListSet& aLists) MOZ_OVERRIDE;
 
   NS_IMETHOD Reflow(nsPresContext*           aPresContext,
                     nsHTMLReflowMetrics&     aDesiredSize,
@@ -248,14 +249,13 @@ nsHTMLFramesetFrame::FrameResizePrefCallback(const char* aPref, void* aClosure)
   return 0;
 }
 
-NS_IMETHODIMP
+void
 nsHTMLFramesetFrame::Init(nsIContent*      aContent,
                           nsIFrame*        aParent,
                           nsIFrame*        aPrevInFlow)
 {
   nsContainerFrame::Init(aContent, aParent, aPrevInFlow);
   // find the highest ancestor that is a frameset
-  nsresult rv = NS_OK;
   nsIFrame* parentFrame = GetParent();
   mTopLevelFrameset = this;
   while (parentFrame) {
@@ -276,21 +276,19 @@ nsHTMLFramesetFrame::Init(nsIContent*      aContent,
   nscolor borderColor = GetBorderColor();
 
   // Get the rows= cols= data
-  nsHTMLFrameSetElement* ourContent = nsHTMLFrameSetElement::FromContent(mContent);
+  HTMLFrameSetElement* ourContent = HTMLFrameSetElement::FromContent(mContent);
   NS_ASSERTION(ourContent, "Someone gave us a broken frameset element!");
   const nsFramesetSpec* rowSpecs = nullptr;
   const nsFramesetSpec* colSpecs = nullptr;
-  nsresult result = ourContent->GetRowSpec(&mNumRows, &rowSpecs);
-  NS_ENSURE_SUCCESS(result, result);
-  result = ourContent->GetColSpec(&mNumCols, &colSpecs);
-  NS_ENSURE_SUCCESS(result, result);
+  // GetRowSpec and GetColSpec can fail, but when they do they set
+  // mNumRows and mNumCols respectively to 0, so we deal with it fine.
+  ourContent->GetRowSpec(&mNumRows, &rowSpecs);
+  ourContent->GetColSpec(&mNumCols, &colSpecs);
 
   // Maximum value of mNumRows and mNumCols is NS_MAX_FRAMESET_SPEC_COUNT
   PR_STATIC_ASSERT(NS_MAX_FRAMESET_SPEC_COUNT < UINT_MAX / sizeof(nscoord));
   mRowSizes  = new nscoord[mNumRows];
   mColSizes  = new nscoord[mNumCols];
-  if (!mRowSizes || !mColSizes)
-    return NS_ERROR_OUT_OF_MEMORY;
 
   // Ensure we can't overflow numCells
   PR_STATIC_ASSERT(NS_MAX_FRAMESET_SPEC_COUNT < INT32_MAX / NS_MAX_FRAMESET_SPEC_COUNT);
@@ -298,15 +296,11 @@ nsHTMLFramesetFrame::Init(nsIContent*      aContent,
 
   PR_STATIC_ASSERT(NS_MAX_FRAMESET_SPEC_COUNT < UINT_MAX / sizeof(nsHTMLFramesetBorderFrame*));
   mVerBorders    = new nsHTMLFramesetBorderFrame*[mNumCols];  // 1 more than number of ver borders
-  if (!mVerBorders)
-    return NS_ERROR_OUT_OF_MEMORY;
 
   for (int verX  = 0; verX < mNumCols; verX++)
     mVerBorders[verX]    = nullptr;
 
   mHorBorders    = new nsHTMLFramesetBorderFrame*[mNumRows];  // 1 more than number of hor borders
-  if (!mHorBorders)
-    return NS_ERROR_OUT_OF_MEMORY;
 
   for (int horX = 0; horX < mNumRows; horX++)
     mHorBorders[horX]    = nullptr;
@@ -319,8 +313,6 @@ nsHTMLFramesetFrame::Init(nsIContent*      aContent,
                    < UINT_MAX / sizeof(nsBorderColor) / NS_MAX_FRAMESET_SPEC_COUNT);
   mChildFrameborder  = new nsFrameborder[numCells];
   mChildBorderColors  = new nsBorderColor[numCells];
-  if (!mChildFrameborder || !mChildBorderColors)
-    return NS_ERROR_OUT_OF_MEMORY;
 
   // create the children frames; skip content which isn't <frameset> or <frame>
   mChildCount = 0; // number of <frame> or <frameset> children
@@ -358,44 +350,28 @@ nsHTMLFramesetFrame::Init(nsIContent*      aContent,
     nsIAtom *tag = child->Tag();
     if (tag == nsGkAtoms::frameset || tag == nsGkAtoms::frame) {
       nsRefPtr<nsStyleContext> kidSC;
-      nsresult result;
 
       kidSC = shell->StyleSet()->ResolveStyleFor(child->AsElement(),
                                                  mStyleContext);
       if (tag == nsGkAtoms::frameset) {
         frame = NS_NewHTMLFramesetFrame(shell, kidSC);
-        if (MOZ_UNLIKELY(!frame))
-          return NS_ERROR_OUT_OF_MEMORY;
 
         nsHTMLFramesetFrame* childFrame = (nsHTMLFramesetFrame*)frame;
         childFrame->SetParentFrameborder(frameborder);
         childFrame->SetParentBorderWidth(borderWidth);
         childFrame->SetParentBorderColor(borderColor);
-        result = frame->Init(child, this, nullptr);
-        if (NS_FAILED(result)) {
-          frame->Destroy();
-          return result;
-        }
+        frame->Init(child, this, nullptr);
 
         mChildBorderColors[mChildCount].Set(childFrame->GetBorderColor());
       } else { // frame
         frame = NS_NewSubDocumentFrame(shell, kidSC);
-        if (MOZ_UNLIKELY(!frame))
-          return NS_ERROR_OUT_OF_MEMORY;
 
-        result = frame->Init(child, this, nullptr);
-        if (NS_FAILED(result)) {
-          frame->Destroy();
-          return result;
-        }
+        frame->Init(child, this, nullptr);
 
         mChildFrameborder[mChildCount] = GetFrameBorder(child);
         mChildBorderColors[mChildCount].Set(GetBorderColor(child));
       }
       child->SetPrimaryFrame(frame);
-
-      if (NS_FAILED(result))
-        return result;
 
       mFrames.AppendFrame(nullptr, frame);
 
@@ -409,19 +385,12 @@ nsHTMLFramesetFrame::Init(nsIContent*      aContent,
     nsRefPtr<nsStyleContext> pseudoStyleContext;
     pseudoStyleContext = shell->StyleSet()->
       ResolveAnonymousBoxStyle(nsCSSAnonBoxes::framesetBlank, mStyleContext);
-    if (!pseudoStyleContext) {
-      return NS_ERROR_OUT_OF_MEMORY;
-    }
 
     // XXX the blank frame is using the content of its parent - at some point it
     // should just have null content, if we support that
     nsHTMLFramesetBlankFrame* blankFrame = new (shell) nsHTMLFramesetBlankFrame(pseudoStyleContext);
 
-    result = blankFrame->Init(mContent, this, nullptr);
-    if (NS_FAILED(result)) {
-      blankFrame->Destroy();
-      return result;
-    }
+    blankFrame->Init(mContent, this, nullptr);
 
     mFrames.AppendFrame(nullptr, blankFrame);
 
@@ -430,7 +399,6 @@ nsHTMLFramesetFrame::Init(nsIContent*      aContent,
   }
 
   mNonBorderChildCount = mChildCount;
-  return rv;
 }
 
 NS_IMETHODIMP
@@ -655,13 +623,6 @@ int32_t nsHTMLFramesetFrame::GetBorderWidth(nsPresContext* aPresContext,
   return nsPresContext::CSSPixelsToAppUnits(DEFAULT_BORDER_WIDTH_PX);
 }
 
-
-int
-nsHTMLFramesetFrame::GetSkipSides() const
-{
-  return 0;
-}
-
 void
 nsHTMLFramesetFrame::GetDesiredSize(nsPresContext*           aPresContext,
                                     const nsHTMLReflowState& aReflowState,
@@ -764,19 +725,17 @@ nsHTMLFramesetFrame::GetCursor(const nsPoint&    aPoint,
   return NS_OK;
 }
 
-NS_IMETHODIMP
+void
 nsHTMLFramesetFrame::BuildDisplayList(nsDisplayListBuilder*   aBuilder,
                                       const nsRect&           aDirtyRect,
                                       const nsDisplayListSet& aLists)
 {
-  nsresult rv = BuildDisplayListForInline(aBuilder, aDirtyRect, aLists);
-  NS_ENSURE_SUCCESS(rv, rv);
+  BuildDisplayListForInline(aBuilder, aDirtyRect, aLists);
 
   if (mDragger && aBuilder->IsForEventDelivery()) {
-    rv = aLists.Content()->AppendNewToTop(
-        new (aBuilder) nsDisplayEventReceiver(aBuilder, this));
+    aLists.Content()->AppendNewToTop(
+      new (aBuilder) nsDisplayEventReceiver(aBuilder, this));
   }
-  return rv;
 }
 
 void
@@ -929,7 +888,7 @@ nsHTMLFramesetFrame::Reflow(nsPresContext*           aPresContext,
   height -= (mNumRows - 1) * borderWidth;
   if (height < 0) height = 0;
 
-  nsHTMLFrameSetElement* ourContent = nsHTMLFrameSetElement::FromContent(mContent);
+  HTMLFrameSetElement* ourContent = HTMLFrameSetElement::FromContent(mContent);
   NS_ASSERTION(ourContent, "Someone gave us a broken frameset element!");
   const nsFramesetSpec* rowSpecs = nullptr;
   const nsFramesetSpec* colSpecs = nullptr;
@@ -1389,7 +1348,7 @@ nsHTMLFramesetFrame::MouseDrag(nsPresContext* aPresContext,
     if (change != 0) {
       // Recompute the specs from the new sizes.
       nscoord width = mRect.width - (mNumCols - 1) * GetBorderWidth(aPresContext, true);
-      nsHTMLFrameSetElement* ourContent = nsHTMLFrameSetElement::FromContent(mContent);
+      HTMLFrameSetElement* ourContent = HTMLFrameSetElement::FromContent(mContent);
       NS_ASSERTION(ourContent, "Someone gave us a broken frameset element!");
       const nsFramesetSpec* colSpecs = nullptr;
       ourContent->GetColSpec(&mNumCols, &colSpecs);
@@ -1412,7 +1371,7 @@ nsHTMLFramesetFrame::MouseDrag(nsPresContext* aPresContext,
     if (change != 0) {
       // Recompute the specs from the new sizes.
       nscoord height = mRect.height - (mNumRows - 1) * GetBorderWidth(aPresContext, true);
-      nsHTMLFrameSetElement* ourContent = nsHTMLFrameSetElement::FromContent(mContent);
+      HTMLFrameSetElement* ourContent = HTMLFrameSetElement::FromContent(mContent);
       NS_ASSERTION(ourContent, "Someone gave us a broken frameset element!");
       const nsFramesetSpec* rowSpecs = nullptr;
       ourContent->GetRowSpec(&mNumRows, &rowSpecs);
@@ -1442,7 +1401,7 @@ nsIFrame*
 NS_NewHTMLFramesetFrame(nsIPresShell* aPresShell, nsStyleContext* aContext)
 {
 #ifdef DEBUG
-  const nsStyleDisplay* disp = aContext->GetStyleDisplay();
+  const nsStyleDisplay* disp = aContext->StyleDisplay();
   NS_ASSERTION(!disp->IsAbsolutelyPositionedStyle() && !disp->IsFloatingStyle(),
                "Framesets should not be positioned and should not float");
 #endif
@@ -1547,13 +1506,13 @@ void nsDisplayFramesetBorder::Paint(nsDisplayListBuilder* aBuilder,
     PaintBorder(*aCtx, ToReferenceFrame());
 }
 
-NS_IMETHODIMP
+void
 nsHTMLFramesetBorderFrame::BuildDisplayList(nsDisplayListBuilder*   aBuilder,
                                             const nsRect&           aDirtyRect,
                                             const nsDisplayListSet& aLists)
 {
-  return aLists.Content()->AppendNewToTop(
-      new (aBuilder) nsDisplayFramesetBorder(aBuilder, this));
+  aLists.Content()->AppendNewToTop(
+    new (aBuilder) nsDisplayFramesetBorder(aBuilder, this));
 }
 
 void nsHTMLFramesetBorderFrame::PaintBorder(nsRenderingContext& aRenderingContext,
@@ -1756,11 +1715,11 @@ nsHTMLFramesetBlankFrame::List(FILE*    out,
 }
 #endif
 
-NS_IMETHODIMP
+void
 nsHTMLFramesetBlankFrame::BuildDisplayList(nsDisplayListBuilder*   aBuilder,
                                            const nsRect&           aDirtyRect,
                                            const nsDisplayListSet& aLists)
 {
-  return aLists.Content()->AppendNewToTop(
-      new (aBuilder) nsDisplayFramesetBlank(aBuilder, this));
+  aLists.Content()->AppendNewToTop(
+    new (aBuilder) nsDisplayFramesetBlank(aBuilder, this));
 }

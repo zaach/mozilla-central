@@ -14,7 +14,6 @@
 using namespace mozilla;
 using namespace mozilla::dom;
 
-NS_IMPL_CYCLE_COLLECTION_CLASS(nsDOMStringMap)
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(nsDOMStringMap)
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_SCRIPT_OBJECTS
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mElement)
@@ -59,10 +58,9 @@ nsDOMStringMap::~nsDOMStringMap()
 
 /* virtual */
 JSObject*
-nsDOMStringMap::WrapObject(JSContext *cx, JSObject *scope,
-                           bool *triedToWrap)
+nsDOMStringMap::WrapObject(JSContext *cx, JSObject *scope)
 {
-  return DOMStringMapBinding::Wrap(cx, scope, this, triedToWrap);
+  return DOMStringMapBinding::Wrap(cx, scope, this);
 }
 
 void

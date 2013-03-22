@@ -49,7 +49,7 @@ DocManager::GetDocAccessible(nsIDocument* aDocument)
   // Ensure CacheChildren is called before we query cache.
   ApplicationAcc()->EnsureChildren();
 
-  DocAccessible* docAcc = mDocAccessibleCache.GetWeak(aDocument);
+  DocAccessible* docAcc = GetExistingDocAccessible(aDocument);
   if (docAcc)
     return docAcc;
 
@@ -181,7 +181,7 @@ DocManager::OnStateChange(nsIWebProgress* aWebProgress,
     logging::DocLoad("start document loading", aWebProgress, aRequest, aStateFlags);
 #endif
 
-  DocAccessible* docAcc = mDocAccessibleCache.GetWeak(document);
+  DocAccessible* docAcc = GetExistingDocAccessible(document);
   if (!docAcc)
     return NS_OK;
 
@@ -195,7 +195,8 @@ DocManager::OnStateChange(nsIWebProgress* aWebProgress,
   if (loadType == LOAD_RELOAD_NORMAL ||
       loadType == LOAD_RELOAD_BYPASS_CACHE ||
       loadType == LOAD_RELOAD_BYPASS_PROXY ||
-      loadType == LOAD_RELOAD_BYPASS_PROXY_AND_CACHE) {
+      loadType == LOAD_RELOAD_BYPASS_PROXY_AND_CACHE ||
+      loadType == LOAD_RELOAD_ALLOW_MIXED_CONTENT) {
     isReloading = true;
   }
 
@@ -280,7 +281,7 @@ DocManager::HandleEvent(nsIDOMEvent* aEvent)
     // We're allowed to not remove listeners when accessible document is
     // shutdown since we don't keep strong reference on chrome event target and
     // listeners are removed automatically when chrome event target goes away.
-    DocAccessible* docAccessible = mDocAccessibleCache.GetWeak(document);
+    DocAccessible* docAccessible = GetExistingDocAccessible(document);
     if (docAccessible)
       docAccessible->Shutdown();
 
@@ -312,7 +313,7 @@ DocManager::HandleDOMDocumentLoad(nsIDocument* aDocument,
 {
   // Document accessible can be created before we were notified the DOM document
   // was loaded completely. However if it's not created yet then create it.
-  DocAccessible* docAcc = mDocAccessibleCache.GetWeak(aDocument);
+  DocAccessible* docAcc = GetExistingDocAccessible(aDocument);
   if (!docAcc) {
     docAcc = CreateDocOrRootAccessible(aDocument);
     if (!docAcc)
@@ -347,18 +348,35 @@ DocManager::AddListeners(nsIDocument* aDocument,
   }
 }
 
+void
+DocManager::RemoveListeners(nsIDocument* aDocument)
+{
+  nsPIDOMWindow* window = aDocument->GetWindow();
+  if (!window)
+    return;
+
+  nsIDOMEventTarget* target = window->GetChromeEventHandler();
+  nsEventListenerManager* elm = target->GetListenerManager(true);
+  elm->RemoveEventListenerByType(this, NS_LITERAL_STRING("pagehide"),
+                                 dom::TrustedEventsAtCapture());
+
+  elm->RemoveEventListenerByType(this, NS_LITERAL_STRING("DOMContentLoaded"),
+                                 dom::TrustedEventsAtCapture());
+}
+
 DocAccessible*
 DocManager::CreateDocOrRootAccessible(nsIDocument* aDocument)
 {
   // Ignore temporary, hiding, resource documents and documents without
   // docshell.
-  if (aDocument->IsInitialDocument() || !aDocument->IsVisible() ||
+  if (aDocument->IsInitialDocument() ||
+      !aDocument->IsVisibleConsideringAncestors() ||
       aDocument->IsResourceDoc() || !aDocument->IsActive())
     return nullptr;
 
   // Ignore documents without presshell and not having root frame.
   nsIPresShell* presShell = aDocument->GetShell();
-  if (!presShell || !presShell->GetRootFrame() || presShell->IsDestroying())
+  if (!presShell || presShell->IsDestroying())
     return nullptr;
 
   bool isRootDoc = nsCoreUtils::IsRootDocument(aDocument);

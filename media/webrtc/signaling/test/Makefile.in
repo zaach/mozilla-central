@@ -9,8 +9,6 @@ VPATH = @srcdir@
 
 include $(DEPTH)/config/autoconf.mk
 
-MODULE = test_signaling
-
 LIBS = \
   $(EXTRA_DSO_LIBS) \
   $(XPCOM_LIBS) \
@@ -26,10 +24,15 @@ LIBS = \
   $(DEPTH)/netwerk/srtp/src/$(LIB_PREFIX)nksrtp_s.$(LIB_SUFFIX) \
   $(NULL)
 
-ifdef MOZ_SYDNEYAUDIO
-ifeq ($(OS_TARGET),Linux)
+ifdef MOZ_CUBEB
+ifdef MOZ_ALSA
 LIBS += \
   $(MOZ_ALSA_LIBS) \
+  $(NULL)
+endif
+ifdef MOZ_PULSEAUDIO
+LIBS += \
+  $(MOZ_PULSEAUDIO_LIBS) \
   $(NULL)
 endif
 endif
@@ -47,10 +50,21 @@ DEFINES += \
    $(NULL)
 endif
 
+ifdef MOZ_NATIVE_JPEG
+LIBS += \
+  $(MOZ_JPEG_LIBS) \
+  $(NULL)
+endif
 
 ifdef MOZ_NATIVE_LIBVPX
 LIBS += \
   $(MOZ_LIBVPX_LIBS) \
+  $(NULL)
+endif
+
+ifndef MOZ_TREE_PIXMAN
+LIBS += \
+  $(MOZ_PIXMAN_LIBS) \
   $(NULL)
 endif
 
@@ -122,9 +136,11 @@ LOCAL_INCLUDES += \
  -I$(topsrcdir)/media/webrtc/signaling/src/peerconnection \
  -I$(topsrcdir)/media/webrtc/signaling/media-conduit\
  -I$(topsrcdir)/media/webrtc/trunk/third_party/libjingle/source/ \
+ -I$(topsrcdir)/xpcom/base/ \
  $(NULL)
 
 ifneq ($(OS_TARGET),WINNT)
+ifneq (gonk,$(MOZ_WIDGET_TOOLKIT))
 ifdef JS_SHARED_LIBRARY
 LIBS += $(MOZ_ZLIB_LIBS)
 endif
@@ -134,6 +150,7 @@ CPP_UNIT_TESTS = \
   mediapipeline_unittest.cpp \
   mediaconduit_unittests.cpp \
   $(NULL)
+endif
 endif
 
 include $(topsrcdir)/config/config.mk

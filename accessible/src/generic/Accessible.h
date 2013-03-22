@@ -28,7 +28,7 @@ struct nsRect;
 class nsIContent;
 class nsIFrame;
 class nsIAtom;
-class nsIView;
+class nsView;
 
 namespace mozilla {
 namespace a11y {
@@ -46,6 +46,7 @@ class Relation;
 class TableAccessible;
 class TableCellAccessible;
 class TextLeafAccessible;
+class XULLabelAccessible;
 class XULTreeAccessible;
 
 /**
@@ -304,7 +305,8 @@ public:
   /**
    * Set the ARIA role map entry for a new accessible.
    */
-  void SetRoleMapEntry(nsRoleMapEntry* aRoleMapEntry);
+  void SetRoleMapEntry(nsRoleMapEntry* aRoleMapEntry)
+    { mRoleMapEntry = aRoleMapEntry; }
 
   /**
    * Update the children cache.
@@ -331,7 +333,8 @@ public:
   /**
    * Append/insert/remove a child. Return true if operation was successful.
    */
-  virtual bool AppendChild(Accessible* aChild);
+  bool AppendChild(Accessible* aChild)
+    { return InsertChildAt(mChildren.Length(), aChild); }
   virtual bool InsertChildAt(uint32_t aIndex, Accessible* aChild);
   virtual bool RemoveChild(Accessible* aChild);
 
@@ -468,17 +471,17 @@ public:
 
   bool IsApplication() const { return mType == eApplicationType; }
 
-  bool IsAutoComplete() const { return mGenericTypes & eAutoComplete; }
+  bool IsAutoComplete() const { return HasGenericType(eAutoComplete); }
 
   bool IsAutoCompletePopup() const
-    { return mGenericTypes & eAutoCompletePopup; }
+    { return HasGenericType(eAutoCompletePopup); }
 
-  bool IsCombobox() const { return mGenericTypes & eCombobox; }
+  bool IsCombobox() const { return HasGenericType(eCombobox); }
 
-  bool IsDoc() const { return mGenericTypes & eDocument; }
+  bool IsDoc() const { return HasGenericType(eDocument); }
   DocAccessible* AsDoc();
 
-  bool IsHyperText() const { return mGenericTypes & eHyperText; }
+  bool IsHyperText() const { return HasGenericType(eHyperText); }
   HyperTextAccessible* AsHyperText();
 
   bool IsHTMLFileInput() const { return mType == eHTMLFileInputType; }
@@ -486,6 +489,7 @@ public:
   bool IsHTMLListItem() const { return mType == eHTMLLiType; }
   HTMLLIAccessible* AsHTMLListItem();
 
+  bool IsHTMLTable() const { return mType == eHTMLTableType; }
   bool IsHTMLTableRow() const { return mType == eHTMLTableRowType; }
 
   bool IsImage() const { return mType == eImageType; }
@@ -494,11 +498,11 @@ public:
   bool IsImageMap() const { return mType == eImageMapType; }
   HTMLImageMapAccessible* AsImageMap();
 
-  bool IsList() const { return mGenericTypes & eList; }
+  bool IsList() const { return HasGenericType(eList); }
 
-  bool IsListControl() const { return mGenericTypes & eListControl; }
+  bool IsListControl() const { return HasGenericType(eListControl); }
 
-  bool IsMenuButton() const { return mGenericTypes & eMenuButton; }
+  bool IsMenuButton() const { return HasGenericType(eMenuButton); }
 
   bool IsMenuPopup() const { return mType == eMenuPopupType; }
 
@@ -507,22 +511,32 @@ public:
   bool IsRoot() const { return mType == eRootType; }
   a11y::RootAccessible* AsRoot();
 
-  bool IsSelect() const { return mGenericTypes & eSelect; }
+  bool IsSelect() const { return HasGenericType(eSelect); }
 
-  bool IsTable() const { return mGenericTypes & eTable; }
+  bool IsTable() const { return HasGenericType(eTable); }
   virtual TableAccessible* AsTable() { return nullptr; }
 
   virtual TableCellAccessible* AsTableCell() { return nullptr; }
+  const TableCellAccessible* AsTableCell() const
+    { return const_cast<Accessible*>(this)->AsTableCell(); }
 
-  bool IsTableRow() const { return mGenericTypes & eTableRow; }
+  bool IsTableRow() const { return HasGenericType(eTableRow); }
 
   bool IsTextLeaf() const { return mType == eTextLeafType; }
   TextLeafAccessible* AsTextLeaf();
 
-  bool IsXULDeck() const { return mType == eXULDeckType; }
+  bool IsXULLabel() const { return mType == eXULLabelType; }
+  XULLabelAccessible* AsXULLabel();
+
+  bool IsXULTabpanels() const { return mType == eXULTabpanelsType; }
 
   bool IsXULTree() const { return mType == eXULTreeType; }
   XULTreeAccessible* AsXULTree();
+
+  /**
+   * Return true if the accessible belongs to the given accessible type.
+   */
+  bool HasGenericType(AccGenericType aType) const;
 
   //////////////////////////////////////////////////////////////////////////////
   // ActionAccessible
@@ -883,7 +897,7 @@ protected:
 
   static const uint8_t kChildrenFlagsBits = 2;
   static const uint8_t kStateFlagsBits = 5;
-  static const uint8_t kTypeBits = 5;
+  static const uint8_t kTypeBits = 6;
   static const uint8_t kGenericTypesBits = 12;
 
   /**

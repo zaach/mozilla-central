@@ -96,7 +96,6 @@ Histogram* Histogram::FactoryGet(const std::string& name,
     // Extra variable is not needed... but this keeps this section basically
     // identical to other derived classes in this file (and compiler will
     // optimize away the extra variable.
-    // To avoid racy destruction at shutdown, the following will be leaked.
     Histogram* tentative_histogram =
         new Histogram(name, minimum, maximum, bucket_count);
     tentative_histogram->InitializeBucketRange();
@@ -559,7 +558,8 @@ const std::string Histogram::GetAsciiBucketRange(size_t i) const {
 // Update histogram data with new sample.
 void Histogram::Accumulate(Sample value, Count count, size_t index) {
   // Note locking not done in this version!!!
-  sample_.AccumulateWithExponentialStats(value, count, index);
+  sample_.AccumulateWithExponentialStats(value, count, index,
+					 flags_ & kExtendedStatisticsFlag);
 }
 
 void Histogram::SetBucketRange(size_t i, Sample value) {
@@ -723,29 +723,35 @@ void Histogram::SampleSet::CheckSize(const Histogram& histogram) const {
   DCHECK_EQ(histogram.bucket_count(), counts_.size());
 }
 
-
-void Histogram::SampleSet::AccumulateWithLinearStats(Sample value,
-                                                     Count count,
-                                                     size_t index) {
+void Histogram::SampleSet::Accumulate(Sample value, Count count,
+				      size_t index) {
   DCHECK(count == 1 || count == -1);
   counts_[index] += count;
-  int64_t amount = static_cast<int64_t>(count) * value;
-  sum_ += amount;
-  sum_squares_ += amount * value;
   redundant_count_ += count;
+  sum_ += static_cast<int64_t>(count) * value;
   DCHECK_GE(counts_[index], 0);
   DCHECK_GE(sum_, 0);
   DCHECK_GE(redundant_count_, 0);
 }
 
+void Histogram::SampleSet::AccumulateWithLinearStats(Sample value,
+                                                     Count count,
+                                                     size_t index) {
+  Accumulate(value, count, index);
+  sum_squares_ += static_cast<int64_t>(count) * value * value;
+}
+
 void Histogram::SampleSet::AccumulateWithExponentialStats(Sample value,
                                                           Count count,
-                                                          size_t index) {
-  AccumulateWithLinearStats(value, count, index);
-  DCHECK_GE(value, 0);
-  double value_log = log(static_cast<double>(value) + 1);
-  log_sum_ += count * value_log;
-  log_sum_squares_ += count * value_log * value_log;
+                                                          size_t index,
+							  bool computeExtendedStatistics) {
+  Accumulate(value, count, index);
+  if (computeExtendedStatistics) {
+    DCHECK_GE(value, 0);
+    float value_log = logf(static_cast<float>(value) + 1.0f);
+    log_sum_ += count * value_log;
+    log_sum_squares_ += count * value_log * value_log;
+  }
 }
 
 Count Histogram::SampleSet::TotalCount() const {
@@ -846,7 +852,6 @@ Histogram* LinearHistogram::FactoryGet(const std::string& name,
     maximum = kSampleType_MAX - 1;
 
   if (!StatisticsRecorder::FindHistogram(name, &histogram)) {
-    // To avoid racy destruction at shutdown, the following will be leaked.
     LinearHistogram* tentative_histogram =
         new LinearHistogram(name, minimum, maximum, bucket_count);
     tentative_histogram->InitializeBucketRange();
@@ -942,7 +947,6 @@ Histogram* BooleanHistogram::FactoryGet(const std::string& name, Flags flags) {
   Histogram* histogram(NULL);
 
   if (!StatisticsRecorder::FindHistogram(name, &histogram)) {
-    // To avoid racy destruction at shutdown, the following will be leaked.
     BooleanHistogram* tentative_histogram = new BooleanHistogram(name);
     tentative_histogram->InitializeBucketRange();
     tentative_histogram->SetFlags(flags);
@@ -966,6 +970,14 @@ BooleanHistogram::BooleanHistogram(const std::string& name)
     : LinearHistogram(name, 1, 2, 3) {
 }
 
+void
+BooleanHistogram::Accumulate(Sample value, Count count, size_t index)
+{
+  // Callers will have computed index based on the non-booleanified value.
+  // So we need to adjust the index manually.
+  LinearHistogram::Accumulate(!!value, count, value ? 1 : 0);
+}
+
 //------------------------------------------------------------------------------
 // FlagHistogram:
 //------------------------------------------------------------------------------
@@ -976,7 +988,6 @@ FlagHistogram::FactoryGet(const std::string &name, Flags flags)
   Histogram *h(nullptr);
 
   if (!StatisticsRecorder::FindHistogram(name, &h)) {
-    // To avoid racy destruction at shutdown, the following will be leaked.
     FlagHistogram *fh = new FlagHistogram(name);
     fh->InitializeBucketRange();
     fh->SetFlags(flags);
@@ -1060,7 +1071,6 @@ Histogram* CustomHistogram::FactoryGet(const std::string& name,
   DCHECK_LT(ranges.back(), kSampleType_MAX);
 
   if (!StatisticsRecorder::FindHistogram(name, &histogram)) {
-    // To avoid racy destruction at shutdown, the following will be leaked.
     CustomHistogram* tentative_histogram = new CustomHistogram(name, ranges);
     tentative_histogram->InitializedCustomBucketRange(ranges);
     tentative_histogram->SetFlags(flags);
@@ -1137,6 +1147,13 @@ StatisticsRecorder::~StatisticsRecorder() {
     base::AutoLock auto_lock(*lock_);
     histograms = histograms_;
     histograms_ = NULL;
+    for (HistogramMap::iterator it = histograms->begin();
+         histograms->end() != it;
+         ++it) {
+      // No other clients permanently hold Histogram references, so we
+      // have the only one and it is safe to delete it.
+      delete it->second;
+    }
   }
   delete histograms;
   // We don't delete lock_ on purpose to avoid having to properly protect

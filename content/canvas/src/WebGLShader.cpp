@@ -6,12 +6,13 @@
 #include "WebGLShader.h"
 #include "WebGLContext.h"
 #include "mozilla/dom/WebGLRenderingContextBinding.h"
+#include "nsContentUtils.h"
 
 using namespace mozilla;
 
 JSObject*
-WebGLShader::WrapObject(JSContext *cx, JSObject *scope, bool *triedToWrap) {
-    return dom::WebGLShaderBinding::Wrap(cx, scope, this, triedToWrap);
+WebGLShader::WrapObject(JSContext *cx, JSObject *scope) {
+    return dom::WebGLShaderBinding::Wrap(cx, scope, this);
 }
 
 WebGLShader::WebGLShader(WebGLContext *context, WebGLenum stype)

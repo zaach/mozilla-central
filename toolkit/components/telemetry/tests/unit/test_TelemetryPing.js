@@ -27,6 +27,7 @@ const ADDON_NAME = "Telemetry test addon";
 const ADDON_HISTOGRAM = "addon-histogram";
 const FLASH_VERSION = "1.1.1.1";
 const SHUTDOWN_TIME = 10000;
+const FAILED_PROFILE_LOCK_ATTEMPTS = 2;
 
 // Constants from prio.h for nsIFileOutputStream.init
 const PR_WRONLY = 0x2;
@@ -47,6 +48,7 @@ function telemetry_ping () {
   const TelemetryPing = Cc["@mozilla.org/base/telemetry-ping;1"].getService(Ci.nsITelemetryPing);
   TelemetryPing.gatherStartup();
   TelemetryPing.enableLoadSaveNotifications();
+  TelemetryPing.cacheProfileDirectory();
   TelemetryPing.testPing(SERVER);
 }
 
@@ -155,6 +157,8 @@ function checkPayloadInfo(payload, reason) {
   do_check_eq(payload.info.reason, reason);
   do_check_true("appUpdateChannel" in payload.info);
   do_check_true("locale" in payload.info);
+  do_check_true("revision" in payload.info);
+  do_check_true(payload.info.revision.startsWith("http"));
 
   try {
     // If we've not got nsIGfxInfoDebug, then this will throw and stop us doing
@@ -181,6 +185,14 @@ function checkPayload(request, reason, successfulPings) {
   do_check_true(payload.simpleMeasurements.startupInterrupted === 1);
   do_check_eq(payload.simpleMeasurements.shutdownDuration, SHUTDOWN_TIME);
   do_check_eq(payload.simpleMeasurements.savedPings, 1);
+
+  do_check_eq(payload.simpleMeasurements.failedProfileLockCount,
+              FAILED_PROFILE_LOCK_ATTEMPTS);
+  let profileDirectory = Services.dirsvc.get("ProfD", Ci.nsIFile);
+  let failedProfileLocksFile = profileDirectory.clone();
+  failedProfileLocksFile.append("Telemetry.FailedProfileLocks.txt");
+  do_check_true(!failedProfileLocksFile.exists());
+
 
   var isWindows = ("@mozilla.org/windows-registry-key;1" in Components.classes);
   if (isWindows) {
@@ -211,9 +223,7 @@ function checkPayload(request, reason, successfulPings) {
     values: {0:1, 1:0},
     sum: 0,
     sum_squares_lo: 0,
-    sum_squares_hi: 0,
-    log_sum: 0,
-    log_sum_squares: 0
+    sum_squares_hi: 0
   };
   let flag = payload.histograms[TELEMETRY_TEST_FLAG];
   do_check_eq(uneval(flag), uneval(expected_flag));
@@ -226,9 +236,7 @@ function checkPayload(request, reason, successfulPings) {
     values: {0:1, 1:successfulPings, 2:0},
     sum: successfulPings,
     sum_squares_lo: successfulPings,
-    sum_squares_hi: 0,
-    log_sum: 0,
-    log_sum_squares: 0
+    sum_squares_hi: 0
   };
   let tc = payload.histograms[TELEMETRY_SUCCESS];
   do_check_eq(uneval(tc), uneval(expected_tc));
@@ -443,6 +451,14 @@ function write_fake_shutdown_file() {
   writeStringToFile(file, contents);
 }
 
+function write_fake_failedprofilelocks_file() {
+  let profileDirectory = Services.dirsvc.get("ProfD", Ci.nsIFile);
+  let file = profileDirectory.clone();
+  file.append("Telemetry.FailedProfileLocks.txt");
+  let contents = "" + FAILED_PROFILE_LOCK_ATTEMPTS;
+  writeStringToFile(file, contents);
+}
+
 function run_test() {
   do_test_pending();
   try {
@@ -456,6 +472,9 @@ function run_test() {
   // Addon manager needs a profile directory
   do_get_profile();
   createAppInfo("xpcshell@tests.mozilla.org", "XPCShell", "1", "1.9.2");
+
+  // Make it look like we've previously failed to lock a profile a couple times.
+  write_fake_failedprofilelocks_file();
 
   // Make it look like we've shutdown before.
   write_fake_shutdown_file();

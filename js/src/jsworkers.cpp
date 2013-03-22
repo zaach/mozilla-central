@@ -20,12 +20,6 @@ using mozilla::DebugOnly;
 #ifdef JS_PARALLEL_COMPILATION
 
 bool
-js::OffThreadCompilationAvailable(JSContext *cx)
-{
-    return cx->runtime->useHelperThreads() && cx->runtime->helperThreadCount() > 0;
-}
-
-bool
 js::StartOffThreadIonCompile(JSContext *cx, ion::IonBuilder *builder)
 {
     JSRuntime *rt = cx->runtime;
@@ -36,6 +30,7 @@ js::StartOffThreadIonCompile(JSContext *cx, ion::IonBuilder *builder)
         if (!rt->workerThreadState->init(rt)) {
             js_delete(rt->workerThreadState);
             rt->workerThreadState = NULL;
+            return false;
         }
     }
     WorkerThreadState &state = *cx->runtime->workerThreadState;
@@ -78,8 +73,6 @@ CompiledScriptMatches(JSCompartment *compartment, JSScript *script, JSScript *ta
 void
 js::CancelOffThreadIonCompile(JSCompartment *compartment, JSScript *script)
 {
-    AutoAssertNoGC nogc;
-
     if (!compartment->rt->workerThreadState)
         return;
 
@@ -323,7 +316,7 @@ WorkerThread::threadLoop()
         state.unlock();
 
         {
-            ion::IonContext ictx(NULL, ionBuilder->script()->compartment(), &ionBuilder->temp());
+            ion::IonContext ictx(ionBuilder->script()->compartment(), &ionBuilder->temp());
             ionBuilder->setBackgroundCodegen(ion::CompileBackEnd(ionBuilder));
         }
 
@@ -358,12 +351,6 @@ js::StartOffThreadIonCompile(JSContext *cx, ion::IonBuilder *builder)
 void
 js::CancelOffThreadIonCompile(JSCompartment *compartment, JSScript *script)
 {
-}
-
-bool
-js::OffThreadCompilationAvailable(JSContext *cx)
-{
-    return false;
 }
 
 #endif /* JS_PARALLEL_COMPILATION */

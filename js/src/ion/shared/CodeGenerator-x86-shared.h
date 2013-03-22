@@ -17,6 +17,7 @@ class OutOfLineBailout;
 class OutOfLineUndoALUOperation;
 class MulNegativeZeroCheck;
 class OutOfLineTruncate;
+class OutOfLineTableSwitch;
 
 class CodeGeneratorX86Shared : public CodeGeneratorShared
 {
@@ -59,16 +60,9 @@ class CodeGeneratorX86Shared : public CodeGeneratorShared
     bool generateEpilogue();
     bool generateOutOfLineCode();
 
-    void emitDoubleToInt32(const FloatRegister &src, const Register &dest, Label *fail, bool negativeZeroCheck = true);
-
     Operand createArrayElementOperand(Register elements, const LAllocation *index);
 
-    void emitCompare(MIRType type, const LAllocation *left, const LAllocation *right);
-
-    // Emits a conditional set.
-    void emitSet(Assembler::Condition cond, const Register &dest,
-                 Assembler::NaNCond ifNaN = Assembler::NaN_Unexpected);
-    void emitSet(Assembler::DoubleCondition cond, const Register &dest);
+    void emitCompare(MCompare::CompareType type, const LAllocation *left, const LAllocation *right);
 
     // Emits a branch that directs control flow to the true block if |cond| is
     // true, and the false block if |cond| is false.
@@ -79,10 +73,11 @@ class CodeGeneratorX86Shared : public CodeGeneratorShared
     bool emitTableSwitchDispatch(MTableSwitch *mir, const Register &index, const Register &base);
 
   public:
-    CodeGeneratorX86Shared(MIRGenerator *gen, LIRGraph *graph);
+    CodeGeneratorX86Shared(MIRGenerator *gen, LIRGraph *graph, MacroAssembler *masm);
 
   public:
     // Instruction visitors.
+    virtual bool visitDouble(LDouble *ins);
     virtual bool visitMinMaxD(LMinMaxD *ins);
     virtual bool visitAbsD(LAbsD *ins);
     virtual bool visitSqrtD(LSqrtD *ins);
@@ -112,12 +107,16 @@ class CodeGeneratorX86Shared : public CodeGeneratorShared
     virtual bool visitGuardShape(LGuardShape *guard);
     virtual bool visitGuardClass(LGuardClass *guard);
     virtual bool visitTruncateDToInt32(LTruncateDToInt32 *ins);
+    virtual bool visitEffectiveAddress(LEffectiveAddress *ins);
+    virtual bool visitAsmJSDivOrMod(LAsmJSDivOrMod *ins);
+    virtual bool visitAsmJSPassStackArg(LAsmJSPassStackArg *ins);
 
     // Out of line visitors.
     bool visitOutOfLineBailout(OutOfLineBailout *ool);
     bool visitOutOfLineUndoALUOperation(OutOfLineUndoALUOperation *ool);
     bool visitMulNegativeZeroCheck(MulNegativeZeroCheck *ool);
     bool visitOutOfLineTruncate(OutOfLineTruncate *ool);
+    bool visitOutOfLineTableSwitch(OutOfLineTableSwitch *ool);
     bool generateInvalidateEpilogue();
 };
 

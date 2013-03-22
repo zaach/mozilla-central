@@ -28,12 +28,11 @@ class AssemblerX86Shared
         { }
     };
 
-    js::Vector<DeferredData *, 0, SystemAllocPolicy> data_;
-    js::Vector<CodeLabel *, 0, SystemAllocPolicy> codeLabels_;
-    js::Vector<RelativePatch, 8, SystemAllocPolicy> jumps_;
+    Vector<CodeLabel, 0, SystemAllocPolicy> codeLabels_;
+    Vector<RelativePatch, 8, SystemAllocPolicy> jumps_;
     CompactBufferWriter jumpRelocations_;
     CompactBufferWriter dataRelocations_;
-    size_t dataBytesNeeded_;
+    CompactBufferWriter preBarriers_;
     bool enoughMemory_;
 
     void writeDataRelocation(const Value &val) {
@@ -43,6 +42,9 @@ class AssemblerX86Shared
     void writeDataRelocation(const ImmGCPtr &ptr) {
         if (ptr.value)
             dataRelocations_.writeUnsigned(masm.currentOffset());
+    }
+    void writePrebarrierOffset(CodeOffsetLabel label) {
+        preBarriers_.writeUnsigned(label.offset());
     }
 
   protected:
@@ -135,8 +137,7 @@ class AssemblerX86Shared
     }
 
     AssemblerX86Shared()
-      : dataBytesNeeded_(0),
-        enoughMemory_(true)
+      : enoughMemory_(true)
     {
     }
 
@@ -155,7 +156,8 @@ class AssemblerX86Shared
         return masm.oom() ||
                !enoughMemory_ ||
                jumpRelocations_.oom() ||
-               dataRelocations_.oom();
+               dataRelocations_.oom() ||
+               preBarriers_.oom();
     }
 
     void setPrinter(Sprinter *sp) {
@@ -163,21 +165,16 @@ class AssemblerX86Shared
     }
 
     void executableCopy(void *buffer);
-    void processDeferredData(IonCode *code, uint8_t *data);
-    void processCodeLabels(IonCode *code);
-    void copyJumpRelocationTable(uint8_t *buffer);
-    void copyDataRelocationTable(uint8_t *buffer);
+    void processCodeLabels(uint8_t *rawCode);
+    void copyJumpRelocationTable(uint8_t *dest);
+    void copyDataRelocationTable(uint8_t *dest);
+    void copyPreBarrierTable(uint8_t *dest);
 
-    bool addDeferredData(DeferredData *data, size_t bytes) {
-        data->setOffset(dataBytesNeeded_);
-        dataBytesNeeded_ += bytes;
-        if (dataBytesNeeded_ >= MAX_BUFFER_SIZE)
-            return false;
-        return data_.append(data);
-    }
-    
-    bool addCodeLabel(CodeLabel *label) {
+    bool addCodeLabel(CodeLabel label) {
         return codeLabels_.append(label);
+    }
+    size_t numCodeLabels() const {
+        return codeLabels_.length();
     }
 
     // Size of the instruction stream, in bytes.
@@ -191,20 +188,31 @@ class AssemblerX86Shared
     size_t dataRelocationTableBytes() const {
         return dataRelocations_.length();
     }
-    // Size of the data table, in bytes.
-    size_t dataSize() const {
-        return dataBytesNeeded_;
+    size_t preBarrierTableBytes() const {
+        return preBarriers_.length();
     }
+    // Size of the data table, in bytes.
     size_t bytesNeeded() const {
         return size() +
-               dataSize() +
                jumpRelocationTableBytes() +
-               dataRelocationTableBytes();
+               dataRelocationTableBytes() +
+               preBarrierTableBytes();
     }
 
   public:
     void align(int alignment) {
         masm.align(alignment);
+    }
+    void writeCodePointer(AbsoluteLabel *label) {
+        JS_ASSERT(!label->bound());
+        // Thread the patch list through the unpatched address word in the
+        // instruction stream.
+        masm.jumpTablePointer(label->prev());
+        label->setPrev(masm.size());
+    }
+    void writeDoubleConstant(double d, Label *label) {
+        label->bind(masm.size());
+        masm.doubleConstant(d);
     }
     void movl(const Imm32 &imm32, const Register &dest) {
         masm.movl_i32r(imm32.value, dest.code());
@@ -452,6 +460,18 @@ class AssemblerX86Shared
             JS_NOT_REACHED("unexpected operand kind");
         }
     }
+    void leal(const Operand &src, const Register &dest) {
+        switch (src.kind()) {
+          case Operand::REG_DISP:
+            masm.leal_mr(src.disp(), src.base(), dest.code());
+            break;
+          case Operand::SCALE:
+            masm.leal_mr(src.disp(), src.base(), src.index(), src.scale(), dest.code());
+            break;
+          default:
+            JS_NOT_REACHED("unexpected operand kind");
+        }
+    }
 
   protected:
     JmpSrc jSrc(Condition cond, Label *label) {
@@ -586,8 +606,7 @@ class AssemblerX86Shared
         label->reset();
     }
 
-    static void Bind(IonCode *code, AbsoluteLabel *label, const void *address) {
-        uint8_t *raw = code->raw();
+    static void Bind(uint8_t *raw, AbsoluteLabel *label, const void *address) {
         if (label->used()) {
             intptr_t src = label->offset();
             do {
@@ -995,6 +1014,13 @@ class AssemblerX86Shared
         masm.pop_r(src.code());
     }
 
+    void pushFlags() {
+        masm.push_flags();
+    }
+    void popFlags() {
+        masm.pop_flags();
+    }
+
 #ifdef JS_CPU_X86
     void pushAllRegs() {
         masm.pusha();
@@ -1012,8 +1038,11 @@ class AssemblerX86Shared
     void cdq() {
         masm.cdq();
     }
-    void idiv(Register dest) {
-        masm.idivl_r(dest.code());
+    void idiv(Register divisor) {
+        masm.idivl_r(divisor.code());
+    }
+    void udiv(Register divisor) {
+        masm.divl_r(divisor.code());
     }
 
     void unpcklps(const FloatRegister &src, const FloatRegister &dest) {
@@ -1188,9 +1217,6 @@ class AssemblerX86Shared
     void flushBuffer() {
     }
 
-    void finish() {
-    }
-
     // Patching.
 
     static size_t patchWrite_NearCallSize() {
@@ -1238,6 +1264,12 @@ class AssemblerX86Shared
         uint8_t *ptr = (uint8_t *)inst.raw();
         JS_ASSERT(*ptr == 0xE9);
         *ptr = 0x3D;
+    }
+    static void ToggleCall(CodeLocationLabel inst, bool enabled) {
+        uint8_t *ptr = (uint8_t *)inst.raw();
+        JS_ASSERT(*ptr == 0x3D || // CMP
+                  *ptr == 0xE8);  // CALL
+        *ptr = enabled ? 0xE8 : 0x3D;
     }
 };
 

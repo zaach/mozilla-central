@@ -20,12 +20,15 @@
 #include "nsTArray.h"
 #include "nsIURI.h"
 
+#include "js/RootingAPI.h"
+
 #define DOM_WINDOW_DESTROYED_TOPIC "dom-window-destroyed"
 #define DOM_WINDOW_FROZEN_TOPIC "dom-window-frozen"
 #define DOM_WINDOW_THAWED_TOPIC "dom-window-thawed"
 
 class nsIIdleObserver;
 class nsIPrincipal;
+class nsPerformance;
 
 // Popup control state enum. The values in this enum must go from most
 // permissive to least permissive so that it's safe to push state in
@@ -44,7 +47,6 @@ class nsIContent;
 class nsIDocument;
 class nsIScriptTimeoutHandler;
 struct nsTimeout;
-template <class> class nsScriptObjectHolder;
 class nsXBLPrototypeHandler;
 class nsIArray;
 class nsPIWindowRoot;
@@ -56,8 +58,8 @@ class AudioContext;
 }
 
 #define NS_PIDOMWINDOW_IID \
-{ 0xf5af1c3c, 0xebad, 0x4d00, \
-  { 0xa2, 0xa4, 0x12, 0x2e, 0x27, 0x16, 0x59, 0x01 } }
+{ 0x287be48c, 0x3a7a, 0x48ce, \
+  { 0x80, 0x0f, 0x05, 0x39, 0x52, 0x08, 0x2e, 0xe7 } }
 
 class nsPIDOMWindow : public nsIDOMWindowInternal
 {
@@ -179,6 +181,8 @@ public:
   {
     return mDoc;
   }
+  nsIURI* GetDocumentURI() const;
+  nsIURI* GetDocBaseURI() const;
 
   nsIDocument* GetDoc()
   {
@@ -490,7 +494,7 @@ public:
 
   virtual JSObject* GetCachedXBLPrototypeHandler(nsXBLPrototypeHandler* aKey) = 0;
   virtual void CacheXBLPrototypeHandler(nsXBLPrototypeHandler* aKey,
-                                        nsScriptObjectHolder<JSObject>& aHandler) = 0;
+                                        JS::Handle<JSObject*> aHandler) = 0;
 
   /*
    * Get and set the currently focused element within the document. If
@@ -597,6 +601,11 @@ public:
 #endif // MOZ_B2G
 
   /**
+   * Tell this window that there is an observer for gamepad input
+   */
+  virtual void SetHasGamepadEventListener(bool aHasGamepad = true) = 0;
+
+  /**
    * Set a arguments for this window. This will be set on the window
    * right away (if there's an existing document) and it will also be
    * installed on the window when the next document is loaded. Each
@@ -638,6 +647,10 @@ public:
 
   void AddAudioContext(mozilla::dom::AudioContext* aAudioContext);
 
+  // WebIDL-ish APIs
+  static bool HasPerformanceSupport();
+  nsPerformance* GetPerformance();
+
 protected:
   // The nsPIDOMWindow constructor. The aOuterWindow argument should
   // be null if and only if the created window itself is an outer
@@ -655,18 +668,27 @@ protected:
 
   virtual void UpdateParentTarget() = 0;
 
+  // Helper for creating performance objects.
+  void CreatePerformanceObjectIfNeeded();
+
   // These two variables are special in that they're set to the same
   // value on both the outer window and the current inner window. Make
   // sure you keep them in sync!
   nsCOMPtr<nsIDOMEventTarget> mChromeEventHandler; // strong
   nsCOMPtr<nsIDOMDocument> mDocument; // strong
   nsCOMPtr<nsIDocument> mDoc; // strong, for fast access
+  // Cache the URI when mDoc is cleared.
+  nsCOMPtr<nsIURI> mDocumentURI; // strong
+  nsCOMPtr<nsIURI> mDocBaseURI; // strong
 
   nsCOMPtr<nsIDOMEventTarget> mParentTarget; // strong
 
   // These members are only used on outer windows.
   nsCOMPtr<nsIDOMElement> mFrameElement;
   nsIDocShell           *mDocShell;  // Weak Reference
+
+  // mPerformance is only used on inner windows.
+  nsRefPtr<nsPerformance>       mPerformance;
 
   uint32_t               mModalStateDepth;
 

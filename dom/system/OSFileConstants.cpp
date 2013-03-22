@@ -588,6 +588,7 @@ static dom::ConstantSpec gWinProperties[] =
   INT_CONSTANT(ERROR_ALREADY_EXISTS),
   INT_CONSTANT(ERROR_FILE_NOT_FOUND),
   INT_CONSTANT(ERROR_NO_MORE_FILES),
+  INT_CONSTANT(ERROR_PATH_NOT_FOUND),
 
   PROP_END
 };
@@ -631,6 +632,7 @@ bool SetStringProperty(JSContext *cx, JSObject *aObject, const char *aProperty,
     return true;
   }
   JSString* strValue = JS_NewUCStringCopyZ(cx, aValue.get());
+  NS_ENSURE_TRUE(strValue, false);
   jsval valValue = STRING_TO_JSVAL(strValue);
   return JS_SetProperty(cx, aObject, aProperty, &valValue);
 }

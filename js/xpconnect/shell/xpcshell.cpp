@@ -473,7 +473,7 @@ Load(JSContext *cx, unsigned argc, jsval *vp)
         options.setUTF8(true)
                .setFileAndLine(filename.ptr(), 1)
                .setPrincipals(gJSPrincipals);
-        js::RootedObject rootedObj(cx, obj);
+        JS::RootedObject rootedObj(cx, obj);
         JSScript *script = JS::Compile(cx, rootedObj, options, file);
         fclose(file);
         if (!script)
@@ -584,7 +584,7 @@ DumpHeap(JSContext *cx, unsigned argc, jsval *vp)
         if (!str)
             return false;
         *vp = STRING_TO_JSVAL(str);
-        if (!fileName.encode(cx, str))
+        if (!fileName.encodeLatin1(cx, str))
             return false;
     }
 
@@ -686,11 +686,8 @@ static const struct JSOption {
     const char  *name;
     uint32_t    flag;
 } js_options[] = {
-    {"atline",          JSOPTION_ATLINE},
     {"strict",          JSOPTION_STRICT},
     {"werror",          JSOPTION_WERROR},
-    {"allow_xml",       JSOPTION_ALLOW_XML},
-    {"moar_xml",        JSOPTION_MOAR_XML},
     {"strict_mode",     JSOPTION_STRICT_MODE},
 };
 
@@ -931,9 +928,6 @@ env_resolve(JSContext *cx, JSHandleObject obj, JSHandleId id, unsigned flags,
 {
     JSString *idstr, *valstr;
 
-    if (flags & JSRESOLVE_ASSIGNING)
-        return true;
-
     jsval idval;
     if (!JS_IdToValue(cx, id, &idval))
         return false;
@@ -1032,7 +1026,7 @@ ProcessFile(JSContext *cx, JSObject *obj, const char *filename, FILE *file,
         options.setUTF8(true)
                .setFileAndLine(filename, 1)
                .setPrincipals(gJSPrincipals);
-        js::RootedObject rootedObj(cx, obj);
+        JS::RootedObject rootedObj(cx, obj);
         script = JS::Compile(cx, rootedObj, options, file);
         if (script && !compileOnly)
             (void)JS_ExecuteScript(cx, obj, script, &result);
@@ -1080,7 +1074,7 @@ ProcessFile(JSContext *cx, JSObject *obj, const char *filename, FILE *file,
                     str = JS_ValueToString(cx, result);
                     JS_SetErrorReporter(cx, older);
                     JSAutoByteString bytes;
-                    if (str && bytes.encode(cx, str))
+                    if (str && bytes.encodeLatin1(cx, str))
                         fprintf(gOutFile, "%s\n", bytes.ptr());
                     else
                         ok = false;
@@ -1120,7 +1114,7 @@ static int
 usage(void)
 {
     fprintf(gErrFile, "%s\n", JS_GetImplementationVersion());
-    fprintf(gErrFile, "usage: xpcshell [-g gredir] [-a appdir] [-r manifest]... [-PsSwWxCijmIn] [-v version] [-f scriptfile] [-e script] [scriptfile] [scriptarg...]\n");
+    fprintf(gErrFile, "usage: xpcshell [-g gredir] [-a appdir] [-r manifest]... [-PsSwWCijmIn] [-v version] [-f scriptfile] [-e script] [scriptfile] [scriptarg...]\n");
     return 2;
 }
 
@@ -1145,15 +1139,13 @@ ProcessArgsForCompartment(JSContext *cx, char **argv, int argc)
         case 's':
             JS_ToggleOptions(cx, JSOPTION_STRICT);
             break;
-        case 'x':
-            JS_ToggleOptions(cx, JSOPTION_MOAR_XML);
-            break;
         case 'm':
             JS_ToggleOptions(cx, JSOPTION_METHODJIT);
             break;
         case 'I':
             JS_ToggleOptions(cx, JSOPTION_COMPILE_N_GO);
             JS_ToggleOptions(cx, JSOPTION_ION);
+            JS_ToggleOptions(cx, JSOPTION_ASMJS);
             break;
         case 'n':
             JS_ToggleOptions(cx, JSOPTION_TYPE_INFERENCE);
@@ -1819,9 +1811,6 @@ main(int argc, char **argv, char **envp)
         argv++;
         ProcessArgsForCompartment(cx, argv, argc);
 
-        JS_SetOptions(cx, JS_GetOptions(cx) | JSOPTION_ALLOW_XML);
-        xpc_LocalizeContext(cx);
-
         nsCOMPtr<nsIXPConnect> xpc = do_GetService(nsIXPConnect::GetCID());
         if (!xpc) {
             printf("failed to get nsXPConnect service!\n");
@@ -1891,6 +1880,7 @@ main(int argc, char **argv, char **envp)
         rv = xpc->InitClassesWithNewWrappedGlobal(cx, backstagePass,
                                                   systemprincipal,
                                                   0,
+                                                  JS::SystemZone,
                                                   getter_AddRefs(holder));
         if (NS_FAILED(rv))
             return 1;
@@ -2096,9 +2086,7 @@ XPCShellDirProvider::GetFile(const char *prop, bool *persistent,
 #endif
         return localFile->Clone(result);
 #else
-        // Fail on non-Windows platforms, the caller is supposed to fal back on
-        // the app dir.
-        return NS_ERROR_FAILURE;
+        return mAppFile->GetParent(result);
 #endif
     }
 

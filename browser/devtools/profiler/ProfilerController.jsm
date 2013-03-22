@@ -22,14 +22,8 @@ XPCOMUtils.defineLazyGetter(this, "DebuggerServer", function () {
  * Object acting as a mediator between the ProfilerController and
  * DebuggerServer.
  */
-function ProfilerConnection() {
-  if (!DebuggerServer.initialized) {
-    DebuggerServer.init();
-    DebuggerServer.addBrowserActors();
-  }
-
-  let transport = DebuggerServer.connectPipe();
-  this.client = new DebuggerClient(transport);
+function ProfilerConnection(client) {
+  this.client = client;
 }
 
 ProfilerConnection.prototype = {
@@ -42,13 +36,9 @@ ProfilerConnection.prototype = {
    *        Function to be called once we're connected to the client.
    */
   connect: function PCn_connect(aCallback) {
-    let client = this.client;
-
-    client.connect(function (aType, aTraits) {
-      client.listTabs(function (aResponse) {
-        this.actor = aResponse.profilerActor;
-        aCallback();
-      }.bind(this));
+    this.client.listTabs(function (aResponse) {
+      this.actor = aResponse.profilerActor;
+      aCallback();
     }.bind(this));
   },
 
@@ -114,18 +104,21 @@ ProfilerConnection.prototype = {
    * Cleanup.
    */
   destroy: function PCn_destroy() {
-    this.client.close(function () {
-      this.client = null;
-    }.bind(this));
+    this.client = null;
   }
 };
 
 /**
  * Object defining the profiler controller components.
  */
-function ProfilerController() {
-  this.profiler = new ProfilerConnection();
-  this._connected = false;
+function ProfilerController(target) {
+  this.profiler = new ProfilerConnection(target.client);
+  // Chrome debugging targets have already obtained a reference to the profiler
+  // actor.
+  this._connected = !!target.chrome;
+  if (target.chrome) {
+    this.profiler.actor = target.form.profilerActor;
+  }
 }
 
 ProfilerController.prototype = {
@@ -139,7 +132,7 @@ ProfilerController.prototype = {
    */
   connect: function (aCallback) {
     if (this._connected) {
-      aCallback();
+      return void aCallback();
     }
 
     this.profiler.connect(function onConnect() {

@@ -158,10 +158,7 @@ function options(aOptionName)
     value = value.substring(0, value.length-1);
   }
 
-  if (aOptionName === 'moar_xml')
-    aOptionName = 'xml';
-
-  if (aOptionName && aOptionName !== 'allow_xml') {
+  if (aOptionName) {
     netscape.security.PrivilegeManager.enablePrivilege('UniversalXPConnect');
     if (!(aOptionName in Components.utils)) {
 //    if (!(aOptionName in SpecialPowers.wrap(Components).utils)) {
@@ -192,8 +189,6 @@ function optionsInit() {
   options.currvalues = {
     strict:     true,
     werror:     true,
-    atline:     true,
-    moar_xml:   true,
     methodjit:  true,
     methodjit_always: true,
     strict_mode: true
@@ -211,8 +206,6 @@ function optionsInit() {
   for (var optionName in options.currvalues)
   {
     var propName = optionName;
-    if (optionName === "moar_xml")
-      propName = "xml";
 
 //    if (!(propName in SpecialPowers.wrap(Components).utils))
     if (!(propName in Components.utils))
@@ -294,12 +287,16 @@ function jsTestDriverBrowserInit()
     // If the version is not specified, and the browser is Gecko,
     // use the default version corresponding to the shell's version(0).
     // See https://bugzilla.mozilla.org/show_bug.cgi?id=522760#c11
-    // Otherwise adjust the version to match the suite version for 1.7,
-    // and later due to the use of let, yield, etc.
+    // Otherwise adjust the version to match the suite version for 1.6,
+    // and later due to the use of for-each, let, yield, etc.
     //
     // Note that js1_8, js1_8_1, and js1_8_5 are treated identically in
     // the browser.
-    if (properties.test.match(/^js1_7/))
+    if (properties.test.match(/^js1_6/))
+    {
+      properties.version = '1.6';
+    }
+    else if (properties.test.match(/^js1_7/))
     {
       properties.version = '1.7';
     }
@@ -357,26 +354,19 @@ function jsTestDriverBrowserInit()
   outputscripttag(suitepath + '/browser.js', properties);
   outputscripttag(suitepath + '/' + subsuite + '/shell.js', properties);
   outputscripttag(suitepath + '/' + subsuite + '/browser.js', properties);
-  outputscripttag(suitepath + '/' + subsuite + '/' + test, properties,
-  	properties.e4x || /e4x\//.test(properties.test));
+  outputscripttag(suitepath + '/' + subsuite + '/' + test, properties);
   outputscripttag('js-test-driver-end.js', properties);
   return;
 }
 
-function outputscripttag(src, properties, e4x)
+function outputscripttag(src, properties)
 {
   if (!src)
   {
     return;
   }
 
-  if (e4x)
-  {
-    // e4x requires type=mimetype;e4x=1
-    properties.language = 'type';
-  }
-
-  var s = '<script src="' +  src + '" ';
+  var s = '<script src="' +  src + '" charset="utf-8" ';
 
   if (properties.language != 'type')
   {
@@ -392,10 +382,6 @@ function outputscripttag(src, properties, e4x)
     if (properties.version)
     {
       s += ';version=' + properties.version;
-    }
-    if (e4x)
-    {
-      s += ';e4x=1';
     }
   }
   s += '"><\/script>';

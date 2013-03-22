@@ -22,24 +22,33 @@
     _(TableSwitch)                  \
     _(TableSwitchV)                 \
     _(Goto)                         \
+    _(NewParallelArray)             \
     _(NewArray)                     \
     _(NewObject)                    \
     _(NewSlots)                     \
     _(NewDeclEnvObject)             \
     _(NewCallObject)                \
     _(NewStringObject)              \
+    _(ParNew)                       \
+    _(ParNewDenseArray)             \
+    _(ParNewCallObject)             \
+    _(ParBailout)                   \
     _(InitProp)                     \
     _(CheckOverRecursed)            \
-    _(RecompileCheck)               \
+    _(ParCheckOverRecursed)         \
     _(DefVar)                       \
+    _(DefFun)                       \
     _(CallKnown)                    \
     _(CallGeneric)                  \
     _(CallNative)                   \
     _(ApplyArgsGeneric)             \
+    _(GetDynamicName)               \
+    _(FilterArguments)              \
+    _(CallDirectEval)               \
     _(StackArgT)                    \
     _(StackArgV)                    \
-    _(CreateThisV)                  \
-    _(CreateThisO)                  \
+    _(CreateThis)                   \
+    _(CreateThisWithProto)          \
     _(CreateThisWithTemplate)       \
     _(ReturnFromCtor)               \
     _(BitNotI)                      \
@@ -57,19 +66,24 @@
     _(TestOAndBranch)               \
     _(PolyInlineDispatch)           \
     _(Compare)                      \
-    _(CompareD)                     \
-    _(CompareS)                     \
-    _(CompareV)                     \
     _(CompareAndBranch)             \
+    _(CompareD)                     \
     _(CompareDAndBranch)            \
+    _(CompareS)                     \
+    _(CompareStrictS)               \
+    _(ParCompareS)                  \
     _(CompareB)                     \
     _(CompareBAndBranch)            \
+    _(CompareV)                     \
+    _(CompareVAndBranch)            \
+    _(CompareVM)                    \
     _(IsNullOrLikeUndefined)        \
     _(IsNullOrLikeUndefinedAndBranch)\
     _(EmulatesUndefined)            \
     _(EmulatesUndefinedAndBranch)   \
     _(MinMaxI)                      \
     _(MinMaxD)                      \
+    _(NegI)                         \
     _(NegD)                         \
     _(AbsI)                         \
     _(AbsD)                         \
@@ -105,15 +119,19 @@
     _(RegExpTest)                   \
     _(Lambda)                       \
     _(LambdaForSingleton)           \
+    _(ParLambda)                    \
     _(ImplicitThis)                 \
     _(Slots)                        \
     _(Elements)                     \
+    _(ConvertElementsToDoubles)     \
     _(LoadSlotV)                    \
     _(LoadSlotT)                    \
     _(StoreSlotV)                   \
     _(StoreSlotT)                   \
     _(GuardShape)                   \
     _(GuardClass)                   \
+    _(ParWriteGuard)                \
+    _(ParDump)                      \
     _(TypeBarrier)                  \
     _(MonitorTypes)                 \
     _(InitializedLength)            \
@@ -136,6 +154,7 @@
     _(LoadTypedArrayElement)        \
     _(LoadTypedArrayElementHole)    \
     _(StoreTypedArrayElement)       \
+    _(EffectiveAddress)             \
     _(ClampIToUint8)                \
     _(ClampDToUint8)                \
     _(ClampVToUint8)                \
@@ -144,13 +163,16 @@
     _(StoreFixedSlotV)              \
     _(StoreFixedSlotT)              \
     _(FunctionEnvironment)          \
+    _(ParSlice)                     \
     _(GetPropertyCacheV)            \
     _(GetPropertyCacheT)            \
     _(GetElementCacheV)             \
+    _(GetElementCacheT)             \
     _(BindNameCache)                \
     _(CallGetProperty)              \
     _(GetNameCache)                 \
     _(CallGetIntrinsicValue)        \
+    _(CallsiteCloneCache)           \
     _(CallGetElement)               \
     _(CallSetElement)               \
     _(CallSetProperty)              \
@@ -181,7 +203,19 @@
     _(FunctionBoundary)             \
     _(GetDOMProperty)               \
     _(SetDOMProperty)               \
-    _(CallDOMNative)
+    _(CallDOMNative)                \
+    _(AsmJSLoadHeap)                \
+    _(AsmJSStoreHeap)               \
+    _(AsmJSLoadGlobalVar)           \
+    _(AsmJSStoreGlobalVar)          \
+    _(AsmJSLoadFFIFunc)             \
+    _(AsmJSParameter)               \
+    _(AsmJSReturn)                  \
+    _(AsmJSVoidReturn)              \
+    _(AsmJSPassStackArg)            \
+    _(AsmJSCall)                    \
+    _(AsmJSCheckOverRecursed)       \
+    _(ParCheckInterrupt)
 
 #if defined(JS_CPU_X86)
 # include "x86/LOpcodes-x86.h"

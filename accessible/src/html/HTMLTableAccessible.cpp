@@ -3,9 +3,9 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "mozilla/DebugOnly.h"
-
 #include "HTMLTableAccessible.h"
+
+#include "mozilla/DebugOnly.h"
 
 #include "Accessible-inl.h"
 #include "nsAccessibilityService.h"
@@ -18,6 +18,7 @@
 #include "States.h"
 #include "TreeWalker.h"
 
+#include "mozilla/dom/HTMLTableElement.h"
 #include "nsIDOMElement.h"
 #include "nsIDOMDocument.h"
 #include "nsIDOMRange.h"
@@ -25,10 +26,6 @@
 #include "nsINameSpaceManager.h"
 #include "nsIDOMNodeList.h"
 #include "nsIDOMHTMLCollection.h"
-#include "nsIDOMHTMLTableCellElement.h"
-#include "nsIDOMHTMLTableElement.h"
-#include "nsIDOMHTMLTableRowElement.h"
-#include "nsIDOMHTMLTableSectionElem.h"
 #include "nsIDocument.h"
 #include "nsIMutableArray.h"
 #include "nsIPresShell.h"
@@ -343,16 +340,6 @@ HTMLTableRowAccessible::NativeRole()
 // HTMLTableAccessible
 ////////////////////////////////////////////////////////////////////////////////
 
-HTMLTableAccessible::
-  HTMLTableAccessible(nsIContent* aContent, DocAccessible* aDoc) :
-  AccessibleWrap(aContent, aDoc), xpcAccessibleTable(this)
-{
-  mGenericTypes |= eTable;
-}
-
-////////////////////////////////////////////////////////////////////////////////
-// HTMLTableAccessible: nsISupports implementation
-
 NS_IMPL_ISUPPORTS_INHERITED1(HTMLTableAccessible, Accessible,
                              nsIAccessibleTable)
 
@@ -465,7 +452,7 @@ HTMLTableAccessible::Caption()
 void
 HTMLTableAccessible::Summary(nsString& aSummary)
 {
-  nsCOMPtr<nsIDOMHTMLTableElement> table(do_QueryInterface(mContent));
+  dom::HTMLTableElement* table = dom::HTMLTableElement::FromContent(mContent);
 
   if (table)
     table->GetSummary(aSummary);
@@ -502,7 +489,8 @@ HTMLTableAccessible::SelectedCellCount()
       int32_t startRow = -1, startCol = -1;
       cellFrame->GetRowIndex(startRow);
       cellFrame->GetColIndex(startCol);
-      if (startRow == rowIdx && startCol == colIdx)
+      if (startRow >= 0 && (uint32_t)startRow == rowIdx &&
+          startCol >= 0 && (uint32_t)startCol == colIdx)
         count++;
     }
   }
@@ -551,7 +539,8 @@ HTMLTableAccessible::SelectedCells(nsTArray<Accessible*>* aCells)
       int32_t startCol = -1, startRow = -1;
       cellFrame->GetRowIndex(startRow);
       cellFrame->GetColIndex(startCol);
-      if (startRow != rowIdx || startCol != colIdx)
+      if ((startRow >= 0 && (uint32_t)startRow != rowIdx) ||
+          (startCol >= 0 && (uint32_t)startCol != colIdx))
         continue;
 
       Accessible* cell = mDoc->GetAccessible(cellFrame->GetContent());
@@ -577,7 +566,8 @@ HTMLTableAccessible::SelectedCellIndices(nsTArray<uint32_t>* aCells)
       int32_t startRow = -1, startCol = -1;
       cellFrame->GetColIndex(startCol);
       cellFrame->GetRowIndex(startRow);
-      if (startRow == rowIdx && startCol == colIdx)
+      if (startRow >= 0 && (uint32_t)startRow == rowIdx &&
+          startCol >= 0 && (uint32_t)startCol == colIdx)
         aCells->AppendElement(CellIndexAt(rowIdx, colIdx));
     }
   }
@@ -723,7 +713,7 @@ HTMLTableAccessible::IsCellSelected(uint32_t aRowIdx, uint32_t aColIdx)
 void
 HTMLTableAccessible::SelectRow(uint32_t aRowIdx)
 {
-  nsresult rv =
+  DebugOnly<nsresult> rv =
     RemoveRowsOrColumnsFromSelection(aRowIdx,
                                      nsISelectionPrivate::TABLESELECTION_ROW,
                                      true);
@@ -736,7 +726,7 @@ HTMLTableAccessible::SelectRow(uint32_t aRowIdx)
 void
 HTMLTableAccessible::SelectCol(uint32_t aColIdx)
 {
-  nsresult rv =
+  DebugOnly<nsresult> rv =
     RemoveRowsOrColumnsFromSelection(aColIdx,
                                      nsISelectionPrivate::TABLESELECTION_COLUMN,
                                      true);
@@ -1059,7 +1049,7 @@ HTMLTableAccessible::IsProbablyLayoutTable()
     if (child->Role() == roles::ROW) {
       prevRowColor = rowColor;
       nsIFrame* rowFrame = child->GetFrame();
-      rowColor = rowFrame->GetStyleBackground()->mBackgroundColor;
+      rowColor = rowFrame->StyleBackground()->mBackgroundColor;
 
       if (childIdx > 0 && prevRowColor != rowColor)
         RETURN_LAYOUT_ANSWER(false, "2 styles of row background color, non-bordered");

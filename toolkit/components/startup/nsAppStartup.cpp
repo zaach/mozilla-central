@@ -12,7 +12,6 @@
 #include "nsIObserverService.h"
 #include "nsIPrefBranch.h"
 #include "nsIPrefService.h"
-#include "nsIProfileChangeStatus.h"
 #include "nsIPromptService.h"
 #include "nsIStringBundle.h"
 #include "nsISupportsPrimitives.h"
@@ -310,20 +309,25 @@ nsAppStartup::Quit(uint32_t aMode)
   if (mShuttingDown)
     return NS_OK;
 
-  SAMPLE_MARKER("Shutdown start");
-  mozilla::RecordShutdownStartTimeStamp();
-
   // If we're considering quitting, we will only do so if:
   if (ferocity == eConsiderQuit) {
+#ifdef XP_MACOSX
+    nsCOMPtr<nsIAppShellService> appShell
+      (do_GetService(NS_APPSHELLSERVICE_CONTRACTID));
+    bool hasHiddenPrivateWindow = false;
+    if (appShell) {
+      appShell->GetHasHiddenPrivateWindow(&hasHiddenPrivateWindow);
+    }
+    int32_t suspiciousCount = hasHiddenPrivateWindow ? 2 : 1;
+#endif
+
     if (mConsiderQuitStopper == 0) {
       // there are no windows...
       ferocity = eAttemptQuit;
     }
 #ifdef XP_MACOSX
-    else if (mConsiderQuitStopper == 1) {
+    else if (mConsiderQuitStopper == suspiciousCount) {
       // ... or there is only a hiddenWindow left, and it's useless:
-      nsCOMPtr<nsIAppShellService> appShell
-        (do_GetService(NS_APPSHELLSERVICE_CONTRACTID));
 
       // Failure shouldn't be fatal, but will abort quit attempt:
       if (!appShell)
@@ -333,9 +337,15 @@ nsAppStartup::Quit(uint32_t aMode)
       appShell->GetApplicationProvidedHiddenWindow(&usefulHiddenWindow);
       nsCOMPtr<nsIXULWindow> hiddenWindow;
       appShell->GetHiddenWindow(getter_AddRefs(hiddenWindow));
-      // If the one window is useful, we won't quit:
-      if (!hiddenWindow || usefulHiddenWindow)
+      // If the remaining windows are useful, we won't quit:
+      nsCOMPtr<nsIXULWindow> hiddenPrivateWindow;
+      if (hasHiddenPrivateWindow) {
+        appShell->GetHiddenPrivateWindow(getter_AddRefs(hiddenPrivateWindow));
+        if ((!hiddenWindow && !hiddenPrivateWindow) || usefulHiddenWindow)
+          return NS_OK;
+      } else if (!hiddenWindow || usefulHiddenWindow) {
         return NS_OK;
+      }
 
       ferocity = eAttemptQuit;
     }
@@ -363,6 +373,8 @@ nsAppStartup::Quit(uint32_t aMode)
       }
     }
 
+    SAMPLE_MARKER("Shutdown start");
+    mozilla::RecordShutdownStartTimeStamp();
     mShuttingDown = true;
     if (!mRestart) {
       mRestart = (aMode & eRestart) != 0;
@@ -779,15 +791,18 @@ nsAppStartup::GetStartupInfo(JSContext* aCx, JS::Value* aRetval)
   PRTime ProcessCreationTimestamp = StartupTimeline::Get(StartupTimeline::PROCESS_CREATION);
 
   if (!ProcessCreationTimestamp) {
+    PRTime MainTimestamp = StartupTimeline::Get(StartupTimeline::MAIN);
     char *moz_app_restart = PR_GetEnv("MOZ_APP_RESTART");
     if (moz_app_restart) {
       ProcessCreationTimestamp = nsCRT::atoll(moz_app_restart) * PR_USEC_PER_MSEC;
     } else {
       ProcessCreationTimestamp = CalculateProcessCreationTimestamp();
     }
-    // Bug 670008: Avoid obviously invalid process creation times
-    if (PR_Now() <= ProcessCreationTimestamp) {
-      ProcessCreationTimestamp = -1;
+    // Bug 670008 & 689256: Avoid obviously invalid process creation times
+    if ((PR_Now() <= ProcessCreationTimestamp) ||
+        (MainTimestamp && (ProcessCreationTimestamp > MainTimestamp)))
+    {
+      ProcessCreationTimestamp = MainTimestamp ? MainTimestamp : -1;
       Telemetry::Accumulate(Telemetry::STARTUP_MEASUREMENT_ERRORS, StartupTimeline::PROCESS_CREATION);
     }
     StartupTimeline::Record(StartupTimeline::PROCESS_CREATION, ProcessCreationTimestamp);

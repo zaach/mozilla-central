@@ -44,11 +44,9 @@ public:
     return mOwner;
   }
 
-  virtual JSObject* WrapObject(JSContext* aCx, JSObject* aScope,
-                               bool* aTriedToWrap)
+  virtual JSObject* WrapObject(JSContext* aCx, JSObject* aScope) MOZ_OVERRIDE
   {
-    return mozilla::dom::MutationRecordBinding::Wrap(aCx, aScope, this,
-                                                     aTriedToWrap);
+    return mozilla::dom::MutationRecordBinding::Wrap(aCx, aScope, this);
   }
 
   NS_DECL_CYCLE_COLLECTING_ISUPPORTS
@@ -355,14 +353,13 @@ public:
   NS_DECL_CYCLE_COLLECTION_SCRIPT_HOLDER_CLASS(nsDOMMutationObserver)
 
   static already_AddRefed<nsDOMMutationObserver>
-  Constructor(nsISupports* aGlobal, mozilla::dom::MutationCallback& aCb,
+  Constructor(const mozilla::dom::GlobalObject& aGlobal,
+              mozilla::dom::MutationCallback& aCb,
               mozilla::ErrorResult& aRv);
 
-  virtual JSObject* WrapObject(JSContext* aCx, JSObject* aScope,
-                               bool* aTriedToWrap)
+  virtual JSObject* WrapObject(JSContext* aCx, JSObject* aScope) MOZ_OVERRIDE
   {
-    return mozilla::dom::MutationObserverBinding::Wrap(aCx, aScope,
-                                                       this, aTriedToWrap);
+    return mozilla::dom::MutationObserverBinding::Wrap(aCx, aScope, this);
   }
 
   nsISupports* GetParentObject() const

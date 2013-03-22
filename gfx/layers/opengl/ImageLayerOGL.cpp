@@ -752,7 +752,6 @@ ShadowImageLayerOGL::Swap(const SharedImage& aNewFront,
                           SharedImage* aNewBack)
 {
   if (!mDestroyed) {
-
     if (aNewFront.type() == SharedImage::TSharedImageID) {
       // We are using ImageBridge protocol. The image data will be queried at render
       // time in the parent side.
@@ -971,8 +970,8 @@ ShadowImageLayerOGL::RenderLayer(int aPreviousFrameBuffer,
     ImageContainerParent::SetCompositorIDForImage(mImageContainerID,
                                                   mOGLManager->GetCompositorID());
     uint32_t imgVersion = ImageContainerParent::GetSharedImageVersion(mImageContainerID);
+    SharedImage* img = ImageContainerParent::GetSharedImage(mImageContainerID);
     if (imgVersion != mImageVersion) {
-      SharedImage* img = ImageContainerParent::GetSharedImage(mImageContainerID);
       if (img && (img->type() == SharedImage::TYUVImage)) {
         UploadSharedYUVToTexture(img->get_YUVImage());
   
@@ -988,23 +987,24 @@ ShadowImageLayerOGL::RenderLayer(int aPreviousFrameBuffer,
                                  img->get_RGBImage().picture(),
                                  img->get_RGBImage().rgbFormat());
         mImageVersion = imgVersion;
-#ifdef MOZ_WIDGET_GONK
-      } else if (img
-                 && (img->type() == SharedImage::TSurfaceDescriptor)
-                 && (img->get_SurfaceDescriptor().type() == SurfaceDescriptor::TSurfaceDescriptorGralloc)) {
-        const SurfaceDescriptorGralloc& desc = img->get_SurfaceDescriptor().get_SurfaceDescriptorGralloc();
-        sp<GraphicBuffer> graphicBuffer = GrallocBufferActor::GetFrom(desc);
-        mSize = gfxIntSize(graphicBuffer->getWidth(), graphicBuffer->getHeight());
-        if (!mExternalBufferTexture.IsAllocated()) {
-          mExternalBufferTexture.Allocate(gl());
-        }
-        gl()->MakeCurrent();
-        gl()->fActiveTexture(LOCAL_GL_TEXTURE0);
-        gl()->BindExternalBuffer(mExternalBufferTexture.GetTextureID(), graphicBuffer->getNativeBuffer());
-        mImageVersion = imgVersion;
-#endif
       }
     }
+#ifdef MOZ_WIDGET_GONK
+    if (img
+        && (img->type() == SharedImage::TSurfaceDescriptor)
+        && (img->get_SurfaceDescriptor().type() == SurfaceDescriptor::TSurfaceDescriptorGralloc)) {
+      const SurfaceDescriptorGralloc& desc = img->get_SurfaceDescriptor().get_SurfaceDescriptorGralloc();
+      sp<GraphicBuffer> graphicBuffer = GrallocBufferActor::GetFrom(desc);
+      mSize = gfxIntSize(graphicBuffer->getWidth(), graphicBuffer->getHeight());
+      if (!mExternalBufferTexture.IsAllocated()) {
+        mExternalBufferTexture.Allocate(gl());
+      }
+      gl()->MakeCurrent();
+      gl()->fActiveTexture(LOCAL_GL_TEXTURE0);
+      gl()->BindExternalBuffer(mExternalBufferTexture.GetTextureID(), graphicBuffer->getNativeBuffer());
+      mImageVersion = imgVersion;
+    }
+#endif
   }
 
 
@@ -1069,7 +1069,11 @@ ShadowImageLayerOGL::RenderLayer(int aPreviousFrameBuffer,
     program->LoadMask(GetMaskLayer());
 
     mOGLManager->BindAndDrawQuad(program);
+
+    // Make sure that we release the underlying external image
+    gl()->fActiveTexture(LOCAL_GL_TEXTURE0);
     gl()->fBindTexture(LOCAL_GL_TEXTURE_EXTERNAL, 0);
+    mExternalBufferTexture.Release();
 #endif
   } else if (mSharedHandle) {
     GLContext::SharedHandleDetails handleDetails;

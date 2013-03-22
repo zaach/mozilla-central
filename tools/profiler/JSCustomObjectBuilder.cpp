@@ -4,8 +4,10 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "JSCustomObjectBuilder.h"
-#include "nsStringGlue.h"
+
 #include "nsDataHashtable.h"
+#include "nsStringGlue.h"
+#include "nsTArray.h"
 #include "nsUTF8Utils.h"
 
 #if _MSC_VER
@@ -208,7 +210,7 @@ operator<<(std::ostream& stream, JSCustomArray* entry)
 {
   bool needsComma = false;
   stream << "[";
-  for (int i = 0; i < entry->mValues.Length(); i++) {
+  for (size_t i = 0; i < entry->mValues.Length(); i++) {
     if (needsComma) {
       stream << ",";
     }

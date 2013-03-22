@@ -33,13 +33,6 @@ function attemptTearDown() {
   });
 }
 
-function getProfileInternals() {
-  let win = gPanel.activeProfile.iframe.contentWindow;
-  let doc = win.document;
-
-  return [win, doc];
-}
-
 function testUI() {
   ok(gPanel, "Profiler panel exists");
   ok(gPanel.activeProfile, "Active profile exists");
@@ -61,7 +54,7 @@ function onStart() {
     let [win, doc] = getProfileInternals();
     let stopButton = doc.querySelector(".controlPane #stopWrapper button");
 
-    stopButton.click();
+    setTimeout(function () stopButton.click(), 100);
   });
 }
 

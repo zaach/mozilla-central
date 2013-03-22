@@ -397,6 +397,10 @@ BasicShadowableThebesLayer::PaintBuffer(gfxContext* aContext,
                                         LayerManager::DrawThebesLayerCallback aCallback,
                                         void* aCallbackData)
 {
+  // NB: this just throws away the entire valid region if there are
+  // too many rects.
+  mValidRegion.SimplifyInward(8);
+
   Base::PaintBuffer(aContext,
                     aRegionToDraw, aExtendedRegionToDraw, aRegionToInvalidate,
                     aDidSelfCopy,
@@ -457,7 +461,8 @@ BasicShadowableThebesLayer::CreateBuffer(Buffer::ContentType aType,
     PR_snprintf(buf, buflen,
                 "creating ThebesLayer 'back buffer' failed! width=%d, height=%d, type=%x",
                 aSize.width, aSize.height, int(aType));
-    NS_RUNTIMEABORT(buf);
+    NS_ERROR(buf);
+    return nullptr;
   }
 
   NS_ABORT_IF_FALSE(!mIsNewBuffer,

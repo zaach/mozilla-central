@@ -6,13 +6,10 @@ package org.mozilla.gecko;
 
 import android.content.Context;
 import android.content.res.Resources;
-import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Path;
 import android.graphics.PorterDuff.Mode;
 import android.graphics.drawable.ColorDrawable;
-import android.graphics.drawable.ColorDrawable;
-import android.graphics.drawable.LayerDrawable;
 import android.graphics.drawable.LevelListDrawable;
 import android.graphics.drawable.StateListDrawable;
 import android.util.AttributeSet;
@@ -33,7 +30,7 @@ public class MenuButton extends ShapedButton {
 
         int width = getMeasuredWidth();
         int height = getMeasuredHeight();
-        float curve = height * 1.125f;
+        int curve = (int) (height * 1.125f);
 
         mPath.reset();
 
@@ -66,8 +63,9 @@ public class MenuButton extends ShapedButton {
 
         Resources resources = getContext().getResources();
         StateListDrawable stateList = new StateListDrawable();
+        stateList.addState(new int[] { android.R.attr.state_pressed }, new ColorDrawable(resources.getColor(R.color.highlight_menu)));
+        stateList.addState(new int[] { android.R.attr.state_focused }, new ColorDrawable(resources.getColor(R.color.highlight_menu_focused)));
         stateList.addState(new int[] { R.attr.state_private }, new ColorDrawable(Color.BLACK));
-        stateList.addState(new int[] { android.R.attr.state_pressed }, resources.getDrawable(R.drawable.highlight));
         stateList.addState(new int[] {}, drawable);
 
         LevelListDrawable levelList = new LevelListDrawable();

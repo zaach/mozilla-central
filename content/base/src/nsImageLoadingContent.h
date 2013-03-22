@@ -17,15 +17,19 @@
 #include "imgIOnloadBlocker.h"
 #include "mozilla/CORSMode.h"
 #include "nsCOMPtr.h"
-#include "nsContentUtils.h" // NS_CONTENT_DELETE_LIST_MEMBER
 #include "nsEventStates.h"
 #include "nsIImageLoadingContent.h"
 #include "nsIRequest.h"
+#include "mozilla/ErrorResult.h"
+#include "nsAutoPtr.h"
 
 class nsIURI;
 class nsIDocument;
 class imgILoader;
 class nsIIOService;
+class nsPresContext;
+class nsIContent;
+class imgRequestProxy;
 
 class nsImageLoadingContent : public nsIImageLoadingContent,
                               public imgIOnloadBlocker
@@ -38,6 +42,27 @@ public:
   NS_DECL_IMGINOTIFICATIONOBSERVER
   NS_DECL_NSIIMAGELOADINGCONTENT
   NS_DECL_IMGIONLOADBLOCKER
+
+  // Web IDL binding methods.
+  // Note that the XPCOM SetLoadingEnabled, AddObserver, RemoveObserver,
+  // ForceImageState methods are OK for Web IDL bindings to use as well,
+  // since none of them throw when called via the Web IDL bindings.
+
+  bool LoadingEnabled() const { return mLoadingEnabled; }
+  int16_t ImageBlockingStatus() const
+  {
+    return mImageBlockingStatus;
+  }
+  already_AddRefed<imgIRequest>
+    GetRequest(int32_t aRequestType, mozilla::ErrorResult& aError);
+  int32_t
+    GetRequestType(imgIRequest* aRequest, mozilla::ErrorResult& aError);
+  already_AddRefed<nsIURI> GetCurrentURI(mozilla::ErrorResult& aError);
+  already_AddRefed<nsIStreamListener>
+    LoadImageWithChannel(nsIChannel* aChannel, mozilla::ErrorResult& aError);
+  void ForceReload(mozilla::ErrorResult& aError);
+
+
 
 protected:
   /**
@@ -142,8 +167,6 @@ protected:
 
   void ClearBrokenState() { mBroken = false; }
 
-  bool LoadingEnabled() { return mLoadingEnabled; }
-
   // Sets blocking state only if the desired state is different from the
   // current one. See the comment for mBlockingOnload for more information.
   void SetBlockingOnload(bool aBlocking);
@@ -160,6 +183,7 @@ protected:
   void UnbindFromTree(bool aDeep, bool aNullParent);
 
   nsresult OnStopRequest(imgIRequest* aRequest, nsresult aStatus);
+  void OnUnlockedDraw();
   nsresult OnImageIsAnimated(imgIRequest *aRequest);
 
 private:
@@ -167,17 +191,8 @@ private:
    * Struct used to manage the image observers.
    */
   struct ImageObserver {
-    ImageObserver(imgINotificationObserver* aObserver) :
-      mObserver(aObserver),
-      mNext(nullptr)
-    {
-      MOZ_COUNT_CTOR(ImageObserver);
-    }
-    ~ImageObserver()
-    {
-      MOZ_COUNT_DTOR(ImageObserver);
-      NS_CONTENT_DELETE_LIST_MEMBER(ImageObserver, this, mNext);
-    }
+    ImageObserver(imgINotificationObserver* aObserver);
+    ~ImageObserver();
 
     nsCOMPtr<imgINotificationObserver> mObserver;
     ImageObserver* mNext;
@@ -234,6 +249,7 @@ private:
    * @param aEventType "load" or "error" depending on how things went
    */
   nsresult FireEvent(const nsAString& aEventType);
+
 protected:
   /**
    * Method to create an nsIURI object from the given string (will
@@ -311,9 +327,21 @@ protected:
    * Adds/Removes a given imgIRequest from our document's tracker.
    *
    * No-op if aImage is null.
+   *
+   * SKIP_FRAME_CHECK passed to TrackImage means we skip the check if we have a
+   * frame, there is only one valid use of this: when calling from FrameCreated.
+   *
+   * REQUEST_DISCARD passed to UntrackImage means we request the discard of the
+   * decoded data of the image.
    */
-  nsresult TrackImage(imgIRequest* aImage);
-  nsresult UntrackImage(imgIRequest* aImage);
+  enum {
+    SKIP_FRAME_CHECK = 0x1
+  };
+  nsresult TrackImage(imgIRequest* aImage, uint32_t aFlags = 0);
+  enum {
+    REQUEST_DISCARD = 0x1
+  };
+  nsresult UntrackImage(imgIRequest* aImage, uint32_t aFlags = 0);
 
   /* MEMBERS */
   nsRefPtr<imgRequestProxy> mCurrentRequest;
@@ -322,13 +350,12 @@ protected:
   uint32_t mPendingRequestFlags;
 
   enum {
-    // Set if the request needs 
+    // Set if the request needs ResetAnimation called on it.
     REQUEST_NEEDS_ANIMATION_RESET = 0x00000001U,
-    // Set if the request should be tracked.  This is true if the request is
-    // not tracked iff this node is not in the document.
-    REQUEST_SHOULD_BE_TRACKED = 0x00000002U,
     // Set if the request is blocking onload.
-    REQUEST_BLOCKS_ONLOAD = 0x00000004U
+    REQUEST_BLOCKS_ONLOAD = 0x00000002U,
+    // Set if the request is currently tracked with the document.
+    REQUEST_IS_TRACKED = 0x00000004U
   };
 
   // If the image was blocked or if there was an error loading, it's nice to
@@ -370,6 +397,7 @@ private:
   bool mBroken : 1;
   bool mUserDisabled : 1;
   bool mSuppressed : 1;
+  bool mFireEventsOnDecode : 1;
 
 protected:
   /**
@@ -390,6 +418,8 @@ private:
   // registered with the refresh driver.
   bool mCurrentRequestRegistered;
   bool mPendingRequestRegistered;
+
+  uint32_t mVisibleCount;
 };
 
 #endif // nsImageLoadingContent_h__

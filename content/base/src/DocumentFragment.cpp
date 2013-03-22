@@ -16,28 +16,40 @@
 #include "nsGkAtoms.h"
 #include "nsDOMString.h"
 #include "nsContentUtils.h"
+#include "mozilla/dom/DocumentFragmentBinding.h"
 
 nsresult
 NS_NewDocumentFragment(nsIDOMDocumentFragment** aInstancePtrResult,
                        nsNodeInfoManager *aNodeInfoManager)
 {
-  using namespace mozilla::dom;
-
-  NS_ENSURE_ARG(aNodeInfoManager);
-
-  nsCOMPtr<nsINodeInfo> nodeInfo;
-  nodeInfo = aNodeInfoManager->GetNodeInfo(nsGkAtoms::documentFragmentNodeName,
-                                           nullptr, kNameSpaceID_None,
-                                           nsIDOMNode::DOCUMENT_FRAGMENT_NODE);
-  NS_ENSURE_TRUE(nodeInfo, NS_ERROR_OUT_OF_MEMORY);
-
-  DocumentFragment *it = new DocumentFragment(nodeInfo.forget());
-  NS_ADDREF(*aInstancePtrResult = it);
-
-  return NS_OK;
+  mozilla::ErrorResult rv;
+  *aInstancePtrResult = NS_NewDocumentFragment(aNodeInfoManager, rv).get();
+  return rv.ErrorCode();
 }
 
-DOMCI_NODE_DATA(DocumentFragment, mozilla::dom::DocumentFragment)
+already_AddRefed<mozilla::dom::DocumentFragment>
+NS_NewDocumentFragment(nsNodeInfoManager* aNodeInfoManager,
+                       mozilla::ErrorResult& aRv)
+{
+  using namespace mozilla::dom;
+
+  if (!aNodeInfoManager) {
+    aRv.Throw(NS_ERROR_INVALID_ARG);
+    return nullptr;
+  }
+
+  nsCOMPtr<nsINodeInfo> nodeInfo =
+    aNodeInfoManager->GetNodeInfo(nsGkAtoms::documentFragmentNodeName,
+                                  nullptr, kNameSpaceID_None,
+                                  nsIDOMNode::DOCUMENT_FRAGMENT_NODE);
+  if (!nodeInfo) {
+    aRv.Throw(NS_ERROR_OUT_OF_MEMORY);
+    return nullptr;
+  }
+
+  nsRefPtr<DocumentFragment> it = new DocumentFragment(nodeInfo.forget());
+  return it.forget();
+}
 
 namespace mozilla {
 namespace dom {
@@ -50,6 +62,14 @@ DocumentFragment::DocumentFragment(already_AddRefed<nsINodeInfo> aNodeInfo)
                     mNodeInfo->Equals(nsGkAtoms::documentFragmentNodeName,
                                       kNameSpaceID_None),
                     "Bad NodeType in aNodeInfo");
+
+  SetIsDOMBinding();
+}
+
+JSObject*
+DocumentFragment::WrapNode(JSContext *aCx, JSObject *aScope)
+{
+  return DocumentFragmentBinding::Wrap(aCx, aScope, this);
 }
 
 bool
@@ -141,6 +161,7 @@ NS_INTERFACE_MAP_BEGIN(DocumentFragment)
   NS_INTERFACE_MAP_ENTRY(nsIDOMDocumentFragment)
   NS_INTERFACE_MAP_ENTRY(nsIDOMNode)
   NS_INTERFACE_MAP_ENTRY(nsIDOMEventTarget)
+  NS_INTERFACE_MAP_ENTRY(mozilla::dom::EventTarget)
   NS_INTERFACE_MAP_ENTRY_TEAROFF(nsISupportsWeakReference,
                                  new nsNodeSupportsWeakRefTearoff(this))
   NS_INTERFACE_MAP_ENTRY_TEAROFF(nsIDOMNodeSelector,
@@ -150,7 +171,6 @@ NS_INTERFACE_MAP_BEGIN(DocumentFragment)
   // below line, make sure nsNodeSH::PreCreate() still does the right
   // thing!
   NS_INTERFACE_MAP_ENTRY_AMBIGUOUS(nsISupports, nsIContent)
-  NS_DOM_INTERFACE_MAP_ENTRY_CLASSINFO(DocumentFragment)
 NS_INTERFACE_MAP_END
 
 NS_IMPL_ADDREF_INHERITED(DocumentFragment, FragmentOrElement)

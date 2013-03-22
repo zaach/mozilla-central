@@ -68,15 +68,6 @@ public:
   {
     return GetNode() && GetNode()->IsNodeOfType(nsINode::eCONTENT);
   }
-  bool IsElement() const
-  {
-    nsINode* node = GetNode();
-    return node && node->IsElement();
-  }
-  bool IsDocumentNode() const
-  {
-    return GetNode() && GetNode()->IsNodeOfType(nsINode::eDOCUMENT);
-  }
 
   /**
    * Return the unique identifier of the accessible.

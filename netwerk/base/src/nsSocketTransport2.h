@@ -22,8 +22,14 @@
 #include "nsIDNSRecord.h"
 #include "nsICancelable.h"
 #include "nsIClassInfo.h"
+#include "mozilla/net/DNS.h"
+
+#include "prerror.h"
 
 class nsSocketTransport;
+
+nsresult
+ErrorAccordingToNSPR(PRErrorCode errorCode);
 
 //-----------------------------------------------------------------------------
 
@@ -121,7 +127,7 @@ public:
     // this method instructs the socket transport to use an already connected
     // socket with the given address.
     nsresult InitWithConnectedSocket(PRFileDesc *socketFD,
-                                     const PRNetAddr *addr);
+                                     const mozilla::net::NetAddr *addr);
 
     // nsASocketHandler methods:
     void OnSocketReady(PRFileDesc *, int16_t outFlags); 
@@ -199,7 +205,7 @@ private:
 
     // mNetAddr is valid from GetPeerAddr() once we have
     // reached STATE_TRANSFERRING. It must not change after that.
-    PRNetAddr               mNetAddr;
+    mozilla::net::NetAddr   mNetAddr;
     bool                    mNetAddrIsSet;
 
     // socket methods (these can only be called on the socket thread):

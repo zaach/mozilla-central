@@ -309,6 +309,10 @@ class RegisterAllocator
     {
         if (FramePointer != InvalidReg && lir->mir()->instrumentedProfiling())
             allRegisters_.take(AnyRegister(FramePointer));
+#ifdef JS_CPU_X64
+        if (mir->compilingAsmJS())
+            allRegisters_.take(AnyRegister(HeapReg));
+#endif
     }
 
   protected:
@@ -335,6 +339,17 @@ class RegisterAllocator
     }
     LMoveGroup *getMoveGroupAfter(CodePosition pos) {
         return getMoveGroupAfter(pos.ins());
+    }
+
+    size_t findFirstNonCallSafepoint(CodePosition from)
+    {
+        size_t i = 0;
+        for (; i < graph.numNonCallSafepoints(); i++) {
+            LInstruction *ins = graph.getNonCallSafepoint(i);
+            if (from <= inputOf(ins))
+                break;
+        }
+        return i;
     }
 };
 

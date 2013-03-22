@@ -13,6 +13,12 @@
 
 #include "gc/Marking.h"
 
+#include "vm/ParallelDo.h"
+#include "vm/ForkJoin.h"
+#include "vm/ThreadPool.h"
+
+#include "builtin/ParallelArray.h"
+
 #include "jsfuninlines.h"
 #include "jstypedarrayinlines.h"
 
@@ -24,6 +30,7 @@
 #include "selfhosted.out.h"
 
 using namespace js;
+using namespace js::selfhosted;
 
 static void
 selfHosting_ErrorReporter(JSContext *cx, const char *message, JSErrorReport *report)
@@ -72,8 +79,8 @@ intrinsic_IsCallable(JSContext *cx, unsigned argc, Value *vp)
     return true;
 }
 
-static JSBool
-intrinsic_ThrowError(JSContext *cx, unsigned argc, Value *vp)
+JSBool
+js::intrinsic_ThrowError(JSContext *cx, unsigned argc, Value *vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
     JS_ASSERT(args.length() >= 1);
@@ -83,12 +90,12 @@ intrinsic_ThrowError(JSContext *cx, unsigned argc, Value *vp)
     for (unsigned i = 1; i < 4 && i < args.length(); i++) {
         RootedValue val(cx, args[i]);
         if (val.isInt32()) {
-            JSString *str = ToString(cx, val);
+            JSString *str = ToString<CanGC>(cx, val);
             if (!str)
                 return false;
             errorArgs[i - 1] = JS_EncodeString(cx, str);
         } else if (val.isString()) {
-            errorArgs[i - 1] = JS_EncodeString(cx, ToString(cx, val));
+            errorArgs[i - 1] = JS_EncodeString(cx, ToString<CanGC>(cx, val));
         } else {
             errorArgs[i - 1] = DecompileValueGenerator(cx, JSDVG_SEARCH_STACK, val, NullPtr());
         }
@@ -110,11 +117,11 @@ intrinsic_ThrowError(JSContext *cx, unsigned argc, Value *vp)
 static JSBool
 intrinsic_AssertionFailed(JSContext *cx, unsigned argc, Value *vp)
 {
-    CallArgs args = CallArgsFromVp(argc, vp);
 #ifdef DEBUG
-    if (argc > 0) {
+    CallArgs args = CallArgsFromVp(argc, vp);
+    if (args.length() > 0) {
         // try to dump the informative string
-        JSString *str = ToString(cx, args[0]);
+        JSString *str = ToString<CanGC>(cx, args[0]);
         if (str) {
             const jschar *chars = str->getChars(cx);
             if (chars) {
@@ -127,6 +134,17 @@ intrinsic_AssertionFailed(JSContext *cx, unsigned argc, Value *vp)
 #endif
     JS_ASSERT(false);
     return false;
+}
+
+static JSBool
+intrinsic_MakeConstructible(JSContext *cx, unsigned argc, Value *vp)
+{
+    CallArgs args = CallArgsFromVp(argc, vp);
+    JS_ASSERT(args.length() >= 1);
+    JS_ASSERT(args[0].isObject());
+    JS_ASSERT(args[0].toObject().isFunction());
+    args[0].toObject().toFunction()->setIsSelfHostedConstructor();
+    return true;
 }
 
 /*
@@ -144,7 +162,7 @@ intrinsic_DecompileArg(JSContext *cx, unsigned argc, Value *vp)
     JS_ASSERT(args.length() == 2);
 
     RootedValue value(cx, args[1]);
-    ScopedFreePtr<char> str(DecompileArgument(cx, args[0].toInt32(), value));
+    ScopedJSFreePtr<char> str(DecompileArgument(cx, args[0].toInt32(), value));
     if (!str)
         return false;
     RootedAtom atom(cx, Atomize(cx, str, strlen(str)));
@@ -154,25 +172,309 @@ intrinsic_DecompileArg(JSContext *cx, unsigned argc, Value *vp)
     return true;
 }
 
+/*
+ * SetScriptHints(fun, flags): Sets various internal hints to the ion
+ * compiler for use when compiling |fun| or calls to |fun|.  Flags
+ * should be a dictionary object.
+ *
+ * The function |fun| should be a self-hosted function (in particular,
+ * it *must* be a JS function).
+ *
+ * Possible flags:
+ * - |cloneAtCallsite: true| will hint that |fun| should be cloned
+ *   each callsite to improve TI resolution.  This is important for
+ *   higher-order functions like |Array.map|.
+ */
 static JSBool
-intrinsic_MakeConstructible(JSContext *cx, unsigned argc, Value *vp)
+intrinsic_SetScriptHints(JSContext *cx, unsigned argc, Value *vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
-    JS_ASSERT(args.length() >= 1);
-    JS_ASSERT(args[0].isObject());
-    JS_ASSERT(args[0].toObject().isFunction());
-    args[0].toObject().toFunction()->setIsSelfHostedConstructor();
+    JS_ASSERT(args.length() >= 2);
+    JS_ASSERT(args[0].isObject() && args[0].toObject().isFunction());
+    JS_ASSERT(args[1].isObject());
+
+    RootedFunction fun(cx, args[0].toObject().toFunction());
+    RootedScript funScript(cx, fun->nonLazyScript());
+    RootedObject flags(cx, &args[1].toObject());
+
+    RootedId id(cx);
+    RootedValue propv(cx);
+
+    id = AtomToId(Atomize(cx, "cloneAtCallsite", strlen("cloneAtCallsite")));
+    if (!JSObject::getGeneric(cx, flags, flags, id, &propv))
+        return false;
+    if (ToBoolean(propv))
+        funScript->shouldCloneAtCallsite = true;
+
+    return true;
+}
+
+#ifdef DEBUG
+/*
+ * Dump(val): Dumps a value for debugging, even in parallel mode.
+ */
+JSBool
+js::intrinsic_Dump(JSContext *cx, unsigned argc, Value *vp)
+{
+    CallArgs args = CallArgsFromVp(argc, vp);
+    RootedValue val(cx, args[0]);
+    js_DumpValue(val);
+    fprintf(stderr, "\n");
+    args.rval().setUndefined();
+    return true;
+}
+#endif
+
+/*
+ * ParallelDo(func, feedback): Invokes |func| many times in parallel.
+ *
+ * Executed based on the fork join pool described in vm/ForkJoin.h.
+ * If func() has not been compiled for parallel execution, it will
+ * first be invoked various times sequentially as a warmup phase,
+ * which is used to gather TI information and to determine which
+ * functions func() will invoke.
+ *
+ * func() should expect the following arguments:
+ *
+ *     func(id, n, warmup, args...)
+ *
+ * Here, |id| is the slice id. |n| is the total number of slices;
+ * |warmup| is true if this is a warmup or recovery phase.
+ * Typically, if |warmup| is true, you will want to do less work.
+ *
+ * The |feedback| argument is optional.  If provided, it should be a
+ * closure.  This closure will be invoked with a double argument
+ * representing the number of bailouts that occurred before a
+ * successful parallel execution.  If the number is infinity, then
+ * parallel execution was abandoned and |func| was simply invoked
+ * sequentially.
+ *
+ * See ParallelArray.js for examples.
+ */
+static JSBool
+intrinsic_ParallelDo(JSContext *cx, unsigned argc, Value *vp)
+{
+    CallArgs args = CallArgsFromVp(argc, vp);
+    return parallel::Do(cx, args);
+}
+
+/*
+ * ParallelSlices(): Returns the number of parallel slices that will
+ * be created by ParallelDo().
+ */
+static JSBool
+intrinsic_ParallelSlices(JSContext *cx, unsigned argc, Value *vp)
+{
+    CallArgs args = CallArgsFromVp(argc, vp);
+    args.rval().setInt32(ForkJoinSlices(cx));
+    return true;
+}
+
+/*
+ * NewParallelArray(init, ...args): Creates a new parallel array using
+ * an initialization function |init|. All subsequent arguments are
+ * passed to |init|. The new instance will be passed as the |this|
+ * argument.
+ */
+JSBool
+js::intrinsic_NewParallelArray(JSContext *cx, unsigned argc, Value *vp)
+{
+    CallArgs args = CallArgsFromVp(argc, vp);
+
+    JS_ASSERT(args[0].isObject() && args[0].toObject().isFunction());
+
+    RootedFunction init(cx, args[0].toObject().toFunction());
+    CallArgs args0 = CallArgsFromVp(argc - 1, vp + 1);
+    if (!js::ParallelArrayObject::constructHelper(cx, &init, args0))
+        return false;
+    args.rval().set(args0.rval());
+    return true;
+}
+
+/*
+ * NewDenseArray(length): Allocates and returns a new dense array with
+ * the given length where all values are initialized to holes.
+ */
+JSBool
+js::intrinsic_NewDenseArray(JSContext *cx, unsigned argc, Value *vp)
+{
+    CallArgs args = CallArgsFromVp(argc, vp);
+
+    // Check that index is an int32
+    if (!args[0].isInt32()) {
+        JS_ReportError(cx, "Expected int32 as second argument");
+        return false;
+    }
+    uint32_t length = args[0].toInt32();
+
+    // Make a new buffer and initialize it up to length.
+    RootedObject buffer(cx, NewDenseAllocatedArray(cx, length));
+    if (!buffer)
+        return false;
+
+    types::TypeObject *newtype = types::GetTypeCallerInitObject(cx, JSProto_Array);
+    if (!newtype)
+        return false;
+    buffer->setType(newtype);
+
+    JSObject::EnsureDenseResult edr = buffer->ensureDenseElements(cx, length, 0);
+    switch (edr) {
+      case JSObject::ED_OK:
+        args.rval().setObject(*buffer);
+        return true;
+
+      case JSObject::ED_SPARSE: // shouldn't happen!
+        JS_ASSERT(!"%EnsureDenseArrayElements() would yield sparse array");
+        JS_ReportError(cx, "%EnsureDenseArrayElements() would yield sparse array");
+        break;
+
+      case JSObject::ED_FAILED:
+        break;
+    }
+    return false;
+}
+
+/*
+ * UnsafeSetElement(arr0, idx0, elem0, ..., arrN, idxN, elemN): For
+ * each set of (arr, idx, elem) arguments that are passed, performs
+ * the assignment |arr[idx] = elem|. |arr| must be either a dense array
+ * or a typed array.
+ *
+ * If |arr| is a dense array, the index must be an int32 less than the
+ * initialized length of |arr|. Use |%EnsureDenseResultArrayElements|
+ * to ensure that the initialized length is long enough.
+ *
+ * If |arr| is a typed array, the index must be an int32 less than the
+ * length of |arr|.
+ */
+JSBool
+js::intrinsic_UnsafeSetElement(JSContext *cx, unsigned argc, Value *vp)
+{
+    CallArgs args = CallArgsFromVp(argc, vp);
+
+    if ((args.length() % 3) != 0) {
+        JS_ReportError(cx, "Incorrect number of arguments, not divisible by 3");
+        return false;
+    }
+
+    for (uint32_t base = 0; base < args.length(); base += 3) {
+        uint32_t arri = base;
+        uint32_t idxi = base+1;
+        uint32_t elemi = base+2;
+
+        JS_ASSERT(args[arri].isObject());
+        JS_ASSERT(args[arri].toObject().isNative() ||
+                  args[arri].toObject().isTypedArray());
+        JS_ASSERT(args[idxi].isInt32());
+
+        RootedObject arrobj(cx, &args[arri].toObject());
+        uint32_t idx = args[idxi].toInt32();
+
+        if (arrobj->isNative()) {
+            JS_ASSERT(idx < arrobj->getDenseInitializedLength());
+            JSObject::setDenseElementWithType(cx, arrobj, idx, args[elemi]);
+        } else {
+            JS_ASSERT(idx < TypedArray::length(arrobj));
+            RootedValue tmp(cx, args[elemi]);
+            // XXX: Always non-strict.
+            if (!JSObject::setElement(cx, arrobj, arrobj, idx, &tmp, false))
+                return false;
+        }
+    }
+
+    args.rval().setUndefined();
+    return true;
+}
+
+/*
+ * ParallelTestsShouldPass(): Returns false if we are running in a
+ * mode (such as --ion-eager) that is known to cause additional
+ * bailouts or disqualifications for parallel array tests.
+ *
+ * This is needed because the parallel tests generally assert that,
+ * under normal conditions, they will run without bailouts or
+ * compilation failures, but this does not hold under "stress-testing"
+ * conditions like --ion-eager or --no-ti.  However, running the tests
+ * under those conditions HAS exposed bugs and thus we do not wish to
+ * disable them entirely.  Instead, we simply disable the assertions
+ * that state that no bailouts etc should occur.
+ */
+static JSBool
+intrinsic_ParallelTestsShouldPass(JSContext *cx, unsigned argc, Value *vp)
+{
+    CallArgs args = CallArgsFromVp(argc, vp);
+#if defined(JS_THREADSAFE) && defined(JS_ION)
+    args.rval().setBoolean(ion::IsEnabled(cx) &&
+                           !ion::js_IonOptions.eagerCompilation);
+#else
+    args.rval().setBoolean(false);
+#endif
+    return true;
+}
+
+/*
+ * ShouldForceSequential(): Returns true if parallel ops should take
+ * the sequential fallback path.
+ */
+JSBool
+js::intrinsic_ShouldForceSequential(JSContext *cx, unsigned argc, Value *vp)
+{
+    CallArgs args = CallArgsFromVp(argc, vp);
+#ifdef JS_THREADSAFE
+    args.rval().setBoolean(cx->runtime->parallelWarmup ||
+                           InParallelSection());
+#else
+    args.rval().setBoolean(true);
+#endif
+    return true;
+}
+
+/**
+ * Returns the default locale as a well-formed, but not necessarily canonicalized,
+ * BCP-47 language tag.
+ */
+static JSBool
+intrinsic_RuntimeDefaultLocale(JSContext *cx, unsigned argc, Value *vp)
+{
+    CallArgs args = CallArgsFromVp(argc, vp);
+
+    const char *locale = cx->runtime->getDefaultLocale();
+    if (!locale) {
+        JS_ReportErrorNumber(cx, js_GetErrorMessage, NULL, JSMSG_DEFAULT_LOCALE_ERROR);
+        return false;
+    }
+
+    RootedString jslocale(cx, JS_NewStringCopyZ(cx, locale));
+    if (!jslocale)
+        return false;
+
+    args.rval().setString(jslocale);
     return true;
 }
 
 JSFunctionSpec intrinsic_functions[] = {
-    JS_FN("ToObject",           intrinsic_ToObject,             1,0),
-    JS_FN("ToInteger",          intrinsic_ToInteger,            1,0),
-    JS_FN("IsCallable",         intrinsic_IsCallable,           1,0),
-    JS_FN("ThrowError",         intrinsic_ThrowError,           4,0),
-    JS_FN("AssertionFailed",    intrinsic_AssertionFailed,      1,0),
-    JS_FN("MakeConstructible",  intrinsic_MakeConstructible,    1,0),
-    JS_FN("DecompileArg",       intrinsic_DecompileArg,         2,0),
+    JS_FN("ToObject",             intrinsic_ToObject,             1,0),
+    JS_FN("ToInteger",            intrinsic_ToInteger,            1,0),
+    JS_FN("IsCallable",           intrinsic_IsCallable,           1,0),
+    JS_FN("ThrowError",           intrinsic_ThrowError,           4,0),
+    JS_FN("AssertionFailed",      intrinsic_AssertionFailed,      1,0),
+    JS_FN("SetScriptHints",       intrinsic_SetScriptHints,       2,0),
+    JS_FN("MakeConstructible",    intrinsic_MakeConstructible,    1,0),
+    JS_FN("DecompileArg",         intrinsic_DecompileArg,         2,0),
+    JS_FN("RuntimeDefaultLocale", intrinsic_RuntimeDefaultLocale, 0,0),
+
+    JS_FN("ParallelDo",           intrinsic_ParallelDo,           2,0),
+    JS_FN("ParallelSlices",       intrinsic_ParallelSlices,       0,0),
+    JS_FN("NewParallelArray",     intrinsic_NewParallelArray,     3,0),
+    JS_FN("NewDenseArray",        intrinsic_NewDenseArray,        1,0),
+    JS_FN("UnsafeSetElement",     intrinsic_UnsafeSetElement,     3,0),
+    JS_FN("ShouldForceSequential", intrinsic_ShouldForceSequential, 0,0),
+    JS_FN("ParallelTestsShouldPass", intrinsic_ParallelTestsShouldPass, 0,0),
+
+#ifdef DEBUG
+    JS_FN("Dump",                 intrinsic_Dump,                 1,0),
+#endif
+
     JS_FS_END
 };
 
@@ -216,8 +518,21 @@ JSRuntime::initSelfHosting(JSContext *cx)
         if (script)
             ok = Execute(cx, script, *shg.get(), &rv);
     } else {
-        const char *src = selfhosted::raw_sources;
-        uint32_t srcLen = selfhosted::GetRawScriptsSize();
+        uint32_t srcLen = GetRawScriptsSize();
+
+#ifdef USE_ZLIB
+        const unsigned char *compressed = compressedSources;
+        uint32_t compressedLen = GetCompressedSize();
+        ScopedJSFreePtr<char> src(reinterpret_cast<char *>(cx->malloc_(srcLen)));
+        if (!src || !DecompressString(compressed, compressedLen,
+                                      reinterpret_cast<unsigned char *>(src.get()), srcLen))
+        {
+            return false;
+        }
+#else
+        const char *src = rawSources;
+#endif
+
         ok = Evaluate(cx, shg, options, src, srcLen, &rv);
     }
     JS_SetErrorReporter(cx, oldReporter);
@@ -256,33 +571,12 @@ CloneProperties(JSContext *cx, HandleObject obj, HandleObject clone, CloneMemory
         id = ids[i];
         if (!GetUnclonedValue(cx, obj, id, &val) ||
             !CloneValue(cx, &val, clonedObjects) ||
-            !JSObject::setGeneric(cx, clone, clone, id, &val, false))
+            !JS_DefinePropertyById(cx, clone, id, val.get(), NULL, NULL, 0))
         {
             return false;
         }
     }
     return true;
-}
-static RawObject
-CloneDenseArray(JSContext *cx, HandleObject obj, CloneMemory &clonedObjects)
-{
-    uint32_t len = obj->getArrayLength();
-    RootedObject clone(cx, NewDenseAllocatedArray(cx, len));
-    clone->setDenseArrayInitializedLength(len);
-    for (uint32_t i = 0; i < len; i++)
-        JSObject::initDenseArrayElementWithType(cx, clone, i, UndefinedValue());
-    RootedValue elt(cx);
-    for (uint32_t i = 0; i < len; i++) {
-        bool present;
-        if (!obj->getElementIfPresent(cx, obj, obj, i, &elt, &present))
-            return NULL;
-        if (present) {
-            if (!CloneValue(cx, &elt, clonedObjects))
-                return NULL;
-            JSObject::setDenseArrayElementWithType(cx, clone, i, elt);
-        }
-    }
-    return clone;
 }
 static RawObject
 CloneObject(JSContext *cx, HandleObject srcObj, CloneMemory &clonedObjects)
@@ -308,20 +602,16 @@ CloneObject(JSContext *cx, HandleObject srcObj, CloneMemory &clonedObjects)
         Rooted<JSStableString*> str(cx, srcObj->asString().unbox()->ensureStable(cx));
         if (!str)
             return NULL;
-        str = js_NewStringCopyN(cx, str->chars().get(), str->length())->ensureStable(cx);
+        str = js_NewStringCopyN<CanGC>(cx, str->chars().get(), str->length())->ensureStable(cx);
         if (!str)
             return NULL;
         clone = StringObject::create(cx, str);
-    } else if (srcObj->isDenseArray()) {
-        return CloneDenseArray(cx, srcObj, clonedObjects);
+    } else if (srcObj->isArray()) {
+        clone = NewDenseEmptyArray(cx);
     } else {
-        if (srcObj->isArray()) {
-            clone = NewDenseEmptyArray(cx);
-        } else {
-            JS_ASSERT(srcObj->isNative());
-            clone = NewObjectWithClassProto(cx, srcObj->getClass(), NULL, cx->global(),
-                                            srcObj->getAllocKind());
-        }
+        JS_ASSERT(srcObj->isNative());
+        clone = NewObjectWithClassProto(cx, srcObj->getClass(), NULL, cx->global(),
+                                        srcObj->getAllocKind());
     }
     if (!clone || !clonedObjects.relookupOrAdd(p, srcObj.get(), clone.get()) ||
         !CloneProperties(cx, srcObj, clone, clonedObjects))
@@ -346,7 +636,7 @@ CloneValue(JSContext *cx, MutableHandleValue vp, CloneMemory &clonedObjects)
         Rooted<JSStableString*> str(cx, vp.toString()->ensureStable(cx));
         if (!str)
             return false;
-        RootedString clone(cx, js_NewStringCopyN(cx, str->chars().get(), str->length()));
+        RootedString clone(cx, js_NewStringCopyN<CanGC>(cx, str->chars().get(), str->length()));
         if (!clone)
             return false;
         vp.setString(clone);

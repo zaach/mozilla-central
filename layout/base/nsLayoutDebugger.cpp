@@ -130,10 +130,6 @@ PrintDisplayListTo(nsDisplayListBuilder* aBuilder, const nsDisplayList& aList,
   }
 
   for (nsDisplayItem* i = aList.GetBottom(); i != nullptr; i = i->GetAbove()) {
-#ifdef DEBUG
-    if (aList.DidComputeVisibility() && i->GetVisibleRect().IsEmpty())
-      continue;
-#endif
     if (aDumpHtml) {
       fprintf(aOutput, "<li>");
     } else {
@@ -185,8 +181,9 @@ PrintDisplayListTo(nsDisplayListBuilder* aBuilder, const nsDisplayList& aList,
             i->IsUniform(aBuilder, &color) ? " uniform" : "");
     nsRegionRectIterator iter(opaque);
     for (const nsRect* r = iter.Next(); r; r = iter.Next()) {
-      printf("(opaque %d,%d,%d,%d)", r->x, r->y, r->width, r->height);
+      fprintf(aOutput, "(opaque %d,%d,%d,%d)", r->x, r->y, r->width, r->height);
     }
+    i->WriteDebugInfo(aOutput);
     if (aDumpHtml && i->Painted()) {
       fprintf(aOutput, "</a>");
     }

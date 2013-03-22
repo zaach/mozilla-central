@@ -361,7 +361,7 @@ TestEarlyShutdown() {
   char* outbuf = NULL;
   
   sc->ResetStartupWriteTimer();
-  rv = sc->PutBuffer(buf, id, strlen(buf) + 1);
+  rv = sc->PutBuffer(id, buf, strlen(buf) + 1);
   NS_ENSURE_SUCCESS(rv, rv);
 
   nsCOMPtr<nsIObserver> obs;
@@ -373,13 +373,23 @@ TestEarlyShutdown() {
   rv = sc->GetBuffer(id, &outbuf, &len);
   delete[] outbuf;
 
+  if (NS_SUCCEEDED(rv)) {
+    passed("GetBuffer succeeded after early shutdown");
+  } else {
+    fail("GetBuffer failed after early shutdown");
+    return rv;
+  }
+
+  const char* other_id = "other_id";
+  rv = sc->PutBuffer(other_id, buf, strlen(buf) + 1);
+
   if (rv == NS_ERROR_NOT_AVAILABLE) {
-    passed("buffer not available after early shutdown");
+    passed("PutBuffer not available after early shutdown");
   } else if (NS_SUCCEEDED(rv)) {
-    fail("GetBuffer succeeded unexpectedly after early shutdown");
+    fail("PutBuffer succeeded unexpectedly after early shutdown");
     return NS_ERROR_UNEXPECTED;
   } else {
-    fail("GetBuffer gave an unexpected failure, expected NOT_AVAILABLE");
+    fail("PutBuffer gave an unexpected failure, expected NOT_AVAILABLE");
     return rv;
   }
  
@@ -401,7 +411,7 @@ SetupJS(JSContext **cxp)
 
 bool
 GetHistogramCounts(const char *testmsg, const nsACString &histogram_id,
-                   JSContext *cx, jsval *counts)
+                   JSContext *cx, JS::Value *counts)
 {
   nsCOMPtr<nsITelemetry> telemetry = do_GetService("@mozilla.org/base/telemetry;1");
   JS::AutoValueRooter h(cx);
@@ -438,7 +448,7 @@ CompareCountArrays(JSContext *cx, JSObject *before, JSObject *after)
   }
 
   for (uint32_t i = 0; i < before_size; ++i) {
-    jsval before_num, after_num;
+    JS::Value before_num, after_num;
 
     if (!(JS_GetElement(cx, before, i, &before_num)
           && JS_GetElement(cx, after, i, &after_num))) {

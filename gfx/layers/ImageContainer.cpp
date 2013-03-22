@@ -17,6 +17,7 @@
 #include "gfxSharedImageSurface.h"
 #include "yuv_convert.h"
 #include "gfxUtils.h"
+#include "gfxPlatform.h"
 
 #ifdef XP_MACOSX
 #include "mozilla/gfx/QuartzSupport.h"
@@ -183,7 +184,7 @@ ImageContainer::SetCurrentImage(Image *aImage)
     if (aImage) {
       mImageContainerChild->SendImageAsync(this, aImage);
     } else {
-      mImageContainerChild->DispatchSetIdle();
+      mImageContainerChild->SetIdle();
     }
   }
   
@@ -453,7 +454,7 @@ PlanarYCbCrImage::CopyData(const Data& aData)
                 mData.mYStride * mData.mYSize.height;
 
   // get new buffer
-  mBuffer = AllocateBuffer(mBufferSize); 
+  mBuffer = AllocateBuffer(mBufferSize);
   if (!mBuffer)
     return;
 
@@ -477,6 +478,32 @@ PlanarYCbCrImage::SetData(const Data &aData)
   CopyData(aData);
 }
 
+gfxASurface::gfxImageFormat
+PlanarYCbCrImage::GetOffscreenFormat()
+{
+  return mOffscreenFormat != gfxASurface::ImageFormatUnknown ?
+    gfxPlatform::GetPlatform()->GetOffscreenFormat() :
+    mOffscreenFormat;
+}
+
+void
+PlanarYCbCrImage::SetDataNoCopy(const Data &aData)
+{
+  mData = aData;
+  mSize = aData.mPicSize;
+}
+
+uint8_t*
+PlanarYCbCrImage::AllocateAndGetNewBuffer(uint32_t aSize)
+{
+  // update buffer size
+  mBufferSize = aSize;
+
+  // get new buffer
+  mBuffer = AllocateBuffer(mBufferSize); 
+  return mBuffer;
+}
+
 already_AddRefed<gfxASurface>
 PlanarYCbCrImage::GetAsSurface()
 {
@@ -486,7 +513,6 @@ PlanarYCbCrImage::GetAsSurface()
   }
 
   gfxASurface::gfxImageFormat format = GetOffscreenFormat();
-
   gfxIntSize size(mSize);
   gfxUtils::GetYCbCrToRGBDestFormatAndSize(mData, format, size);
   if (size.width > PlanarYCbCrImage::MAX_DIMENSION ||

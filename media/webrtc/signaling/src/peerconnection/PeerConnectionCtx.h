@@ -10,10 +10,20 @@
 #include "mozilla/Attributes.h"
 #include "CallControlManager.h"
 #include "CC_Device.h"
+#include "CC_DeviceInfo.h"
 #include "CC_Call.h"
+#include "CC_CallInfo.h"
+#include "CC_Line.h"
+#include "CC_LineInfo.h"
 #include "CC_Observer.h"
+#include "CC_FeatureInfo.h"
 
+#include "StaticPtr.h"
 #include "PeerConnectionImpl.h"
+
+namespace mozilla {
+class PeerConnectionCtxShutdown;
+}
 
 namespace sipcc {
 
@@ -26,6 +36,7 @@ class PeerConnectionCtx : public CSF::CC_Observer {
  public:
   static nsresult InitializeGlobal(nsIThread *mainThread);
   static PeerConnectionCtx* GetInstance();
+  static bool isActive();
   static void Destroy();
 
   // Implementations of CC_Observer methods
@@ -72,6 +83,8 @@ class PeerConnectionCtx : public CSF::CC_Observer {
 
   static PeerConnectionCtx *gInstance;
   static nsIThread *gMainThread;
+public:
+  static StaticRefPtr<mozilla::PeerConnectionCtxShutdown> gPeerConnectionCtxShutdown;
 };
 
 }  // namespace sipcc

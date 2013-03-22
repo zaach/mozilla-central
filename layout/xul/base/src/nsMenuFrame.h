@@ -85,9 +85,9 @@ public:
   virtual nsSize GetMinSize(nsBoxLayoutState& aBoxLayoutState) MOZ_OVERRIDE;
   virtual nsSize GetPrefSize(nsBoxLayoutState& aBoxLayoutState) MOZ_OVERRIDE;
 
-  NS_IMETHOD Init(nsIContent*      aContent,
-                  nsIFrame*        aParent,
-                  nsIFrame*        aPrevInFlow) MOZ_OVERRIDE;
+  virtual void Init(nsIContent*      aContent,
+                    nsIFrame*        aParent,
+                    nsIFrame*        aPrevInFlow) MOZ_OVERRIDE;
 
 #ifdef DEBUG_LAYOUT
   NS_IMETHOD SetDebug(nsBoxLayoutState& aState, bool aDebug) MOZ_OVERRIDE;
@@ -103,9 +103,9 @@ public:
   virtual void DestroyFrom(nsIFrame* aDestructRoot);
 
   // Overridden to prevent events from going to children of the menu.
-  NS_IMETHOD BuildDisplayListForChildren(nsDisplayListBuilder*   aBuilder,
-                                         const nsRect&           aDirtyRect,
-                                         const nsDisplayListSet& aLists) MOZ_OVERRIDE;
+  virtual void BuildDisplayListForChildren(nsDisplayListBuilder*   aBuilder,
+                                           const nsRect&           aDirtyRect,
+                                           const nsDisplayListSet& aLists) MOZ_OVERRIDE;
                                          
   // this method can destroy the frame
   NS_IMETHOD HandleEvent(nsPresContext* aPresContext, 

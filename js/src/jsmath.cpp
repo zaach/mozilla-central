@@ -11,6 +11,7 @@
 
 #include "mozilla/Constants.h"
 #include "mozilla/FloatingPoint.h"
+#include "mozilla/MathAlgorithms.h"
 
 #include <stdlib.h>
 #include "jstypes.h"
@@ -29,6 +30,8 @@
 #include "jsobjinlines.h"
 
 using namespace js;
+
+using mozilla::Abs;
 
 #ifndef M_E
 #define M_E             2.7182818284590452354
@@ -102,38 +105,23 @@ js_math_abs(JSContext *cx, unsigned argc, Value *vp)
     }
     if (!ToNumber(cx, vp[2], &x))
         return JS_FALSE;
-    z = fabs(x);
+    z = Abs(x);
     vp->setNumber(z);
     return JS_TRUE;
 }
 
-static JSBool
-math_acos(JSContext *cx, unsigned argc, Value *vp)
+double
+js::math_acos_impl(MathCache *cache, double x)
 {
-    double x, z;
-
-    if (argc == 0) {
-        vp->setDouble(js_NaN);
-        return JS_TRUE;
-    }
-    if (!ToNumber(cx, vp[2], &x))
-        return JS_FALSE;
 #if defined(SOLARIS) && defined(__GNUC__)
-    if (x < -1 || 1 < x) {
-        vp->setDouble(js_NaN);
-        return JS_TRUE;
-    }
+    if (x < -1 || 1 < x)
+        return js_NaN;
 #endif
-    MathCache *mathCache = cx->runtime->getMathCache(cx);
-    if (!mathCache)
-        return JS_FALSE;
-    z = mathCache->lookup(acos, x);
-    vp->setDouble(z);
-    return JS_TRUE;
+    return cache->lookup(acos, x);
 }
 
-static JSBool
-math_asin(JSContext *cx, unsigned argc, Value *vp)
+JSBool
+js::math_acos(JSContext *cx, unsigned argc, Value *vp)
 {
     double x, z;
 
@@ -143,22 +131,26 @@ math_asin(JSContext *cx, unsigned argc, Value *vp)
     }
     if (!ToNumber(cx, vp[2], &x))
         return JS_FALSE;
+    MathCache *mathCache = cx->runtime->getMathCache(cx);
+    if (!mathCache)
+        return JS_FALSE;
+    z = math_acos_impl(mathCache, x);
+    vp->setDouble(z);
+    return JS_TRUE;
+}
+
+double
+js::math_asin_impl(MathCache *cache, double x)
+{
 #if defined(SOLARIS) && defined(__GNUC__)
-    if (x < -1 || 1 < x) {
-        vp->setDouble(js_NaN);
-        return JS_TRUE;
-    }
+    if (x < -1 || 1 < x)
+        return js_NaN;
 #endif
-    MathCache *mathCache = cx->runtime->getMathCache(cx);
-    if (!mathCache)
-        return JS_FALSE;
-    z = mathCache->lookup(asin, x);
-    vp->setDouble(z);
-    return JS_TRUE;
+    return cache->lookup(asin, x);
 }
 
-static JSBool
-math_atan(JSContext *cx, unsigned argc, Value *vp)
+JSBool
+js::math_asin(JSContext *cx, unsigned argc, Value *vp)
 {
     double x, z;
 
@@ -171,13 +163,38 @@ math_atan(JSContext *cx, unsigned argc, Value *vp)
     MathCache *mathCache = cx->runtime->getMathCache(cx);
     if (!mathCache)
         return JS_FALSE;
-    z = mathCache->lookup(atan, x);
+    z = math_asin_impl(mathCache, x);
     vp->setDouble(z);
     return JS_TRUE;
 }
 
-static inline double JS_FASTCALL
-math_atan2_kernel(double x, double y)
+double
+js::math_atan_impl(MathCache *cache, double x)
+{
+    return cache->lookup(atan, x);
+}
+
+JSBool
+js::math_atan(JSContext *cx, unsigned argc, Value *vp)
+{
+    double x, z;
+
+    if (argc == 0) {
+        vp->setDouble(js_NaN);
+        return JS_TRUE;
+    }
+    if (!ToNumber(cx, vp[2], &x))
+        return JS_FALSE;
+    MathCache *mathCache = cx->runtime->getMathCache(cx);
+    if (!mathCache)
+        return JS_FALSE;
+    z = math_atan_impl(mathCache, x);
+    vp->setDouble(z);
+    return JS_TRUE;
+}
+
+double
+js::ecmaAtan2(double x, double y)
 {
 #if defined(_MSC_VER)
     /*
@@ -206,8 +223,8 @@ math_atan2_kernel(double x, double y)
     return atan2(x, y);
 }
 
-static JSBool
-math_atan2(JSContext *cx, unsigned argc, Value *vp)
+JSBool
+js::math_atan2(JSContext *cx, unsigned argc, Value *vp)
 {
     double x, y, z;
 
@@ -217,7 +234,7 @@ math_atan2(JSContext *cx, unsigned argc, Value *vp)
     }
     if (!ToNumber(cx, vp[2], &x) || !ToNumber(cx, vp[3], &y))
         return JS_FALSE;
-    z = math_atan2_kernel(x, y);
+    z = ecmaAtan2(x, y);
     vp->setDouble(z);
     return JS_TRUE;
 }
@@ -273,22 +290,22 @@ js::math_cos(JSContext *cx, unsigned argc, Value *vp)
     return JS_TRUE;
 }
 
-static double
-math_exp_body(double d)
+double
+js::math_exp_impl(MathCache *cache, double x)
 {
 #ifdef _WIN32
-    if (!MOZ_DOUBLE_IS_NaN(d)) {
-        if (d == js_PositiveInfinity)
+    if (!MOZ_DOUBLE_IS_NaN(x)) {
+        if (x == js_PositiveInfinity)
             return js_PositiveInfinity;
-        if (d == js_NegativeInfinity)
+        if (x == js_NegativeInfinity)
             return 0.0;
     }
 #endif
-    return exp(d);
+    return cache->lookup(exp, x);
 }
 
-static JSBool
-math_exp(JSContext *cx, unsigned argc, Value *vp)
+JSBool
+js::math_exp(JSContext *cx, unsigned argc, Value *vp)
 {
     double x, z;
 
@@ -301,7 +318,7 @@ math_exp(JSContext *cx, unsigned argc, Value *vp)
     MathCache *mathCache = cx->runtime->getMathCache(cx);
     if (!mathCache)
         return JS_FALSE;
-    z = mathCache->lookup(math_exp_body, x);
+    z = math_exp_impl(mathCache, x);
     vp->setNumber(z);
     return JS_TRUE;
 }
@@ -459,6 +476,9 @@ js::ecmaPow(double x, double y)
      */
     if (!MOZ_DOUBLE_IS_FINITE(y) && (x == 1.0 || x == -1.0))
         return js_NaN;
+    /* pow(x, +-0) is always 1, even for x = NaN (MSVC gets this wrong). */
+    if (y == 0)
+        return 1;
     return pow(x, y);
 }
 #if defined(_MSC_VER)
@@ -517,47 +537,48 @@ js_math_pow(JSContext *cx, unsigned argc, Value *vp)
 # pragma optimize("", on)
 #endif
 
-static const int64_t RNG_MULTIPLIER = 0x5DEECE66DLL;
-static const int64_t RNG_ADDEND = 0xBLL;
-static const int64_t RNG_MASK = (1LL << 48) - 1;
+static const uint64_t RNG_MULTIPLIER = 0x5DEECE66DLL;
+static const uint64_t RNG_ADDEND = 0xBLL;
+static const uint64_t RNG_MASK = (1LL << 48) - 1;
 static const double RNG_DSCALE = double(1LL << 53);
 
 /*
  * Math.random() support, lifted from java.util.Random.java.
  */
 extern void
-random_setSeed(int64_t *rngSeed, int64_t seed)
+random_setSeed(uint64_t *rngState, uint64_t seed)
 {
-    *rngSeed = (seed ^ RNG_MULTIPLIER) & RNG_MASK;
+    *rngState = (seed ^ RNG_MULTIPLIER) & RNG_MASK;
 }
 
 void
-js_InitRandom(JSContext *cx)
+js::InitRandom(JSRuntime *rt, uint64_t *rngState)
 {
     /*
-     * Set the seed from current time. Since we have a RNG per context and we often bring
-     * up several contexts at the same time, we xor in some additional values, namely
-     * the context and its successor. We don't just use the context because it might be
-     * possible to reverse engineer the context pointer if one guesses the time right.
+     * Set the seed from current time. Since we have a RNG per compartment and
+     * we often bring up several compartments at the same time, mix in a
+     * different integer each time. This is only meant to prevent all the new
+     * compartments from getting the same sequence of pseudo-random
+     * numbers. There's no security guarantee.
      */
-    random_setSeed(&cx->rngSeed, (PRMJ_Now() / 1000) ^ int64_t(cx) ^ int64_t(cx->getNext()));
+    random_setSeed(rngState, (uint64_t(PRMJ_Now()) << 8) ^ rt->nextRNGNonce());
 }
 
 extern uint64_t
-random_next(int64_t *rngSeed, int bits)
+random_next(uint64_t *rngState, int bits)
 {
-    uint64_t nextseed = *rngSeed * RNG_MULTIPLIER;
-    nextseed += RNG_ADDEND;
-    nextseed &= RNG_MASK;
-    *rngSeed = nextseed;
-    return nextseed >> (48 - bits);
+    uint64_t nextstate = *rngState * RNG_MULTIPLIER;
+    nextstate += RNG_ADDEND;
+    nextstate &= RNG_MASK;
+    *rngState = nextstate;
+    return nextstate >> (48 - bits);
 }
 
 static inline double
 random_nextDouble(JSContext *cx)
 {
-    return double((random_next(&cx->rngSeed, 26) << 27) + random_next(&cx->rngSeed, 27)) /
-           RNG_DSCALE;
+    uint64_t *rng = &cx->compartment->rngState;
+    return double((random_next(rng, 26) << 27) + random_next(rng, 27)) / RNG_DSCALE;
 }
 
 double
@@ -712,8 +733,8 @@ static JSFunctionSpec math_static_methods[] = {
 JSObject *
 js_InitMathClass(JSContext *cx, HandleObject obj)
 {
-    RootedObject Math(cx, NewObjectWithClassProto(cx, &MathClass, NULL, obj));
-    if (!Math || !JSObject::setSingletonType(cx, Math))
+    RootedObject Math(cx, NewObjectWithClassProto(cx, &MathClass, NULL, obj, SingletonObject));
+    if (!Math)
         return NULL;
 
     if (!JS_DefineProperty(cx, obj, js_Math_str, OBJECT_TO_JSVAL(Math),

@@ -259,14 +259,14 @@ PluginInstanceChild::InternalGetNPObjectForValue(NPNVariable aValue,
                                                            &currentResult);
                 break;
             default:
-                NS_NOTREACHED("Don't know what to do with this value type!");
+                MOZ_ASSERT(false);
         }
 
         // Make sure that the current actor returned by the parent matches our
         // cached actor!
-        NS_ASSERTION(static_cast<PluginScriptableObjectChild*>(currentActor) ==
+        NS_ASSERTION(!currentActor ||
+                     static_cast<PluginScriptableObjectChild*>(currentActor) ==
                      actor, "Cached actor is out of date!");
-        NS_ASSERTION(currentResult == result, "Results don't match?!");
     }
 #endif
 
@@ -415,6 +415,11 @@ PluginInstanceChild::NPN_GetValue(NPNVariable aVar,
         return NPERR_NO_ERROR;
     }
 
+    case NPNVsupportsCompositingCoreAnimationPluginsBool: {
+        *((NPBool*)aValue) = true;
+        return NPERR_NO_ERROR;
+    }
+
     case NPNVsupportsCocoaBool: {
         *((NPBool*)aValue) = true;
         return NPERR_NO_ERROR;
@@ -437,12 +442,12 @@ PluginInstanceChild::NPN_GetValue(NPNVariable aVar,
         *((NPBool*)aValue) = false;
         return NPERR_NO_ERROR;
     }
+#endif /* NP_NO_QUICKDRAW */
 
     case NPNVcontentsScaleFactor: {
         *static_cast<double*>(aValue) = mContentsScaleFactor;
         return NPERR_NO_ERROR;
     }
-#endif /* NP_NO_QUICKDRAW */
 #endif /* XP_MACOSX */
 
 #ifdef DEBUG
@@ -2659,8 +2664,6 @@ PluginInstanceChild::NPN_SetCurrentAsyncSurface(NPAsyncSurface *surface, NPRect 
 #ifdef XP_WIN
         case NPDrawingModelAsyncWindowsDXGISurface:
             {
-                AsyncBitmapData *bitmapData;
-              
                 CrossProcessMutexAutoLock autoLock(*mRemoteImageDataMutex);
                 data->mType = RemoteImageData::DXGI_TEXTURE_HANDLE;
                 data->mSize = gfxIntSize(surface->size.width, surface->size.height);
@@ -2710,18 +2713,16 @@ PluginInstanceChild::RecvAsyncSetWindow(const gfxSurfaceType& aSurfaceType,
         mCurrentAsyncSetWindowTask = nullptr;
     }
 
-    if (mPendingPluginCall) {
-        // We shouldn't process this now. Run it later.
-        mCurrentAsyncSetWindowTask =
-            NewRunnableMethod<PluginInstanceChild,
-                              void (PluginInstanceChild::*)(const gfxSurfaceType&, const NPRemoteWindow&, bool),
-                              gfxSurfaceType, NPRemoteWindow, bool>
-                (this, &PluginInstanceChild::DoAsyncSetWindow,
-                 aSurfaceType, aWindow, true);
-        MessageLoop::current()->PostTask(FROM_HERE, mCurrentAsyncSetWindowTask);
-    } else {
-        DoAsyncSetWindow(aSurfaceType, aWindow, false);
-    }
+    // We shouldn't process this now because it may be received within a nested
+    // RPC call, and both Flash and Java don't expect to receive setwindow calls
+    // at arbitrary times.
+    mCurrentAsyncSetWindowTask =
+        NewRunnableMethod<PluginInstanceChild,
+                          void (PluginInstanceChild::*)(const gfxSurfaceType&, const NPRemoteWindow&, bool),
+                          gfxSurfaceType, NPRemoteWindow, bool>
+        (this, &PluginInstanceChild::DoAsyncSetWindow,
+         aSurfaceType, aWindow, true);
+    MessageLoop::current()->PostTask(FROM_HERE, mCurrentAsyncSetWindowTask);
 
     return true;
 }
@@ -3050,7 +3051,8 @@ PluginInstanceChild::EnsureCurrentBuffer(void)
                 bool avoidCGCrashes = !nsCocoaFeatures::OnMountainLionOrLater() &&
                   (GetQuirks() & PluginModuleChild::QUIRK_FLASH_AVOID_CGMODE_CRASHES);
                 caLayer = mozilla::plugins::PluginUtilsOSX::GetCGLayer(CallCGDraw, this,
-                                                                       avoidCGCrashes);
+                                                                       avoidCGCrashes,
+                                                                       mContentsScaleFactor);
 
                 if (!caLayer) {
                     PLUGIN_LOG_DEBUG(("GetCGLayer failed."));
@@ -3332,7 +3334,7 @@ PluginInstanceChild::PaintRectToSurface(const nsIntRect& aRect,
     if (mIsTransparent && !CanPaintOnBackground()) {
        // Clear surface content for transparent rendering
        nsRefPtr<gfxContext> ctx = new gfxContext(renderSurface);
-       ctx->SetColor(aColor);
+       ctx->SetDeviceColor(aColor);
        ctx->SetOperator(gfxContext::OPERATOR_SOURCE);
        ctx->Rectangle(GfxFromNsRect(plPaintRect));
        ctx->Fill();

@@ -16,7 +16,7 @@
 #include "nsStringGlue.h"
 
 struct JSContext;
-struct JSObject;
+class JSObject;
 
 namespace mozilla {
 
@@ -44,7 +44,7 @@ public:
   TestShellCommandParent() : mCx(NULL) { }
 
   JSBool SetCallback(JSContext* aCx,
-                     jsval aCallback);
+                     JS::Value aCallback);
 
   JSBool RunCallback(const nsString& aResponse);
 

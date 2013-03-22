@@ -14,6 +14,8 @@
 #include "CodeGenerator-shared-inl.h"
 #include "ion/IonSpewer.h"
 #include "ion/IonMacroAssembler.h"
+#include "ion/ParallelFunctions.h"
+#include "builtin/ParallelArray.h"
 
 using namespace js;
 using namespace js::ion;
@@ -23,9 +25,20 @@ using mozilla::DebugOnly;
 namespace js {
 namespace ion {
 
-CodeGeneratorShared::CodeGeneratorShared(MIRGenerator *gen, LIRGraph *graph)
+MacroAssembler &
+CodeGeneratorShared::ensureMasm(MacroAssembler *masmArg)
+{
+    if (masmArg)
+        return *masmArg;
+    maybeMasm_.construct();
+    return maybeMasm_.ref();
+}
+
+CodeGeneratorShared::CodeGeneratorShared(MIRGenerator *gen, LIRGraph *graph, MacroAssembler *masmArg)
   : oolIns(NULL),
-    masm(&sps_),
+    oolParallelAbort_(NULL),
+    maybeMasm_(),
+    masm(ensureMasm(masmArg)),
     gen(gen),
     graph(*graph),
     current(NULL),
@@ -39,7 +52,31 @@ CodeGeneratorShared::CodeGeneratorShared(MIRGenerator *gen, LIRGraph *graph)
     frameDepth_(graph->localSlotCount() * sizeof(STACK_SLOT_SIZE) +
                 graph->argumentSlotCount() * sizeof(Value))
 {
-    frameClass_ = FrameSizeClass::FromDepth(frameDepth_);
+    if (!gen->compilingAsmJS())
+        masm.setInstrumentation(&sps_);
+
+    // Since asm.js uses the system ABI which does not necessarily use a
+    // regular array where all slots are sizeof(Value), it maintains the max
+    // argument stack depth separately.
+    if (gen->compilingAsmJS()) {
+        JS_ASSERT(graph->argumentSlotCount() == 0);
+        frameDepth_ += gen->maxAsmJSStackArgBytes();
+
+        // An MAsmJSCall does not align the stack pointer at calls sites but instead
+        // relies on the a priori stack adjustment (in the prologue) on platforms
+        // (like x64) which require the stack to be aligned.
+        if (gen->performsAsmJSCall()) {
+            unsigned alignmentAtCall = AlignmentAtPrologue + frameDepth_;
+            if (unsigned rem = alignmentAtCall % StackAlignment)
+                frameDepth_ += StackAlignment - rem;
+        }
+
+        // FrameSizeClass is only used for bailing, which cannot happen in
+        // asm.js code.
+        frameClass_ = FrameSizeClass::None();
+    } else {
+        frameClass_ = FrameSizeClass::FromDepth(frameDepth_);
+    }
 }
 
 bool
@@ -223,7 +260,11 @@ CodeGeneratorShared::encode(LSnapshot *snapshot)
         DebugOnly<jsbytecode *> bailPC = pc;
         if (mir->mode() == MResumePoint::ResumeAfter)
           bailPC = GetNextPc(pc);
-        JS_ASSERT_IF(GetIonContext()->cx,
+
+        // For fun.apply({}, arguments) the reconstructStackDepth will have stackdepth 4,
+        // but it could be that we inlined the funapply. In that case exprStackSlots,
+        // will have the real arguments in the slots and not be 4.
+        JS_ASSERT_IF(GetIonContext()->cx && JSOp(*bailPC) != JSOP_FUNAPPLY,
                      exprStack == js_ReconstructStackDepth(GetIonContext()->cx, script, bailPC));
 
 #ifdef TRACK_SNAPSHOTS
@@ -362,7 +403,6 @@ CodeGeneratorShared::markOsiPoint(LOsiPoint *ins, uint32_t *callPointOffset)
 bool
 CodeGeneratorShared::callVM(const VMFunction &fun, LInstruction *ins, const Register *dynStack)
 {
-    AssertCanGC();
 #ifdef DEBUG
     if (ins->mirRaw()) {
         JS_ASSERT(ins->mirRaw()->isInstruction());
@@ -465,23 +505,19 @@ CodeGeneratorShared::visitOutOfLineTruncateSlow(OutOfLineTruncateSlow *ool)
 void
 CodeGeneratorShared::emitPreBarrier(Register base, const LAllocation *index, MIRType type)
 {
-    CodeOffsetLabel offset;
-
     if (index->isConstant()) {
         Address address(base, ToInt32(index) * sizeof(Value));
-        offset = masm.patchableCallPreBarrier(address, type);
+        masm.patchableCallPreBarrier(address, type);
     } else {
         BaseIndex address(base, ToRegister(index), TimesEight);
-        offset = masm.patchableCallPreBarrier(address, type);
+        masm.patchableCallPreBarrier(address, type);
     }
-
-    addPreBarrierOffset(offset);
 }
 
 void
 CodeGeneratorShared::emitPreBarrier(Address address, MIRType type)
 {
-    addPreBarrierOffset(masm.patchableCallPreBarrier(address, type));
+    masm.patchableCallPreBarrier(address, type);
 }
 
 void
@@ -498,6 +534,90 @@ CodeGeneratorShared::markArgumentSlots(LSafepoint *safepoint)
         if (!safepoint->addValueSlot(pushedArgumentSlots_[i]))
             return false;
     }
+    return true;
+}
+
+bool
+CodeGeneratorShared::ensureOutOfLineParallelAbort(Label **result)
+{
+    if (!oolParallelAbort_) {
+        oolParallelAbort_ = new OutOfLineParallelAbort();
+        if (!addOutOfLineCode(oolParallelAbort_))
+            return false;
+    }
+
+    *result = oolParallelAbort_->entry();
+    return true;
+}
+
+bool
+OutOfLineParallelAbort::generate(CodeGeneratorShared *codegen)
+{
+    codegen->callTraceLIR(0xDEADBEEF, NULL, "ParallelBailout");
+    return codegen->visitOutOfLineParallelAbort(this);
+}
+
+bool
+CodeGeneratorShared::callTraceLIR(uint32_t blockIndex, LInstruction *lir,
+                                    const char *bailoutName)
+{
+    JS_ASSERT_IF(!lir, bailoutName);
+
+    uint32_t emi = (uint32_t) gen->info().executionMode();
+
+    if (!IonSpewEnabled(IonSpew_Trace))
+        return true;
+    masm.PushRegsInMask(RegisterSet::All());
+
+    RegisterSet regSet(RegisterSet::All());
+
+    Register blockIndexReg = regSet.takeGeneral();
+    Register lirIndexReg = regSet.takeGeneral();
+    Register emiReg = regSet.takeGeneral();
+    Register lirOpNameReg = regSet.takeGeneral();
+    Register mirOpNameReg = regSet.takeGeneral();
+    Register scriptReg = regSet.takeGeneral();
+    Register pcReg = regSet.takeGeneral();
+
+    // This first move is here so that when you scan the disassembly,
+    // you can easily pick out where each instruction begins.  The
+    // next few items indicate to you the Basic Block / LIR.
+    masm.move32(Imm32(0xDEADBEEF), blockIndexReg);
+
+    if (lir) {
+        masm.move32(Imm32(blockIndex), blockIndexReg);
+        masm.move32(Imm32(lir->id()), lirIndexReg);
+        masm.move32(Imm32(emi), emiReg);
+        masm.movePtr(ImmWord(lir->opName()), lirOpNameReg);
+        if (MDefinition *mir = lir->mirRaw()) {
+            masm.movePtr(ImmWord(mir->opName()), mirOpNameReg);
+            masm.movePtr(ImmWord((void *)mir->block()->info().script()), scriptReg);
+            masm.movePtr(ImmWord(mir->trackedPc()), pcReg);
+        } else {
+            masm.movePtr(ImmWord((void *)NULL), mirOpNameReg);
+            masm.movePtr(ImmWord((void *)NULL), scriptReg);
+            masm.movePtr(ImmWord((void *)NULL), pcReg);
+        }
+    } else {
+        masm.move32(Imm32(0xDEADBEEF), blockIndexReg);
+        masm.move32(Imm32(0xDEADBEEF), lirIndexReg);
+        masm.move32(Imm32(emi), emiReg);
+        masm.movePtr(ImmWord(bailoutName), lirOpNameReg);
+        masm.movePtr(ImmWord(bailoutName), mirOpNameReg);
+        masm.movePtr(ImmWord((void *)NULL), scriptReg);
+        masm.movePtr(ImmWord((void *)NULL), pcReg);
+    }
+
+    masm.setupUnalignedABICall(7, CallTempReg4);
+    masm.passABIArg(blockIndexReg);
+    masm.passABIArg(lirIndexReg);
+    masm.passABIArg(emiReg);
+    masm.passABIArg(lirOpNameReg);
+    masm.passABIArg(mirOpNameReg);
+    masm.passABIArg(scriptReg);
+    masm.passABIArg(pcReg);
+    masm.callWithABI(JS_FUNC_TO_DATA_PTR(void *, TraceLIR));
+    masm.PopRegsInMask(RegisterSet::All());
     return true;
 }
 

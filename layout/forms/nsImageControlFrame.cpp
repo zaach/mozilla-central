@@ -41,9 +41,9 @@ public:
   ~nsImageControlFrame();
 
   virtual void DestroyFrom(nsIFrame* aDestructRoot);
-  NS_IMETHOD Init(nsIContent*      aContent,
-                  nsIFrame*        aParent,
-                  nsIFrame*        aPrevInFlow);
+  virtual void Init(nsIContent*      aContent,
+                    nsIFrame*        aParent,
+                    nsIFrame*        aPrevInFlow) MOZ_OVERRIDE;
 
   NS_DECL_QUERYFRAME
   NS_DECL_FRAMEARENA_HELPERS
@@ -104,23 +104,20 @@ NS_NewImageControlFrame(nsIPresShell* aPresShell, nsStyleContext* aContext)
 
 NS_IMPL_FRAMEARENA_HELPERS(nsImageControlFrame)
 
-NS_IMETHODIMP
+void
 nsImageControlFrame::Init(nsIContent*      aContent,
                           nsIFrame*        aParent,
                           nsIFrame*        aPrevInFlow)
 {
-  nsresult rv = nsImageControlFrameSuper::Init(aContent, aParent, aPrevInFlow);
-  NS_ENSURE_SUCCESS(rv, rv);
+  nsImageControlFrameSuper::Init(aContent, aParent, aPrevInFlow);
 
-  // nsIntPoint allocation can fail, in which case we just set the property 
-  // to null, which is safe
   if (aPrevInFlow) {
-    return NS_OK;
+    return;
   }
   
-  return  mContent->SetProperty(nsGkAtoms::imageClickedPoint,
-                                 new nsIntPoint(0, 0),
-                                 IntPointDtorFunc);
+  mContent->SetProperty(nsGkAtoms::imageClickedPoint,
+                        new nsIntPoint(0, 0),
+                        IntPointDtorFunc);
 }
 
 NS_QUERYFRAME_HEAD(nsImageControlFrame)
@@ -173,7 +170,7 @@ nsImageControlFrame::HandleEvent(nsPresContext* aPresContext,
   }
 
   // do we have user-input style?
-  const nsStyleUserInterface* uiStyle = GetStyleUserInterface();
+  const nsStyleUserInterface* uiStyle = StyleUserInterface();
   if (uiStyle->mUserInput == NS_STYLE_USER_INPUT_NONE || uiStyle->mUserInput == NS_STYLE_USER_INPUT_DISABLED)
     return nsFrame::HandleEvent(aPresContext, aEvent, aEventStatus);
 
@@ -212,7 +209,7 @@ nsImageControlFrame::GetCursor(const nsPoint&    aPoint,
 {
   // Use style defined cursor if one is provided, otherwise when
   // the cursor style is "auto" we use the pointer cursor.
-  FillCursorInformationFromStyle(GetStyleUserInterface(), aCursor);
+  FillCursorInformationFromStyle(StyleUserInterface(), aCursor);
 
   if (NS_STYLE_CURSOR_AUTO == aCursor.mCursor) {
     aCursor.mCursor = NS_STYLE_CURSOR_POINTER;

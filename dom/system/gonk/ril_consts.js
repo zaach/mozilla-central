@@ -129,10 +129,10 @@ this.REQUEST_CDMA_GET_SUBSCRIPTION_SOURCE = 104;
 this.REQUEST_ISIM_AUTHENTICATION = 105;
 this.REQUEST_ACKNOWLEDGE_INCOMING_GSM_SMS_WITH_PDU = 106;
 this.REQUEST_STK_SEND_ENVELOPE_WITH_STATUS = 107;
+this.REQUEST_VOICE_RADIO_TECH = 108;
 this.REQUEST_DIAL_EMERGENCY_CALL = 10016;
 
 // Akami/Maguro specific parcel types.
-this.REQUEST_VOICE_RADIO_TECH = 105;
 this.REQUEST_IMS_REGISTRATION_STATE = 106;
 this.REQUEST_IMS_SEND_SMS = 107;
 this.REQUEST_GET_DATA_CALL_PROFILE = 108;
@@ -148,6 +148,11 @@ this.REQUEST_GET_QOS_STATUS = 117;
 this.REQUEST_MODIFY_QOS = 118;
 this.REQUEST_SUSPEND_QOS = 119;
 this.REQUEST_RESUME_QOS = 120;
+
+// UICC Secure Access
+this.REQUEST_SIM_OPEN_CHANNEL = 121;
+this.REQUEST_SIM_CLOSE_CHANNEL = 122;
+this.REQUEST_SIM_ACCESS_CHANNEL = 123;
 
 this.RESPONSE_TYPE_SOLICITED = 0;
 this.RESPONSE_TYPE_UNSOLICITED = 1;
@@ -248,7 +253,7 @@ this.SMS_RETRY_MAX = 3;
 
 this.RADIO_STATE_OFF = 0;
 this.RADIO_STATE_UNAVAILABLE = 1;
-this.RADIO_STATE_ON = 2;
+this.RADIO_STATE_ON = 10; // RIL v7
 
 // RIL v5 legacy constants:
 this.RADIO_STATE_SIM_NOT_READY = 2;
@@ -338,11 +343,21 @@ this.NETWORK_INFO_MESSAGE_TYPES = [
 this.GECKO_PREFERRED_NETWORK_TYPE_WCDMA_GSM = "wcdma/gsm";
 this.GECKO_PREFERRED_NETWORK_TYPE_GSM_ONLY = "gsm";
 this.GECKO_PREFERRED_NETWORK_TYPE_WCDMA_ONLY = "wcdma";
+this.GECKO_PREFERRED_NETWORK_TYPE_WCDMA_GSM_AUTO = "wcdma/gsm-auto";
+this.GECKO_PREFERRED_NETWORK_TYPE_CDMA_EVDO = "cdma/evdo";
+this.GECKO_PREFERRED_NETWORK_TYPE_CDMA_ONLY = "cdma";
+this.GECKO_PREFERRED_NETWORK_TYPE_EVDO_ONLY = "evdo";
+this.GECKO_PREFERRED_NETWORK_TYPE_WCDMA_GSM_CDMA_EVDO = "wcdma/gsm/cdma/evdo";
 this.GECKO_PREFERRED_NETWORK_TYPE_DEFAULT = GECKO_PREFERRED_NETWORK_TYPE_WCDMA_GSM;
 this.RIL_PREFERRED_NETWORK_TYPE_TO_GECKO = [
   GECKO_PREFERRED_NETWORK_TYPE_WCDMA_GSM,
   GECKO_PREFERRED_NETWORK_TYPE_GSM_ONLY,
-  GECKO_PREFERRED_NETWORK_TYPE_WCDMA_ONLY
+  GECKO_PREFERRED_NETWORK_TYPE_WCDMA_ONLY,
+  GECKO_PREFERRED_NETWORK_TYPE_WCDMA_GSM_AUTO,
+  GECKO_PREFERRED_NETWORK_TYPE_CDMA_EVDO,
+  GECKO_PREFERRED_NETWORK_TYPE_CDMA_ONLY,
+  GECKO_PREFERRED_NETWORK_TYPE_EVDO_ONLY,
+  GECKO_PREFERRED_NETWORK_TYPE_WCDMA_GSM_CDMA_EVDO
 ];
 
 // Network registration states. See TS 27.007 7.2
@@ -373,6 +388,7 @@ this.NETWORK_CREG_TECH_EVDOB = 12;
 this.NETWORK_CREG_TECH_EHRPD = 13;
 this.NETWORK_CREG_TECH_LTE = 14;
 this.NETWORK_CREG_TECH_HSPAP = 15;
+this.NETWORK_CREG_TECH_GSM = 16;
 
 this.CALL_STATE_ACTIVE = 0;
 this.CALL_STATE_HOLDING = 1;
@@ -430,6 +446,11 @@ this.ICC_EF_MWIS   = 0x6fca;
 this.ICC_EF_CFIS   = 0x6fcb;
 this.ICC_EF_SPDI   = 0x6fcd;
 
+// CSIM files
+this.ICC_EF_CSIM_CDMAHOME = 0x6f28;
+this.ICC_EF_CSIM_CST      = 0x6f32; // CDMA Service table
+this.ICC_EF_CSIM_SPN      = 0x6f41;
+
 this.ICC_PHASE_1 = 0x00;
 this.ICC_PHASE_2 = 0x02;
 this.ICC_PHASE_2_PROFILE_DOWNLOAD_REQUIRED = 0x03;
@@ -465,14 +486,20 @@ this.EFSMS_STATUS_READ       = 0x01;
 this.EFSMS_STATUS_TO_BE_READ = 0x03;
 this.EFSMS_STATUS_TO_BE_SENT = 0x07;
 
-// For retrieving MSISDN, TS 151.011 clause 10.5.5
-this.MSISDN_FOOTER_SIZE_BYTES = 14;
-this.MSISDN_MAX_NUMBER_SIZE_BYTES = 10;
+// Total size of ADN footer(the size of Alpha identifier excluded).
+// See TS 151.011 clause 10.5.1 EF_ADN.
+this.ADN_FOOTER_SIZE_BYTES = 14;
+// Maximum size of BCD numbers in ADN.
+// See TS 151.011 clause 10.5.1 EF_ADN, 'Length of BCD number/SSC contents'.
+this.ADN_MAX_BCD_NUMBER_BYTES = 11;
+// Maximum digits of the Dialling Number in ADN.
+// See TS 151.011 clause 10.5.1 EF_ADN, 'Dialling Number'.
+this.ADN_MAX_NUMBER_DIGITS = 20;
 
 // READ_RECORD mode,  TS 102.221
 this.READ_RECORD_ABSOLUTE_MODE = 4;
 
-// GET_RESPONSE mandatory response size for EF, see TS 51.011 clause 9, 
+// GET_RESPONSE mandatory response size for EF, see TS 51.011 clause 9,
 // 'Response data in case of an EF.'
 this.GET_RESPONSE_EF_SIZE_BYTES = 15;
 
@@ -481,6 +508,7 @@ this.EF_PATH_MF_SIM       = "3f00";
 this.EF_PATH_DF_PHONEBOOK = "5f3a";
 this.EF_PATH_DF_TELECOM   = "7f10";
 this.EF_PATH_DF_GSM       = "7f20";
+this.EF_PATH_DF_CDMA      = "7f25";
 this.EF_PATH_ADF_USIM     = "7fff";
 
 // Status code of sw1 for ICC I/O,
@@ -497,6 +525,7 @@ this.ICC_STATUS_ERROR_WRONG_PARAMETERS = 0x6a;
 // ICC call barring facility.
 // TS 27.007, clause 7.4, +CLCK
 this.ICC_CB_FACILITY_SIM = "SC";
+this.ICC_CB_FACILITY_FDN = "FD";
 
 // ICC service class
 // TS 27.007, clause 7.4, +CLCK
@@ -526,6 +555,20 @@ this.ICC_USIM_EFGSD_TAG   = 0xc8;
 this.ICC_USIM_EFUID_TAG   = 0xc9;
 this.ICC_USIM_EFEMAIL_TAG = 0xca;
 this.ICC_USIM_EFCCP1_TAG  = 0xcb;
+
+this.USIM_TAG_NAME = {};
+this.USIM_TAG_NAME[ICC_USIM_EFADN_TAG] = "adn";
+this.USIM_TAG_NAME[ICC_USIM_EFIAP_TAG] ="iap";
+this.USIM_TAG_NAME[ICC_USIM_EFEXT1_TAG] = "ext1";
+this.USIM_TAG_NAME[ICC_USIM_EFSNE_TAG] = "sne";
+this.USIM_TAG_NAME[ICC_USIM_EFANR_TAG] = "anr";
+this.USIM_TAG_NAME[ICC_USIM_EFPBC_TAG] = "pbc";
+this.USIM_TAG_NAME[ICC_USIM_EFGRP_TAG] = "grp";
+this.USIM_TAG_NAME[ICC_USIM_EFAAS_TAG] = "aas";
+this.USIM_TAG_NAME[ICC_USIM_EFGSD_TAG] = "gsd";
+this.USIM_TAG_NAME[ICC_USIM_EFUID_TAG] = "uid";
+this.USIM_TAG_NAME[ICC_USIM_EFEMAIL_TAG] = "email";
+this.USIM_TAG_NAME[ICC_USIM_EFCCP1_TAG] = "ccp1";
 
 /**
  * STK constants.
@@ -873,8 +916,13 @@ this.STK_TERMINAL_SUPPORT_EVENT_CALL_CONNECTED         = 1;
 this.STK_TERMINAL_SUPPORT_EVENT_CALL_DISCONNECTED      = 1;
 this.STK_TERMINAL_SUPPORT_EVENT_LOCATION_STATUS        = 1;
 this.STK_TERMINAL_SUPPORT_EVENT_USER_ACTIVITY          = 0;
-this.STK_TERMINAL_SUPPORT_EVENT_IDLE_SCREEN_AVAILABLE  = 0;
+this.STK_TERMINAL_SUPPORT_EVENT_IDLE_SCREEN_AVAILABLE  = 1;
 this.STK_TERMINAL_SUPPORT_EVENT_CARD_READER_STATUS     = 0;
+
+this.STK_TERMINAL_SUPPORT_EVENT_LANGUAGE_SELECTION     = 1;
+this.STK_TERMINAL_SUPPORT_EVENT_BROWSER_TERMINATION    = 0;
+this.STK_TERMINAL_SUPPORT_EVENT_DATA_AVAILABLE         = 0;
+this.STK_TERMINAL_SUPPORT_EVENT_CHANNEL_STATUS         = 0;
 
 this.STK_TERMINAL_SUPPORT_PROACTIVE_TIMER_START_STOP   = 1;
 this.STK_TERMINAL_SUPPORT_PROACTIVE_TIMER_GET_CURRENT  = 1;
@@ -894,6 +942,11 @@ this.STK_TERMINAL_SUPPORT_PROACTIVE_LANGUAGE_NOTIFICATION   = 0;
 this.STK_TERMINAL_SUPPORT_PROACTIVE_LAUNCH_BROWSER          = 1;
 this.STK_TERMINAL_SUPPORT_PROACTIVE_LOCAL_INFO_ACCESS_TECH  = 0;
 
+/**
+ * SAT profile
+ *
+ * @see ETSI TS 101.267, section 5.2.
+ */
 this.STK_TERMINAL_PROFILE_DOWNLOAD =
   (STK_TERMINAL_SUPPORT_PROFILE_DOWNLOAD << 0) |
   (STK_TERMINAL_SUPPORT_SMS_PP_DOWNLOAD  << 1) |
@@ -944,6 +997,12 @@ this.STK_TERMINAL_PROFILE_EVENT =
   (STK_TERMINAL_SUPPORT_EVENT_IDLE_SCREEN_AVAILABLE << 6) |
   (STK_TERMINAL_SUPPORT_EVENT_CARD_READER_STATUS << 7);
 
+this.STK_TERMINAL_PROFILE_EVENT_EXT =
+  (STK_TERMINAL_SUPPORT_EVENT_LANGUAGE_SELECTION << 0) |
+  (STK_TERMINAL_SUPPORT_EVENT_BROWSER_TERMINATION << 1) |
+  (STK_TERMINAL_SUPPORT_EVENT_DATA_AVAILABLE << 2) |
+  (STK_TERMINAL_SUPPORT_EVENT_CHANNEL_STATUS << 3);
+
 this.STK_TERMINAL_PROFILE_PROACTIVE_3 =
   (STK_TERMINAL_SUPPORT_PROACTIVE_TIMER_START_STOP << 0) |
   (STK_TERMINAL_SUPPORT_PROACTIVE_TIMER_GET_CURRENT << 1) |
@@ -970,7 +1029,7 @@ this.STK_SUPPORTED_TERMINAL_PROFILE = [
   STK_TERMINAL_PROFILE_PROACTIVE_1,
   STK_TERMINAL_PROFILE_PROACTIVE_2,
   STK_TERMINAL_PROFILE_EVENT,
-  0x00, // Event extension
+  STK_TERMINAL_PROFILE_EVENT_EXT, // Event extension
   0x00, // Multiple card proactive commands
   STK_TERMINAL_PROFILE_PROACTIVE_3,
   STK_TERMINAL_PROFILE_PROACTIVE_4,
@@ -1018,6 +1077,9 @@ this.GECKO_ICC_SERVICES = {
     PNN: 45,
     OPL: 46,
     SPDI: 51
+  },
+  ruim: {
+    SPN: 17
   }
 };
 
@@ -1187,6 +1249,11 @@ this.PDU_FCS_USAT_BUSY                = 0XD4;
 this.PDU_FCS_USIM_DATA_DOWNLOAD_ERROR = 0xD5;
 this.PDU_FCS_RESERVED                 = 0xE0;
 this.PDU_FCS_UNSPECIFIED              = 0xFF;
+// Special internal value that means we should not acknowledge an
+// incoming text right away, but need to wait for other components
+// (e.g. storage) to complete. This can be any value, so long it
+// doesn't conflict with the PDU_FCS_* constants above.
+this.MOZ_FCS_WAIT_FOR_EXPLICIT_ACK    = 0x0F;
 
 // ST - Status
 // Bit 7..0 = 000xxxxx, short message transaction completed
@@ -2152,13 +2219,26 @@ this.GECKO_RADIOSTATE_UNAVAILABLE   = null;
 this.GECKO_RADIOSTATE_OFF           = "off";
 this.GECKO_RADIOSTATE_READY         = "ready";
 
-this.GECKO_CARDSTATE_UNAVAILABLE    = null;
-this.GECKO_CARDSTATE_ABSENT         = "absent";
-this.GECKO_CARDSTATE_PIN_REQUIRED   = "pinRequired";
-this.GECKO_CARDSTATE_PUK_REQUIRED   = "pukRequired";
-this.GECKO_CARDSTATE_NETWORK_LOCKED = "networkLocked";
-this.GECKO_CARDSTATE_NOT_READY      = null;
-this.GECKO_CARDSTATE_READY          = "ready";
+this.GECKO_CARDSTATE_NOT_READY               = null;
+this.GECKO_CARDSTATE_UNKNOWN                 = "unknown";
+this.GECKO_CARDSTATE_ABSENT                  = "absent";
+this.GECKO_CARDSTATE_PIN_REQUIRED            = "pinRequired";
+this.GECKO_CARDSTATE_PUK_REQUIRED            = "pukRequired";
+this.GECKO_CARDSTATE_NETWORK_LOCKED          = "networkLocked";
+this.GECKO_CARDSTATE_CORPORATE_LOCKED        = "corporateLocked";
+this.GECKO_CARDSTATE_SERVICE_PROVIDER_LOCKED = "serviceProviderLocked";
+this.GECKO_CARDSTATE_READY                   = "ready";
+
+// See ril.h RIL_PersoSubstate
+this.PERSONSUBSTATE = {};
+PERSONSUBSTATE[CARD_PERSOSUBSTATE_UNKNOWN] = GECKO_CARDSTATE_UNKNOWN;
+PERSONSUBSTATE[CARD_PERSOSUBSTATE_IN_PROGRESS] = "inProgress";
+PERSONSUBSTATE[CARD_PERSOSUBSTATE_READY] = GECKO_CARDSTATE_READY;
+PERSONSUBSTATE[CARD_PERSOSUBSTATE_SIM_NETWORK] = GECKO_CARDSTATE_NETWORK_LOCKED;
+PERSONSUBSTATE[CARD_PERSOSUBSTATE_SIM_NETWORK_SUBSET] = "networkSubsetLocked";
+PERSONSUBSTATE[CARD_PERSOSUBSTATE_SIM_CORPORATE] = GECKO_CARDSTATE_CORPORATE_LOCKED;
+PERSONSUBSTATE[CARD_PERSOSUBSTATE_SIM_SERVICE_PROVIDER] = GECKO_CARDSTATE_SERVICE_PROVIDER_LOCKED;
+PERSONSUBSTATE[CARD_PERSOSUBSTATE_SIM_SIM] = "simPersonalizationLock";
 
 this.GECKO_NETWORK_SELECTION_UNKNOWN   = null;
 this.GECKO_NETWORK_SELECTION_AUTOMATIC = "automatic";
@@ -2290,6 +2370,7 @@ this.GECKO_RADIO_TECH = [
   "ehrpd",
   "lte",
   "hspa+",
+  "gsm"
 ];
 
 this.GECKO_VOICEMAIL_MESSAGE_COUNT_UNKNOWN = -1;
@@ -2365,6 +2446,70 @@ this.MMI_SC_BAICr = "351";
 this.MMI_SC_BA_ALL = "330";
 this.MMI_SC_BA_MO = "333";
 this.MMI_SC_BA_MT = "353";
+
+/**
+ * CDMA PDU constants
+ */
+
+// SMS Message Type, as defined in 3GPP2 C.S0015-A v2.0, Table 3.4-1
+this.PDU_CDMA_MSG_TYPE_P2P = 0x00;        // Point-to-Point
+this.PDU_CDMA_MSG_TYPE_BROADCAST = 0x01;  // Broadcast
+this.PDU_CDMA_MSG_TYPE_ACK = 0x02;        // Acknowledge
+
+// SMS Teleservice Identitifier, as defined in 3GPP2 N.S0005, Table 175
+this.PDU_CDMA_MSG_TELESERIVCIE_ID_SMS = 0x1002;   // SMS
+this.PDU_CDMA_MSG_TELESERIVCIE_ID_WEMT = 0x1005;  // Wireless Enhanced Messaging Teleservice
+                                                  // required for fragmented SMS
+
+// SMS Service Category, as defined in 3GPP2 C.R1001-D, Table 9.3.1-1
+this.PDU_CDMA_MSG_CATEGORY_UNSPEC = 0x00; // Unknown/Unspecified
+
+// Address Information, Digit Mode, as defined in 3GPP2 C.S0015-A v2.0, sec 3.4.3.3
+this.PDU_CDMA_MSG_ADDR_DIGIT_MODE_DTMF = 0x00;      // Digit Mode : DTMF
+this.PDU_CDMA_MSG_ADDR_DIGIT_MODE_ASCII = 0x01;     // Digit Mode : 8-bit ASCII with MSB = 0
+
+// Address Information, Number Mode, as defined in 3GPP2 C.S0015-A v2.0, sec 3.4.3.3
+this.PDU_CDMA_MSG_ADDR_NUMBER_MODE_ANSI = 0x00;     // Number Mode : ANSI T1.607-2000(R2004)
+this.PDU_CDMA_MSG_ADDR_NUMBER_MODE_ASCII = 0x01;    // Number Mode : Data network address format
+
+// Address Information, Number Type, as defined in 3GPP2 C.S0015-A v2.0, Table 3.4.3.3-1
+this.PDU_CDMA_MSG_ADDR_NUMBER_TYPE_UNKNOWN = 0x00;        // Number Type : Unknown
+this.PDU_CDMA_MSG_ADDR_NUMBER_TYPE_INTERNATIONAL = 0x01;  // Number Type : Internaltional number(+XXXXX)
+this.PDU_CDMA_MSG_ADDR_NUMBER_TYPE_NATIONAL = 0x02;       // Number Type : National number
+
+// Address Information, Number Plan, as defined in 3GPP2 C.S0005-D v2.0, Table 2.7.1.3.2.4-3
+this.PDU_CDMA_MSG_ADDR_NUMBER_PLAN_UNKNOWN = 0x00;  // Number Plan : Unknown
+this.PDU_CDMA_MSG_ADDR_NUMBER_PLAN_ISDN = 0x01;     // Number Plan : ISDN/Telephony numbering plan
+
+// SMS Encoding, as defined in 3GPP2 C.R1001-D, Table 9.1-1
+this.PDU_CDMA_MSG_CODING_OCTET = 0x00;        // octet(8-bit), Not tested
+this.PDU_CDMA_MSG_CODING_IS_91 = 0x01;        // IS-91 Extended Protocol Message(variable), Not tested
+this.PDU_CDMA_MSG_CODING_7BITS_ASCII = 0x02;  // 7-bit ASCII(7-bit)
+this.PDU_CDMA_MSG_CODING_IA5 = 0x03;          // IA5(7-bit), Not tested
+this.PDU_CDMA_MSG_CODING_UNICODE = 0x04;      // Unicode(16-bit)
+this.PDU_CDMA_MSG_CODING_SHIFT_JIS = 0x05;    // Shift-6 JIS(8/16-bit variable), Not supported
+this.PDU_CDMA_MSG_CODING_KOREAN = 0x06;       // Korean(8/16-bit variable), Not supported
+this.PDU_CDMA_MSG_CODING_LATIN_HEBREW = 0x07; // Latin/ Hebrew(8-bit), ISO/IEC 8859-8, Not supported
+this.PDU_CDMA_MSG_CODING_LATIN = 0x08;        // Latin(8-bit), ISO/IEC 8859-1, Not tested
+this.PDU_CDMA_MSG_CODING_7BITS_GSM = 0x09;    // GSM 7-bit default alphabet(7-bit), Not tested
+this.PDU_CDMA_MSG_CODING_GSM_DCS = 0x0A;      // GSM Data-Coding-Scheme, Not supported
+
+// SMS Message Type, as defined in 3GPP2 C.S0015-A v2.0, Table 4.5.1-1
+this.PDU_CDMA_MSG_TYPE_DELIVER = 0x01;        // Receive
+this.PDU_CDMA_MSG_TYPE_SUBMIT = 0x02;         // Send
+
+// SMS User Data Subparameters, as defined in 3GPP2 C.S0015-A v2.0, Table 4.5-1
+this.PDU_CDMA_MSG_USERDATA_MSG_ID = 0x00;           // Message Identifier
+this.PDU_CDMA_MSG_USERDATA_BODY = 0x01;             // User Data Body
+this.PDU_CDMA_MSG_USERDATA_TIMESTAMP = 0x03;        // Message Center Time Stamp
+this.PDU_CDMA_REPLY_OPTION = 0x0A;                  // Reply Option
+this.PDU_CDMA_MSG_USERDATA_CALLBACK_NUMBER = 0x0E;  // Callback Number
+
+// IS-91 Message Type, as defined in TIA/EIA/IS-91-A, Table 9
+this.PDU_CDMA_MSG_CODING_IS_91_TYPE_VOICEMAIL_STATUS = 0x82;
+this.PDU_CDMA_MSG_CODING_IS_91_TYPE_SMS_FULL = 0x83;
+this.PDU_CDMA_MSG_CODING_IS_91_TYPE_CLI = 0x84;
+this.PDU_CDMA_MSG_CODING_IS_91_TYPE_SMS = 0x85;
 
 // Allow this file to be imported via Components.utils.import().
 this.EXPORTED_SYMBOLS = Object.keys(this);

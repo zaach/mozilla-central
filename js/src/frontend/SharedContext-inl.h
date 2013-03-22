@@ -15,9 +15,8 @@ namespace js {
 namespace frontend {
 
 inline
-SharedContext::SharedContext(JSContext *cx, bool isFun, bool strict)
+SharedContext::SharedContext(JSContext *cx, bool strict)
   : context(cx),
-    isFunction(isFun),
     anyCxFlags(),
     strict(strict)
 {
@@ -30,21 +29,21 @@ SharedContext::needStrictChecks()
 }
 
 inline GlobalSharedContext *
-SharedContext::asGlobal()
+SharedContext::asGlobalSharedContext()
 {
-    JS_ASSERT(!isFunction);
+    JS_ASSERT(isGlobalSharedContext());
     return static_cast<GlobalSharedContext*>(this);
 }
 
-inline FunctionBox *
-SharedContext::asFunbox()
+inline ModuleBox *
+SharedContext::asModuleBox()
 {
-    JS_ASSERT(isFunction);
-    return static_cast<FunctionBox*>(this);
+    JS_ASSERT(isModuleBox());
+    return static_cast<ModuleBox*>(this);
 }
 
 GlobalSharedContext::GlobalSharedContext(JSContext *cx, JSObject *scopeChain, bool strict)
-  : SharedContext(cx, /* isFunction = */ false, strict),
+  : SharedContext(cx, strict),
     scopeChain_(cx, scopeChain)
 {
 }
@@ -107,6 +106,8 @@ template <class ContextT>
 typename ContextT::StmtInfo *
 frontend::LexicalLookup(ContextT *ct, HandleAtom atom, int *slotp, typename ContextT::StmtInfo *stmt)
 {
+    RootedId id(ct->sc->context, AtomToId(atom));
+
     if (!stmt)
         stmt = ct->topScopeStmt;
     for (; stmt; stmt = stmt->downScope) {
@@ -123,7 +124,7 @@ frontend::LexicalLookup(ContextT *ct, HandleAtom atom, int *slotp, typename Cont
             continue;
 
         StaticBlockObject &blockObj = *stmt->blockObj;
-        UnrootedShape shape = blockObj.nativeLookup(ct->sc->context, AtomToId(atom));
+        RawShape shape = blockObj.nativeLookup(ct->sc->context, id);
         if (shape) {
             JS_ASSERT(shape->hasShortID());
 

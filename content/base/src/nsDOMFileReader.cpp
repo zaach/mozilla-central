@@ -12,6 +12,7 @@
 #include "nsError.h"
 #include "nsICharsetConverterManager.h"
 #include "nsIConverterInputStream.h"
+#include "nsIDocument.h"
 #include "nsIFile.h"
 #include "nsIFileStreams.h"
 #include "nsIInputStream.h"
@@ -54,8 +55,6 @@ using namespace mozilla;
 
 using mozilla::dom::EncodingUtils;
 using mozilla::dom::FileIOObject;
-
-NS_IMPL_CYCLE_COLLECTION_CLASS(nsDOMFileReader)
 
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INHERITED(nsDOMFileReader,
                                                   FileIOObject)

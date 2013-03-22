@@ -13,6 +13,7 @@
 
 #include "mozilla/LinkedList.h"
 #include "mozilla/CheckedInt.h"
+#include <algorithm>
 
 namespace mozilla {
 
@@ -51,7 +52,7 @@ public:
         return Context();
     }
 
-    virtual JSObject* WrapObject(JSContext *cx, JSObject *scope, bool *triedToWrap);
+    virtual JSObject* WrapObject(JSContext *cx, JSObject *scope) MOZ_OVERRIDE;
 
     NS_DECL_CYCLE_COLLECTING_ISUPPORTS
     NS_DECL_CYCLE_COLLECTION_SCRIPT_HOLDER_CLASS(WebGLTexture)
@@ -153,7 +154,7 @@ protected:
     FakeBlackStatus mFakeBlackStatus;
 
     void EnsureMaxLevelWithCustomImagesAtLeast(size_t aMaxLevelWithCustomImages) {
-        mMaxLevelWithCustomImages = NS_MAX(mMaxLevelWithCustomImages, aMaxLevelWithCustomImages);
+        mMaxLevelWithCustomImages = std::max(mMaxLevelWithCustomImages, aMaxLevelWithCustomImages);
         mImageInfos.EnsureLengthAtLeast((mMaxLevelWithCustomImages + 1) * mFacesCount);
     }
 

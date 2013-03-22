@@ -10,7 +10,9 @@
 #include "AccessCheck.h"
 
 #include "nsJSPrincipals.h"
+#include "nsIDocument.h"
 #include "nsIDOMWindow.h"
+#include "nsPIDOMWindow.h"
 #include "nsIDOMWindowCollection.h"
 #include "nsContentUtils.h"
 #include "nsJSUtils.h"
@@ -20,6 +22,7 @@
 #include "FilteringWrapper.h"
 
 #include "jsfriendapi.h"
+#include "mozilla/dom/BindingUtils.h"
 
 using namespace mozilla;
 using namespace js;
@@ -141,7 +144,7 @@ IsPermitted(const char *name, JSFlatString *prop, bool set)
         return false;
     switch (name[0]) {
         NAME('L', "Location",
-             PROP('h', W("hash") W("href"))
+             PROP('h', W("href"))
              PROP('r', R("replace")))
         NAME('W', "Window",
              PROP('b', R("blur"))
@@ -237,6 +240,10 @@ AccessCheck::isSystemOnlyAccessPermitted(JSContext *cx)
 bool
 AccessCheck::needsSystemOnlyWrapper(JSObject *obj)
 {
+    JSObject* wrapper = obj;
+    if (dom::GetSameCompartmentWrapperForDOMBinding(wrapper))
+        return wrapper != obj;
+
     if (!IS_WN_WRAPPER(obj))
         return false;
 
@@ -250,7 +257,7 @@ AccessCheck::isScriptAccessOnly(JSContext *cx, JSObject *wrapper)
     MOZ_ASSERT(js::IsWrapper(wrapper));
 
     unsigned flags;
-    JSObject *obj = js::UnwrapObject(wrapper, true, &flags);
+    (void) js::UnwrapObject(wrapper, true, &flags);
 
     // If the wrapper indicates script-only access, we are done.
     if (flags & WrapperFactory::SCRIPT_ACCESS_ONLY_FLAG) {
@@ -259,36 +266,7 @@ AccessCheck::isScriptAccessOnly(JSContext *cx, JSObject *wrapper)
         return true;
     }
 
-    // In addition, chrome objects can explicitly opt-in by setting .scriptOnly to true.
-    if (js::GetProxyHandler(wrapper) ==
-        &FilteringWrapper<CrossCompartmentSecurityWrapper,
-        CrossOriginAccessiblePropertiesOnly>::singleton) {
-        jsid scriptOnlyId = GetRTIdByIndex(cx, XPCJSRuntime::IDX_SCRIPTONLY);
-        jsval scriptOnly;
-        if (JS_LookupPropertyById(cx, obj, scriptOnlyId, &scriptOnly) &&
-            scriptOnly == JSVAL_TRUE)
-            return true; // script-only
-    }
-
     return false;
-}
-
-void
-AccessCheck::deny(JSContext *cx, jsid id)
-{
-    if (id == JSID_VOID) {
-        JS_ReportError(cx, "Permission denied to access object");
-    } else {
-        jsval idval;
-        if (!JS_IdToValue(cx, id, &idval))
-            return;
-        JSString *str = JS_ValueToString(cx, idval);
-        if (!str)
-            return;
-        const jschar *chars = JS_GetStringCharsZ(cx, str);
-        if (chars)
-            JS_ReportError(cx, "Permission denied to access property '%hs'", chars);
-    }
 }
 
 enum Access { READ = (1<<0), WRITE = (1<<1), NO_ACCESS = 0 };
@@ -349,8 +327,7 @@ ExposedPropertiesOnly::check(JSContext *cx, JSObject *wrapper, jsid id, Wrapper:
             nsCOMPtr<nsPIDOMWindow> win =
                 do_QueryInterface(nsJSUtils::GetStaticScriptGlobal(wrapper));
             if (win) {
-                nsCOMPtr<nsIDocument> doc =
-                    do_QueryInterface(win->GetExtantDocument());
+                nsCOMPtr<nsIDocument> doc = win->GetExtantDoc();
                 if (doc) {
                     doc->WarnOnceAbout(nsIDocument::eNoExposedProps,
                                        /* asError = */ true);
@@ -387,7 +364,7 @@ ExposedPropertiesOnly::check(JSContext *cx, JSObject *wrapper, jsid id, Wrapper:
     Access access = NO_ACCESS;
 
     JSPropertyDescriptor desc;
-    if (!JS_GetPropertyDescriptorById(cx, hallpass, id, JSRESOLVE_QUALIFIED, &desc)) {
+    if (!JS_GetPropertyDescriptorById(cx, hallpass, id, 0, &desc)) {
         return false; // Error
     }
     if (!desc.obj || !(desc.attrs & JSPROP_ENUMERATE))
@@ -439,6 +416,13 @@ ExposedPropertiesOnly::check(JSContext *cx, JSObject *wrapper, jsid id, Wrapper:
     }
 
     return true;
+}
+
+bool
+ExposedPropertiesOnly::allowNativeCall(JSContext *cx, JS::IsAcceptableThis test,
+                                       JS::NativeImpl impl)
+{
+    return js::IsReadOnlyDateMethod(test, impl) || js::IsTypedArrayThisCheck(test);
 }
 
 bool

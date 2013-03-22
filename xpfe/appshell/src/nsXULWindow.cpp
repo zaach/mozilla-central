@@ -4,8 +4,11 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#include "mozilla/MathAlgorithms.h"
+
 // Local includes
 #include "nsXULWindow.h"
+#include <algorithm>
 
 // Helper classes
 #include "nsPrintfCString.h"
@@ -55,8 +58,6 @@
 #include "prenv.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/dom/Element.h"
-#include <cstdlib> // for std::abs(int/long)
-#include <cmath> // for std::abs(float/double)
 
 using namespace mozilla;
 
@@ -1137,7 +1138,7 @@ bool nsXULWindow::LoadSizeFromXUL()
   if (NS_SUCCEEDED(rv)) {
     temp = sizeString.ToInteger(&errorCode);
     if (NS_SUCCEEDED(errorCode) && temp > 0) {
-      specWidth = NS_MAX(temp, 100);
+      specWidth = std::max(temp, 100);
       gotSize = true;
     }
   }
@@ -1145,7 +1146,7 @@ bool nsXULWindow::LoadSizeFromXUL()
   if (NS_SUCCEEDED(rv)) {
     temp = sizeString.ToInteger(&errorCode);
     if (NS_SUCCEEDED(errorCode) && temp > 0) {
-      specHeight = NS_MAX(temp, 100);
+      specHeight = std::max(temp, 100);
       gotSize = true;
     }
   }
@@ -1269,7 +1270,7 @@ void nsXULWindow::StaggerPosition(int32_t &aRequestedX, int32_t &aRequestedY,
                                   int32_t aSpecWidth, int32_t aSpecHeight)
 {
   const int32_t kOffset = 22;
-  const int32_t kSlop   = 4;
+  const uint32_t kSlop  = 4;
 
   nsresult rv;
   bool     keepTrying;
@@ -1348,8 +1349,7 @@ void nsXULWindow::StaggerPosition(int32_t &aRequestedX, int32_t &aRequestedY,
           listY = NSToIntRound(listY / scale);
         }
 
-        if (std::abs(listX - aRequestedX) <= kSlop &&
-            std::abs(listY - aRequestedY) <= kSlop) {
+        if (Abs(listX - aRequestedX) <= kSlop && Abs(listY - aRequestedY) <= kSlop) {
           // collision! offset and start over
           if (bouncedX & 0x1)
             aRequestedX -= kOffset;
@@ -1493,8 +1493,8 @@ NS_IMETHODIMP nsXULWindow::SavePersistentAttributes()
     nsCOMPtr<nsIDOMDocument> ownerDoc;
     docShellElement->GetOwnerDocument(getter_AddRefs(ownerDoc));
     ownerXULDoc = do_QueryInterface(ownerDoc);
-    nsCOMPtr<nsIDOMXULElement> XULElement(do_QueryInterface(docShellElement));
-    if (XULElement)
+    nsCOMPtr<mozilla::dom::Element> XULElement(do_QueryInterface(docShellElement));
+    if (XULElement && XULElement->IsXUL())
       XULElement->GetId(windowElementId);
   }
 
@@ -1720,8 +1720,8 @@ NS_IMETHODIMP nsXULWindow::SizeShellTo(nsIDocShellTreeItem* aShellItem,
     // desired docshell size --- that's not likely to work. This whole
     // function assumes that the outer docshell is adding some constant
     // "border" chrome to aShellItem.
-    winCX = NS_MAX(winCX + widthDelta, aCX);
-    winCY = NS_MAX(winCY + heightDelta, aCY);
+    winCX = std::max(winCX + widthDelta, aCX);
+    winCY = std::max(winCY + heightDelta, aCY);
     SetSize(winCX, winCY, true);
   }
 
@@ -1799,8 +1799,7 @@ NS_IMETHODIMP nsXULWindow::CreateNewContentWindow(int32_t aChromeFlags,
   // it to make things work right, so push a null cx. See bug 799348 comment 13
   // for a description of what happens when we don't.
   nsCxPusher pusher;
-  if (!pusher.PushNull())
-    return NS_ERROR_FAILURE;
+  pusher.PushNull();
   nsCOMPtr<nsIXULWindow> newWindow;
   appShell->CreateTopLevelWindow(this, uri,
                                  aChromeFlags, 615, 480,

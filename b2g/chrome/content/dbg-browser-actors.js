@@ -51,16 +51,27 @@ DeviceRootActor.prototype.disconnect = function DRA_disconnect() {
  * until at least the next listTabs request.
  */
 DeviceRootActor.prototype.onListTabs = function DRA_onListTabs() {
-  let actor = this._tabActors.get(this.browser);
+  let actorPool = new ActorPool(this.conn);
+
+#ifndef MOZ_WIDGET_GONK
+  // Get the chrome debugger actor.
+  let actor = this._chromeDebugger;
+  if (!actor) {
+    actor = new ChromeDebuggerActor(this);
+    actor.parentID = this.actorID;
+    this._chromeDebugger = actor;
+    actorPool.addActor(actor);
+  }
+
+  actor = this._tabActors.get(this.browser);
   if (!actor) {
     actor = new DeviceTabActor(this.conn, this.browser);
     // this.actorID is set by ActorPool when an actor is put into one.
     actor.parentID = this.actorID;
     this._tabActors.set(this.browser, actor);
   }
-
-  let actorPool = new ActorPool(this.conn);
   actorPool.addActor(actor);
+#endif
 
   this._createExtraActors(DebuggerServer.globalActorFactories, actorPool);
 
@@ -75,7 +86,12 @@ DeviceRootActor.prototype.onListTabs = function DRA_onListTabs() {
   let response = {
     'from': 'root',
     'selected': 0,
-    'tabs': [actor.grip()]
+#ifndef MOZ_WIDGET_GONK
+    'tabs': [actor.grip()],
+    "chromeDebugger": this._chromeDebugger.actorID
+#else
+    'tabs': []
+#endif
   };
   this._appendExtraActors(response);
   return response;

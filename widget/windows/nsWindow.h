@@ -12,6 +12,7 @@
 
 #include "nsAutoPtr.h"
 #include "nsBaseWidget.h"
+#include "nsWindowBase.h"
 #include "nsdefs.h"
 #include "nsIdleService.h"
 #include "nsToolkit.h"
@@ -64,7 +65,7 @@ class ModifierKeyState;
  * Native WIN32 window wrapper.
  */
 
-class nsWindow : public nsBaseWidget
+class nsWindow : public nsWindowBase
 {
   typedef mozilla::TimeStamp TimeStamp;
   typedef mozilla::TimeDuration TimeDuration;
@@ -79,9 +80,11 @@ public:
 
   friend class nsWindowGfx;
 
-  /**
-   * nsIWidget interface
-   */
+  // nsWindowBase
+  virtual void InitEvent(nsGUIEvent& aEvent, nsIntPoint* aPoint = nullptr) MOZ_OVERRIDE;
+  virtual bool DispatchWindowEvent(nsGUIEvent* aEvent) MOZ_OVERRIDE;
+
+  // nsIWidget interface
   NS_IMETHOD              Create(nsIWidget *aParent,
                                  nsNativeWidget aNativeParent,
                                  const nsIntRect &aRect,
@@ -139,7 +142,10 @@ public:
                                           bool* aAllowRetaining = nullptr);
   gfxASurface             *GetThebesSurface();
   NS_IMETHOD              OnDefaultButtonLoaded(const nsIntRect &aButtonRect);
-  NS_IMETHOD              OverrideSystemMouseScrollSpeed(int32_t aOriginalDelta, bool aIsHorizontal, int32_t &aOverriddenDelta);
+  NS_IMETHOD              OverrideSystemMouseScrollSpeed(double aOriginalDeltaX,
+                                                         double aOriginalDeltaY,
+                                                         double& aOverriddenDeltaX,
+                                                         double& aOverriddenDeltaY);
 
   virtual nsresult        SynthesizeNativeKeyEvent(int32_t aNativeKeyboardLayout,
                                                    int32_t aNativeKeyCode,
@@ -160,11 +166,10 @@ public:
                                                            double aDeltaZ,
                                                            uint32_t aModifierFlags,
                                                            uint32_t aAdditionalFlags);
-  NS_IMETHOD              ResetInputState();
+  NS_IMETHOD              NotifyIME(NotificationToIME aNotification) MOZ_OVERRIDE;
   NS_IMETHOD_(void)       SetInputContext(const InputContext& aContext,
                                           const InputContextAction& aAction);
   NS_IMETHOD_(InputContext) GetInputContext();
-  NS_IMETHOD              CancelIMEComposition();
   NS_IMETHOD              GetToggledKeyState(uint32_t aKeyCode, bool* aLEDState);
   NS_IMETHOD              RegisterTouchWindow();
   NS_IMETHOD              UnregisterTouchWindow();
@@ -173,12 +178,10 @@ public:
   virtual nsTransparencyMode GetTransparencyMode();
   virtual void            UpdateOpaqueRegion(const nsIntRegion& aOpaqueRegion);
 #endif // MOZ_XUL
-#ifdef NS_ENABLE_TSF
-  NS_IMETHOD              OnIMEFocusChange(bool aFocus);
-  NS_IMETHOD              OnIMETextChange(uint32_t aStart, uint32_t aOldEnd, uint32_t aNewEnd);
-  NS_IMETHOD              OnIMESelectionChange(void);
+  NS_IMETHOD              NotifyIMEOfTextChange(uint32_t aStart,
+                                                uint32_t aOldEnd,
+                                                uint32_t aNewEnd) MOZ_OVERRIDE;
   virtual nsIMEUpdatePreference GetIMEUpdatePreference();
-#endif // NS_ENABLE_TSF
   NS_IMETHOD              GetNonClientMargins(nsIntMargin &margins);
   NS_IMETHOD              SetNonClientMargins(nsIntMargin &margins);
   void                    SetDrawsInTitlebar(bool aState);
@@ -186,13 +189,11 @@ public:
   /**
    * Event helpers
    */
-  void                    InitEvent(nsGUIEvent& event, nsIntPoint* aPoint = nullptr);
   virtual bool            DispatchMouseEvent(uint32_t aEventType, WPARAM wParam,
                                              LPARAM lParam,
                                              bool aIsContextMenuKey = false,
                                              int16_t aButton = nsMouseEvent::eLeftButton,
                                              uint16_t aInputSource = nsIDOMMouseEvent::MOZ_SOURCE_MOUSE);
-  virtual bool            DispatchWindowEvent(nsGUIEvent* event);
   virtual bool            DispatchWindowEvent(nsGUIEvent*event, nsEventStatus &aStatus);
   void                    InitKeyEvent(nsKeyEvent& aKeyEvent,
                                        const NativeKey& aNativeKey,
@@ -215,7 +216,6 @@ public:
    * Window utilities
    */
   nsWindow*               GetTopLevelWindow(bool aStopOnDialogOrPopup);
-  HWND                    GetWindowHandle() { return mWnd; }
   WNDPROC                 GetPrevWindowProc() { return mPrevWndProc; }
   WindowHook&             GetWindowHook() { return mWindowHook; }
   nsWindow*               GetParentWindow(bool aIncludeOwner);
@@ -281,7 +281,7 @@ public:
 
   static void             SetupKeyModifiersSequence(nsTArray<KeyPair>* aArray, uint32_t aModifiers);
 
-  virtual bool            UseOffMainThreadCompositing();
+  virtual bool            ShouldUseOffMainThreadCompositing();
 protected:
 
   // A magic number to identify the FAKETRACKPOINTSCROLLABLE window created
@@ -421,7 +421,7 @@ protected:
   static void             ScheduleHookTimer(HWND aWnd, UINT aMsgId);
   static void             RegisterSpecialDropdownHooks();
   static void             UnregisterSpecialDropdownHooks();
-  static BOOL             DealWithPopups(HWND inWnd, UINT inMsg, WPARAM inWParam, LPARAM inLParam, LRESULT* outResult);
+  static bool             DealWithPopups(HWND inWnd, UINT inMsg, WPARAM inWParam, LPARAM inLParam, LRESULT* outResult);
 
   /**
    * Window transparency helpers

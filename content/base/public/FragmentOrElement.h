@@ -31,7 +31,6 @@ class nsIControllers;
 class nsICSSDeclaration;
 class nsIDocument;
 class nsDOMStringMap;
-class nsIDOMNamedNodeMap;
 class nsIHTMLCollection;
 class nsINodeInfo;
 class nsIURI;
@@ -55,8 +54,7 @@ public:
   NS_DECL_CYCLE_COLLECTION_SKIPPABLE_SCRIPT_HOLDER_CLASS(nsChildContentList)
 
   // nsWrapperCache
-  virtual JSObject* WrapObject(JSContext *cx, JSObject *scope,
-                               bool *triedToWrap);
+  virtual JSObject* WrapObject(JSContext *cx, JSObject *scope) MOZ_OVERRIDE;
 
   // nsIDOMNodeList interface
   NS_DECL_NSIDOMNODELIST
@@ -165,6 +163,8 @@ class nsInlineEventHandlersTearoff;
  */
 namespace mozilla {
 namespace dom {
+
+class UndoManager;
 
 class FragmentOrElement : public nsIContent
 {
@@ -313,6 +313,12 @@ public:
     nsDOMStringMap* mDataset; // [Weak]
 
     /**
+     * The .undoManager property.
+     * @see nsGenericHTMLElement::GetUndoManager
+     */
+    nsRefPtr<UndoManager> mUndoManager;
+
+    /**
      * SMIL Overridde style rules (for SMIL animation of CSS properties)
      * @see nsIContent::GetSMILOverrideStyle
      */
@@ -324,7 +330,7 @@ public:
     nsRefPtr<mozilla::css::StyleRule> mSMILOverrideStyleRule;
 
     /**
-     * An object implementing nsIDOMNamedNodeMap for this content (attributes)
+     * An object implementing nsIDOMMozNamedAttrMap for this content (attributes)
      * @see FragmentOrElement::GetAttributes
      */
     nsRefPtr<nsDOMAttributeMap> mAttributeMap;

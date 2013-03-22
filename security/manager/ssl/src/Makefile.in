@@ -11,7 +11,6 @@ VPATH		= @srcdir@
 
 include $(DEPTH)/config/autoconf.mk
 
-MODULE		= pipnss
 LIBRARY_NAME	= pipnss
 IS_COMPONENT	= 1
 MODULE_NAME	= NSS
@@ -62,8 +61,6 @@ CPPSRCS = 				\
   nsCRLManager.cpp \
   nsNSSShutDown.cpp \
   nsNTLMAuthModule.cpp \
-  nsSmartCardMonitor.cpp \
-  nsSmartCardEvent.cpp \
   nsStreamCipher.cpp \
   nsKeyModule.cpp \
   nsIdentityChecking.cpp \
@@ -76,6 +73,12 @@ CPPSRCS = 				\
   nsCertificatePrincipal.cpp \
   SharedSSLState.cpp \
   $(NULL)
+
+ifndef MOZ_DISABLE_CRYPTOLEGACY
+CPPSRCS += \
+  nsSmartCardMonitor.cpp \
+  $(NULL)
+endif
 
 ifdef MOZ_XUL
 CPPSRCS += nsCertTree.cpp
@@ -95,6 +98,7 @@ EXPORTS += \
   CryptoTask.h \
   nsNSSShutDown.h \
   ScopedNSSTypes.h \
+  nsRandomGenerator.h \
   $(NULL)
 
 EXPORTS_NAMESPACES = mozilla

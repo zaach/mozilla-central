@@ -26,19 +26,9 @@ which makes Windows Media Foundation unavailable.
 #include <mfobjects.h>
 #include <stdio.h>
 #include <mferror.h>
-#include <comdef.h>
 #include <propvarutil.h>
 #include <wmcodecdsp.h>
-
-#pragma comment(lib,"uuid.lib")
-#pragma comment(lib,"mfuuid.lib")
-
-_COM_SMARTPTR_TYPEDEF(IMFSourceReader, IID_IMFSourceReader);
-_COM_SMARTPTR_TYPEDEF(IMFMediaType, IID_IMFMediaType);
-_COM_SMARTPTR_TYPEDEF(IMFSample, IID_IMFSample);
-_COM_SMARTPTR_TYPEDEF(IMFMediaBuffer, IID_IMFMediaBuffer);
-_COM_SMARTPTR_TYPEDEF(IMFAsyncResult, IID_IMFAsyncResult);
-_COM_SMARTPTR_TYPEDEF(IMF2DBuffer, IID_IMF2DBuffer);
+#include <initguid.h>
 
 namespace mozilla {
 namespace wmf {
@@ -57,14 +47,6 @@ HRESULT UnloadDLLs();
 HRESULT MFStartup();
 
 HRESULT MFShutdown();
-
-HRESULT MFPutWorkItem(DWORD aWorkQueueId,
-                      IMFAsyncCallback *aCallback,
-                      IUnknown *aState);
-
-HRESULT MFAllocateWorkQueue(DWORD *aOutWorkQueueId);
-
-HRESULT MFUnlockWorkQueue(DWORD aWorkQueueId);
 
 HRESULT MFCreateAsyncResult(IUnknown *aUunkObject,
                             IMFAsyncCallback *aCallback,
@@ -101,6 +83,17 @@ HRESULT MFGetStrideForBitmapInfoHeader(DWORD aFormat,
 HRESULT MFCreateSourceReaderFromURL(LPCWSTR aURL,
                                     IMFAttributes *aAttributes,
                                     IMFSourceReader **aSourceReader);
+
+HRESULT MFCreateAttributes(IMFAttributes **ppMFAttributes, UINT32 cInitialSize);
+
+HRESULT MFGetPluginControl(IMFPluginControl **aOutPluginControl);
+
+HRESULT MFTEnumEx(GUID guidCategory,
+                  UINT32 Flags,
+                  const MFT_REGISTER_TYPE_INFO *pInputType,
+                  const MFT_REGISTER_TYPE_INFO *pOutputType,
+                  IMFActivate ***pppMFTActivate,
+                  UINT32 *pcMFTActivate);
 
 } // end namespace wmf
 } // end namespace mozilla

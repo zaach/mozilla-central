@@ -5,9 +5,8 @@
 /* DOM object representing lists of values in DOM computed style */
 
 #include "nsDOMCSSValueList.h"
-#include "nsCOMPtr.h"
 #include "mozilla/dom/CSSValueListBinding.h"
-#include "nsError.h"
+#include "nsAutoPtr.h"
 #include "nsContentUtils.h"
 
 using namespace mozilla;
@@ -29,15 +28,16 @@ NS_IMPL_CYCLE_COLLECTING_RELEASE(nsDOMCSSValueList)
 NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION(nsDOMCSSValueList)
   NS_WRAPPERCACHE_INTERFACE_MAP_ENTRY
   NS_INTERFACE_MAP_ENTRY(nsIDOMCSSValue)
+  NS_INTERFACE_MAP_ENTRY(nsIDOMCSSValueList)
   NS_INTERFACE_MAP_ENTRY_AMBIGUOUS(nsISupports, CSSValue)
 NS_INTERFACE_MAP_END
 
 NS_IMPL_CYCLE_COLLECTION_WRAPPERCACHE_1(nsDOMCSSValueList, mCSSValues)
 
 JSObject*
-nsDOMCSSValueList::WrapObject(JSContext *cx, JSObject *scope, bool *tried)
+nsDOMCSSValueList::WrapObject(JSContext *cx, JSObject *scope)
 {
-  return dom::CSSValueListBinding::Wrap(cx, scope, this, tried);
+  return dom::CSSValueListBinding::Wrap(cx, scope, this);
 }
 
 void

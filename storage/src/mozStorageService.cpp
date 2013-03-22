@@ -22,6 +22,7 @@
 #include "nsIObserverService.h"
 #include "mozilla/Services.h"
 #include "mozilla/Preferences.h"
+#include "mozilla/mozPoisonWrite.h"
 
 #include "sqlite3.h"
 
@@ -470,8 +471,8 @@ namespace {
 // sqlite is fully and correctly accounting for all of its heap blocks via its
 // own memory accounting.
 
-NS_MEMORY_REPORTER_MALLOC_SIZEOF_ON_ALLOC_FUN(sqliteMallocSizeOfOnAlloc, "sqlite")
-NS_MEMORY_REPORTER_MALLOC_SIZEOF_ON_FREE_FUN(sqliteMallocSizeOfOnFree)
+NS_MEMORY_REPORTER_MALLOC_SIZEOF_ON_ALLOC_FUN(SqliteMallocSizeOfOnAlloc)
+NS_MEMORY_REPORTER_MALLOC_SIZEOF_ON_FREE_FUN(SqliteMallocSizeOfOnFree)
 
 #endif
 
@@ -479,7 +480,7 @@ static void *sqliteMemMalloc(int n)
 {
   void* p = ::moz_malloc(n);
 #ifdef MOZ_DMD
-  sqliteMallocSizeOfOnAlloc(p);
+  SqliteMallocSizeOfOnAlloc(p);
 #endif
   return p;
 }
@@ -487,7 +488,7 @@ static void *sqliteMemMalloc(int n)
 static void sqliteMemFree(void *p)
 {
 #ifdef MOZ_DMD
-  sqliteMallocSizeOfOnFree(p);
+  SqliteMallocSizeOfOnFree(p);
 #endif
   ::moz_free(p);
 }
@@ -495,13 +496,13 @@ static void sqliteMemFree(void *p)
 static void *sqliteMemRealloc(void *p, int n)
 {
 #ifdef MOZ_DMD
-  sqliteMallocSizeOfOnFree(p);
+  SqliteMallocSizeOfOnFree(p);
   void *pnew = ::moz_realloc(p, n);
   if (pnew) {
-    sqliteMallocSizeOfOnAlloc(pnew);
+    SqliteMallocSizeOfOnAlloc(pnew);
   } else {
-    // realloc failed;  undo the sqliteMallocSizeOfOnFree from above
-    sqliteMallocSizeOfOnAlloc(p);
+    // realloc failed;  undo the SqliteMallocSizeOfOnFree from above
+    SqliteMallocSizeOfOnAlloc(p);
   }
   return pnew;
 #else
@@ -821,13 +822,15 @@ Service::Observe(nsISupports *, const char *aTopic, const PRUnichar *)
       }
     } while (anyOpen);
 
-#ifdef DEBUG
-    nsTArray<nsRefPtr<Connection> > connections;
-    getConnections(connections);
-    for (uint32_t i = 0, n = connections.Length(); i < n; i++) {
-      MOZ_ASSERT(!connections[i]->ConnectionReady());
+    if (gShutdownChecks == SCM_CRASH) {
+      nsTArray<nsRefPtr<Connection> > connections;
+      getConnections(connections);
+      for (uint32_t i = 0, n = connections.Length(); i < n; i++) {
+        if (connections[i]->ConnectionReady()) {
+          MOZ_CRASH();
+        }
+      }
     }
-#endif
   }
 
   return NS_OK;

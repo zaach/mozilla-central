@@ -37,6 +37,10 @@
 
 #include "nsXPCOMPrivate.h" // for MAXPATHLEN and XPCOM_DLL
 
+#ifdef MOZ_WIDGET_GONK
+# include <binder/ProcessState.h>
+#endif
+
 #include "mozilla/Telemetry.h"
 
 static void Output(const char *fmt, ... )
@@ -168,6 +172,14 @@ int main(int argc, char* argv[])
 {
   char exePath[MAXPATHLEN];
 
+#ifdef MOZ_WIDGET_GONK
+  // This creates a ThreadPool for binder ipc. A ThreadPool is necessary to
+  // receive binder calls, though not necessary to send binder calls.
+  // ProcessState::Self() also needs to be called once on the main thread to
+  // register the main thread with the binder driver.
+  android::ProcessState::self()->startThreadPool();
+#endif
+
   nsresult rv = mozilla::BinaryPath::Get(argv[0], exePath);
   if (NS_FAILED(rv)) {
     Output("Couldn't calculate the application directory.\n");
@@ -249,6 +261,5 @@ int main(int argc, char* argv[])
     result = do_main(argc, argv);
   }
 
-  XPCOMGlueShutdown();
   return result;
 }

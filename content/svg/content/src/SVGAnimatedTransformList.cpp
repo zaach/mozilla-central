@@ -6,7 +6,7 @@
 #include "SVGAnimatedTransformList.h"
 #include "DOMSVGAnimatedTransformList.h"
 
-#include "nsISMILAnimationElement.h"
+#include "mozilla/dom/SVGAnimationElement.h"
 #include "nsSMILValue.h"
 #include "prdtoa.h"
 #include "SVGContentUtils.h"
@@ -146,7 +146,7 @@ SVGAnimatedTransformList::ToSMILAttr(nsSVGElement* aSVGElement)
 nsresult
 SVGAnimatedTransformList::SMILAnimatedTransformList::ValueFromString(
   const nsAString& aStr,
-  const nsISMILAnimationElement* aSrcElement,
+  const dom::SVGAnimationElement* aSrcElement,
   nsSMILValue& aValue,
   bool& aPreventCachingOfSandwich) const
 {
@@ -190,7 +190,7 @@ SVGAnimatedTransformList::SMILAnimatedTransformList::ParseValue(
     // tx [ty=0]
     if (numParsed != 1 && numParsed != 2)
       return;
-    transformType = nsIDOMSVGTransform::SVG_TRANSFORM_TRANSLATE;
+    transformType = SVG_TRANSFORM_TRANSLATE;
   } else if (aTransformType == nsGkAtoms::scale) {
     // sx [sy=sx]
     if (numParsed != 1 && numParsed != 2)
@@ -198,22 +198,22 @@ SVGAnimatedTransformList::SMILAnimatedTransformList::ParseValue(
     if (numParsed == 1) {
       params[1] = params[0];
     }
-    transformType = nsIDOMSVGTransform::SVG_TRANSFORM_SCALE;
+    transformType = SVG_TRANSFORM_SCALE;
   } else if (aTransformType == nsGkAtoms::rotate) {
     // r [cx=0 cy=0]
     if (numParsed != 1 && numParsed != 3)
       return;
-    transformType = nsIDOMSVGTransform::SVG_TRANSFORM_ROTATE;
+    transformType = SVG_TRANSFORM_ROTATE;
   } else if (aTransformType == nsGkAtoms::skewX) {
     // x-angle
     if (numParsed != 1)
       return;
-    transformType = nsIDOMSVGTransform::SVG_TRANSFORM_SKEWX;
+    transformType = SVG_TRANSFORM_SKEWX;
   } else if (aTransformType == nsGkAtoms::skewY) {
     // y-angle
     if (numParsed != 1)
       return;
-    transformType = nsIDOMSVGTransform::SVG_TRANSFORM_SKEWY;
+    transformType = SVG_TRANSFORM_SKEWY;
   } else {
     return;
   }

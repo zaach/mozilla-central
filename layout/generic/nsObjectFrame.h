@@ -50,9 +50,9 @@ public:
   NS_DECL_QUERYFRAME
   NS_DECL_QUERYFRAME_TARGET(nsObjectFrame)
 
-  NS_IMETHOD Init(nsIContent* aContent,
-                  nsIFrame* aParent,
-                  nsIFrame* aPrevInFlow);
+  virtual void Init(nsIContent* aContent,
+                    nsIFrame* aParent,
+                    nsIFrame* aPrevInFlow) MOZ_OVERRIDE;
   virtual nscoord GetMinWidth(nsRenderingContext *aRenderingContext);
   virtual nscoord GetPrefWidth(nsRenderingContext *aRenderingContext);
   NS_IMETHOD Reflow(nsPresContext* aPresContext,
@@ -62,9 +62,9 @@ public:
   NS_IMETHOD DidReflow(nsPresContext* aPresContext,
                        const nsHTMLReflowState* aReflowState,
                        nsDidReflowStatus aStatus);
-  NS_IMETHOD BuildDisplayList(nsDisplayListBuilder*   aBuilder,
-                              const nsRect&           aDirtyRect,
-                              const nsDisplayListSet& aLists);
+  virtual void BuildDisplayList(nsDisplayListBuilder*   aBuilder,
+                                const nsRect&           aDirtyRect,
+                                const nsDisplayListSet& aLists) MOZ_OVERRIDE;
 
   NS_IMETHOD  HandleEvent(nsPresContext* aPresContext,
                           nsGUIEvent* aEvent,
@@ -266,7 +266,7 @@ private:
   };
 
   nsPluginInstanceOwner*          mInstanceOwner; // WEAK
-  nsIView*                        mInnerView;
+  nsView*                        mInnerView;
   nsCOMPtr<nsIWidget>             mWidget;
   nsIntRect                       mWindowlessRect;
   /**

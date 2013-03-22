@@ -44,6 +44,9 @@ pref("toolkit.storage.synchronous", 0);
 // Device pixel to CSS px ratio, in percent. Set to -1 to calculate based on display density.
 pref("browser.viewport.scaleRatio", -1);
 pref("browser.viewport.desktopWidth", 980);
+// The default fallback zoom level to render pages at. Set to -1 to fit page; otherwise
+// the value is divided by 1000 and clamped to hard-coded min/max scale values.
+pref("browser.viewport.defaultZoom", -1);
 
 /* allow scrollbars to float above chrome ui */
 pref("ui.scrollbarsCanOverlapContent", 1);
@@ -119,6 +122,7 @@ pref("mozilla.widget.force-24bpp", true);
 pref("mozilla.widget.use-buffer-pixmap", true);
 pref("mozilla.widget.disable-native-theme", true);
 pref("layout.reflow.synthMouseMove", false);
+pref("layout.css.report_errors", false);
 
 /* download manager (don't show the window or alert) */
 pref("browser.download.useDownloadDir", true);
@@ -259,6 +263,11 @@ pref("browser.search.jarURIs", "chrome://browser/locale/searchplugins/");
 // tell the search service that we don't really expose the "current engine"
 pref("browser.search.noCurrentEngine", true);
 
+#ifdef MOZ_OFFICIAL_BRANDING
+// {moz:official} expands to "official"
+pref("browser.search.official", true);
+#endif
+
 // enable xul error pages
 pref("browser.xul.error_pages.enabled", true);
 
@@ -344,6 +353,11 @@ pref("gfx.displayport.strategy_vb.danger_y_incr", -1); // additional danger zone
 // prediction bias strategy options
 pref("gfx.displayport.strategy_pb.threshold", -1); // velocity threshold in inches/frame
 
+// disable Graphite font shaping by default on Android until memory footprint
+// of using the Charis SIL fonts that we ship with the product is addressed
+// (see bug 700023, bug 846832, bug 847344)
+pref("gfx.font_rendering.graphite.enabled", false);
+
 // don't allow JS to move and resize existing windows
 pref("dom.disable_window_move_resize", true);
 
@@ -369,9 +383,6 @@ pref("privacy.item.sessions", true);
 pref("privacy.item.geolocation", true);
 pref("privacy.item.siteSettings", true);
 pref("privacy.item.syncAccount", true);
-
-// URL to the Learn More link XXX this is the firefox one.  Bug 495578 fixes this.
-pref("browser.geolocation.warning.infoURL", "http://www.mozilla.com/%LOCALE%/firefox/geolocation/");
 
 // enable geo
 pref("geo.enabled", true);
@@ -430,7 +441,7 @@ pref("plugins.click_to_play", true);
 
 // product URLs
 // The breakpad report server to link to in about:crashes
-pref("breakpad.reportURL", "http://crash-stats.mozilla.com/report/index/");
+pref("breakpad.reportURL", "https://crash-stats.mozilla.com/report/index/");
 pref("app.support.baseURL", "http://support.mozilla.org/1/mobile/%VERSION%/%OS%/%LOCALE%/");
 // Used to submit data to input from about:feedback
 pref("app.feedback.postURL", "http://m.input.mozilla.org/%LOCALE%/feedback");
@@ -523,6 +534,7 @@ pref("layers.low-precision-buffer", true);
 pref("layers.low-precision-resolution", 250);
 
 pref("notification.feature.enabled", true);
+pref("dom.webnotifications.enabled", true);
 
 // prevent tooltips from showing up
 pref("browser.chrome.toolbar_tips", false);
@@ -532,12 +544,6 @@ pref("dom.indexedDB.warningQuota", 5);
 // prevent video elements from preloading too much data
 pref("media.preload.default", 1); // default to preload none
 pref("media.preload.auto", 2);    // preload metadata if preload=auto
-
-//  0: don't show fullscreen keyboard
-//  1: always show fullscreen keyboard
-// -1: show fullscreen keyboard based on threshold pref
-pref("widget.ime.android.landscape_fullscreen", 1);
-pref("widget.ime.android.fullscreen_threshold", 250); // in hundreths of inches
 
 // optimize images memory usage
 pref("image.mem.decodeondraw", true);
@@ -565,6 +571,8 @@ pref("browser.safebrowsing.reportMalwareErrorURL", "http://%LOCALE%.malware-erro
 pref("browser.safebrowsing.warning.infoURL", "http://www.mozilla.com/%LOCALE%/firefox/phishing-protection/");
 pref("browser.safebrowsing.malware.reportURL", "http://safebrowsing.clients.google.com/safebrowsing/diagnostic?client=%NAME%&hl=%LOCALE%&site=");
 
+pref("browser.safebrowsing.id", @MOZ_APP_UA_NAME@);
+
 // Name of the about: page contributed by safebrowsing to handle display of error
 // pages on phishing/malware hits.  (bug 399233)
 pref("urlclassifier.alternate_error_page", "blocked");
@@ -572,16 +580,13 @@ pref("urlclassifier.alternate_error_page", "blocked");
 // The number of random entries to send with a gethash request.
 pref("urlclassifier.gethashnoise", 4);
 
-// Randomize all UrlClassifier data with a per-client key.
-pref("urlclassifier.randomizeclient", false);
-
 // The list of tables that use the gethash request to confirm partial results.
 pref("urlclassifier.gethashtables", "goog-phish-shavar,goog-malware-shavar");
 
 // If an urlclassifier table has not been updated in this number of seconds,
 // a gethash request will be forced to check that the result is still in
 // the database.
-pref("urlclassifier.confirm-age", 2700);
+pref("urlclassifier.max-complete-age", 2700);
 #endif
 
 // True if this is the first time we are showing about:firstrun
@@ -666,3 +671,14 @@ pref("app.orientation.default", "");
 // On memory pressure, release dirty but unused pages held by jemalloc
 // back to the system.
 pref("memory.free_dirty_pages", true);
+
+pref("layout.imagevisibility.enabled", false);
+
+// Enable the dynamic toolbar
+pref("browser.chrome.dynamictoolbar", true);
+
+#ifdef MOZ_PKG_SPECIAL
+// Disable webgl on ARMv6 because running the reftests takes
+// too long for some reason (bug 843738)
+pref("webgl.disabled", true);
+#endif

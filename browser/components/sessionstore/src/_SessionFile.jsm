@@ -32,7 +32,7 @@ const Ci = Components.interfaces;
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource://gre/modules/osfile.jsm");
-Cu.import("resource://gre/modules/commonjs/promise/core.js");
+Cu.import("resource://gre/modules/commonjs/sdk/core/promise.js");
 
 XPCOMUtils.defineLazyModuleGetter(this, "TelemetryStopwatch",
   "resource://gre/modules/TelemetryStopwatch.jsm");
@@ -42,6 +42,8 @@ XPCOMUtils.defineLazyModuleGetter(this, "FileUtils",
   "resource://gre/modules/FileUtils.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "Task",
   "resource://gre/modules/Task.jsm");
+XPCOMUtils.defineLazyServiceGetter(this, "Telemetry",
+  "@mozilla.org/base/telemetry;1", "nsITelemetry");
 
 // An encoder to UTF-8.
 XPCOMUtils.defineLazyGetter(this, "gEncoder", function () {
@@ -155,12 +157,11 @@ let SessionFileInternal = {
     TelemetryStopwatch.start("FX_SESSION_RESTORE_SYNC_READ_FILE_MS");
     try {
       let file = new FileUtils.File(this.path);
-      if (!file.exists()) {
-        return null;
-      }
       let chan = NetUtil.newChannel(file);
       let stream = chan.open();
       text = NetUtil.readInputStreamToString(stream, stream.available(), {charset: "utf-8"});
+    } catch (e if e.result == Components.results.NS_ERROR_FILE_NOT_FOUND) {
+      return "";
     } catch(ex) {
       exn = ex;
     } finally {
@@ -203,13 +204,20 @@ let SessionFileInternal = {
     let self = this;
     return TaskUtils.spawn(function task() {
       TelemetryStopwatch.start("FX_SESSION_RESTORE_WRITE_FILE_MS", refObj);
+      TelemetryStopwatch.start("FX_SESSION_RESTORE_WRITE_FILE_LONGEST_OP_MS", refObj);
 
       let bytes = gEncoder.encode(aData);
 
       try {
-        yield OS.File.writeAtomic(self.path, bytes, {tmpPath: self.path + ".tmp"});
+        let promise = OS.File.writeAtomic(self.path, bytes, {tmpPath: self.path + ".tmp"});
+        // At this point, we measure how long we stop the main thread
+        TelemetryStopwatch.finish("FX_SESSION_RESTORE_WRITE_FILE_LONGEST_OP_MS", refObj);
+
+        // Now wait for the result and measure how long we had to wait for the result
+        yield promise;
         TelemetryStopwatch.finish("FX_SESSION_RESTORE_WRITE_FILE_MS", refObj);
       } catch (ex) {
+        TelemetryStopwatch.cancel("FX_SESSION_RESTORE_WRITE_FILE_LONGEST_OP_MS", refObj);
         TelemetryStopwatch.cancel("FX_SESSION_RESTORE_WRITE_FILE_MS", refObj);
         Cu.reportError("Could not write session state file " + self.path
                        + ": " + aReason);
@@ -218,15 +226,20 @@ let SessionFileInternal = {
   },
 
   createBackupCopy: function ssfi_createBackupCopy() {
+    let backupCopyOptions = {
+      outExecutionDuration: null
+    };
     let self = this;
     return TaskUtils.spawn(function task() {
       try {
-        yield OS.File.copy(self.path, self.backupPath);
+        yield OS.File.copy(self.path, self.backupPath, backupCopyOptions);
+        Telemetry.getHistogramById("FX_SESSION_RESTORE_BACKUP_FILE_MS").add(
+          backupCopyOptions.outExecutionDuration);
+      } catch (ex if self._isNoSuchFile(ex)) {
+        // Ignore exceptions about non-existent files.
       } catch (ex) {
-        if (!self._isNoSuchFile(ex)) {
-          Cu.reportError("Could not backup session state file: " + ex);
-          throw ex;
-        }
+        Cu.reportError("Could not backup session state file: " + ex);
+        throw ex;
       }
     });
   },
@@ -236,12 +249,17 @@ let SessionFileInternal = {
     return TaskUtils.spawn(function task() {
       try {
         yield OS.File.remove(self.path);
+      } catch (ex if self._isNoSuchFile(ex)) {
+        // Ignore exceptions about non-existent files.
       } catch (ex) {
         Cu.reportError("Could not remove session state file: " + ex);
         throw ex;
       }
+
       try {
         yield OS.File.remove(self.backupPath);
+      } catch (ex if self._isNoSuchFile(ex)) {
+        // Ignore exceptions about non-existent files.
       } catch (ex) {
         Cu.reportError("Could not remove session state backup file: " + ex);
         throw ex;

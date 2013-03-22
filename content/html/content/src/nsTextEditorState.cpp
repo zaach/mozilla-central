@@ -8,7 +8,7 @@
 
 #include "nsCOMPtr.h"
 #include "nsIPresShell.h"
-#include "nsIView.h"
+#include "nsView.h"
 #include "nsCaret.h"
 #include "nsEditorCID.h"
 #include "nsLayoutCID.h"
@@ -1426,7 +1426,7 @@ nsTextEditorState::UnbindFromFrame(nsTextControlFrame* aFrame)
 
   // If it was, however, it should be unbounded from the same frame.
   NS_ASSERTION(!aFrame || aFrame == mBoundFrame, "Unbinding from the wrong frame");
-  NS_ENSURE_TRUE(!aFrame || aFrame == mBoundFrame, );
+  NS_ENSURE_TRUE_VOID(!aFrame || aFrame == mBoundFrame);
 
   // We need to start storing the value outside of the editor if we're not
   // going to use it anymore, so retrieve it for now.
@@ -1603,7 +1603,7 @@ nsTextEditorState::InitializeRootNode()
     // crash when the number of lines exceeds the height of the textarea and
     // setting -moz-hidden-unscrollable overflow (NS_STYLE_OVERFLOW_CLIP)
     // doesn't paint the caret for some reason.
-    const nsStyleDisplay* disp = mBoundFrame->GetStyleDisplay();
+    const nsStyleDisplay* disp = mBoundFrame->StyleDisplay();
     if (disp->mOverflowX != NS_STYLE_OVERFLOW_VISIBLE &&
         disp->mOverflowX != NS_STYLE_OVERFLOW_CLIP) {
       classValue.AppendLiteral(" inherit-overflow");
@@ -1747,9 +1747,7 @@ nsTextEditorState::GetValue(nsAString& aValue, bool aIgnoreWrap) const
       mCachedValue.Truncate();
     }
   } else {
-    if (!mTextCtrlElement->ValueChanged() || !mValue) {
-      mTextCtrlElement->GetDefaultValueFromContent(aValue);
-    } else {
+    if (mValue) {
       aValue = NS_ConvertUTF8toUTF16(*mValue);
     }
   }
@@ -1901,19 +1899,6 @@ nsTextEditorState::SetValue(const nsAString& aValue, bool aUserInput,
           selPriv->EndBatchChanges();
       }
     }
-
-    // This second check _shouldn't_ be necessary, but let's be safe.
-    if (!weakFrame.IsAlive()) {
-      return;
-    }
-    nsIScrollableFrame* scrollableFrame = do_QueryFrame(mBoundFrame->GetFirstPrincipalChild());
-    if (scrollableFrame)
-    {
-      // Scroll the upper left corner of the text control's
-      // content area back into view.
-      scrollableFrame->ScrollTo(nsPoint(0, 0), nsIScrollableFrame::INSTANT);
-    }
-
   } else {
     if (!mValue) {
       mValue = new nsCString;

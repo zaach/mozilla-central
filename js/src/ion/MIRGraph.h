@@ -51,10 +51,6 @@ class MBasicBlock : public TempObject, public InlineListNode<MBasicBlock>
     // Does this block do something that forces it to terminate early?
     bool earlyAbort_;
 
-
-    // Sets a slot, taking care to rewrite copies.
-    void setSlot(uint32_t slot, MDefinition *ins);
-
     // Pushes a copy of a local variable or argument.
     void pushVariable(uint32_t slot);
 
@@ -79,6 +75,8 @@ class MBasicBlock : public TempObject, public InlineListNode<MBasicBlock>
     static MBasicBlock *NewPendingLoopHeader(MIRGraph &graph, CompileInfo &info,
                                              MBasicBlock *pred, jsbytecode *entryPc);
     static MBasicBlock *NewSplitEdge(MIRGraph &graph, CompileInfo &info, MBasicBlock *pred);
+    static MBasicBlock *NewParBailout(MIRGraph &graph, CompileInfo &info,
+                                      MBasicBlock *pred, jsbytecode *entryPc);
 
     bool dominates(MBasicBlock *other);
 
@@ -105,6 +103,9 @@ class MBasicBlock : public TempObject, public InlineListNode<MBasicBlock>
 
     MDefinition *scopeChain();
 
+    // Increase the number of slots available
+    bool increaseSlots(size_t num);
+
     // Initializes a slot value; must not be called for normal stack
     // operations, as it will not create new SSA names for copies.
     void initSlot(uint32_t index, MDefinition *ins);
@@ -121,6 +122,7 @@ class MBasicBlock : public TempObject, public InlineListNode<MBasicBlock>
     void setLocal(uint32_t local);
     void setArg(uint32_t arg);
     void setSlot(uint32_t slot);
+    void setSlot(uint32_t slot, MDefinition *ins);
 
     // Rewrites a slot directly, bypassing the stack transition. This should
     // not be used under most circumstances.
@@ -138,6 +140,7 @@ class MBasicBlock : public TempObject, public InlineListNode<MBasicBlock>
 
     // Returns the top of the stack, then decrements the virtual stack pointer.
     MDefinition *pop();
+    void popn(uint32_t n);
 
     // Adds an instruction to this block's instruction list. |ins| may be NULL
     // to simplify OOM checking.
@@ -161,8 +164,11 @@ class MBasicBlock : public TempObject, public InlineListNode<MBasicBlock>
     void inheritSlots(MBasicBlock *parent);
     bool initEntrySlots();
 
-    // Replaces an edge for a given block with a new block. This is used for
-    // critical edge splitting.
+    // Replaces an edge for a given block with a new block. This is
+    // used for critical edge splitting and also for inserting
+    // bailouts during ParallelArrayAnalysis.
+    //
+    // Note: If successorWithPhis is set, you must not be replacing it.
     void replacePredecessor(MBasicBlock *old, MBasicBlock *split);
     void replaceSuccessor(size_t pos, MBasicBlock *split);
 
@@ -218,6 +224,9 @@ class MBasicBlock : public TempObject, public InlineListNode<MBasicBlock>
     }
     jsbytecode *pc() const {
         return pc_;
+    }
+    uint32_t nslots() const {
+        return slots_.length();
     }
     uint32_t id() const {
         return id_;
@@ -387,6 +396,7 @@ class MBasicBlock : public TempObject, public InlineListNode<MBasicBlock>
     }
     size_t numSuccessors() const;
     MBasicBlock *getSuccessor(size_t index) const;
+    size_t getSuccessorIndex(MBasicBlock *) const;
 
     // Specifies the closest loop header dominating this block.
     void setLoopHeader(MBasicBlock *loop) {
@@ -587,7 +597,7 @@ class MIRGraph
     MStart *osrStart() {
         return osrStart_;
     }
-    bool addScript(UnrootedScript script) {
+    bool addScript(RawScript script) {
         // The same script may be inlined multiple times, add it only once.
         for (size_t i = 0; i < scripts_.length(); i++) {
             if (scripts_[i] == script)
@@ -601,6 +611,14 @@ class MIRGraph
     JSScript **scripts() {
         return scripts_.begin();
     }
+
+    // The ParSlice is an instance of ForkJoinSlice*, it carries
+    // "per-helper-thread" information.  So as not to modify the
+    // calling convention for parallel code, we obtain the current
+    // slice from thread-local storage.  This helper method will
+    // lazilly insert an MParSlice instruction in the entry block and
+    // return the definition.
+    MDefinition *parSlice();
 };
 
 class MDefinitionIterator

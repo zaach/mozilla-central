@@ -12,7 +12,6 @@ import org.json.JSONObject;
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.PointF;
-import android.graphics.Rect;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.view.MotionEvent;
@@ -46,7 +45,7 @@ class TextSelectionHandle extends ImageView implements View.OnTouchListener {
 
     private GeckoApp mActivity;
 
-    TextSelectionHandle(Context context, AttributeSet attrs) {
+    public TextSelectionHandle(Context context, AttributeSet attrs) {
         super(context, attrs);
         setOnTouchListener(this);
         mActivity = (GeckoApp) context;
@@ -69,6 +68,7 @@ class TextSelectionHandle extends ImageView implements View.OnTouchListener {
         mShadow = getResources().getDimensionPixelSize(R.dimen.text_selection_handle_shadow);
     }
 
+    @Override
     public boolean onTouch(View v, MotionEvent event) {
         switch (event.getActionMasked()) {
             case MotionEvent.ACTION_DOWN: {

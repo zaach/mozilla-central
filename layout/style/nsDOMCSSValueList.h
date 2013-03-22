@@ -7,15 +7,12 @@
 #ifndef nsDOMCSSValueList_h___
 #define nsDOMCSSValueList_h___
 
-#include "nsIDOMCSSValue.h"
+#include "nsIDOMCSSValueList.h"
 #include "CSSValue.h"
-#include "nsAutoPtr.h"
 #include "nsTArray.h"
 
-class nsComputedDOMStyle;
-
 class nsDOMCSSValueList MOZ_FINAL : public mozilla::dom::CSSValue,
-  public nsIDOMCSSValue
+  public nsIDOMCSSValueList
 {
 public:
   NS_DECL_CYCLE_COLLECTING_ISUPPORTS
@@ -60,7 +57,7 @@ public:
     return nullptr;
   }
 
-  virtual JSObject *WrapObject(JSContext *cx, JSObject *scope, bool *triedToWrap);
+  virtual JSObject *WrapObject(JSContext *cx, JSObject *scope) MOZ_OVERRIDE;
 
 private:
   bool                        mCommaDelimited;  // some value lists use a comma

@@ -74,12 +74,12 @@ public:
   NS_DECL_QUERYFRAME
 
   virtual void DestroyFrom(nsIFrame* aDestructRoot);
-  NS_IMETHOD Init(nsIContent*      aContent,
-                  nsIFrame*        aParent,
-                  nsIFrame*        aPrevInFlow);
-  NS_IMETHOD BuildDisplayList(nsDisplayListBuilder*   aBuilder,
-                              const nsRect&           aDirtyRect,
-                              const nsDisplayListSet& aLists);
+  virtual void Init(nsIContent*      aContent,
+                    nsIFrame*        aParent,
+                    nsIFrame*        aPrevInFlow) MOZ_OVERRIDE;
+  virtual void BuildDisplayList(nsDisplayListBuilder*   aBuilder,
+                                const nsRect&           aDirtyRect,
+                                const nsDisplayListSet& aLists) MOZ_OVERRIDE;
   virtual nscoord GetMinWidth(nsRenderingContext *aRenderingContext);
   virtual nscoord GetPrefWidth(nsRenderingContext *aRenderingContext);
   virtual IntrinsicSize GetIntrinsicSize();
@@ -116,7 +116,7 @@ public:
   NS_IMETHOD List(FILE* out, int32_t aIndent, uint32_t aFlags = 0) const;
 #endif
 
-  virtual int GetSkipSides() const;
+  virtual int GetSkipSides() const MOZ_OVERRIDE;
 
   nsresult GetIntrinsicImageSize(nsSize& aSize);
 

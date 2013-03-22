@@ -55,9 +55,9 @@ public:
 
   // nsIFrame
   virtual void DestroyFrom(nsIFrame* aDestructRoot);
-  NS_IMETHOD BuildDisplayList(nsDisplayListBuilder*   aBuilder,
-                              const nsRect&           aDirtyRect,
-                              const nsDisplayListSet& aLists);
+  virtual void BuildDisplayList(nsDisplayListBuilder*   aBuilder,
+                                const nsRect&           aDirtyRect,
+                                const nsDisplayListSet& aLists) MOZ_OVERRIDE;
   virtual nsIAtom* GetType() const MOZ_OVERRIDE;
   virtual void DidSetStyleContext(nsStyleContext* aOldStyleContext) MOZ_OVERRIDE;
 #ifdef DEBUG
@@ -91,13 +91,15 @@ public:
   
   virtual bool IsEmpty() MOZ_OVERRIDE;
   virtual bool IsSelfEmpty() MOZ_OVERRIDE;
-  virtual nscoord GetBaseline() const;
+  virtual nscoord GetBaseline() const MOZ_OVERRIDE;
 
   float GetFontSizeInflation() const;
   bool HasFontSizeInflation() const {
     return (GetStateBits() & BULLET_FRAME_HAS_FONT_INFLATION) != 0;
   }
   void SetFontSizeInflation(float aInflation);
+
+  int32_t GetOrdinal() { return mOrdinal; }
 
 protected:
   nsresult OnStartContainer(imgIRequest *aRequest, imgIContainer *aImage);

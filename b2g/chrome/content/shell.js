@@ -69,6 +69,12 @@ XPCOMUtils.defineLazyGetter(this, "libcutils", function () {
 });
 #endif
 
+#ifdef MOZ_CAPTIVEDETECT
+XPCOMUtils.defineLazyServiceGetter(Services, 'captivePortalDetector',
+                                  '@mozilla.org/toolkit/captive-detector;1',
+                                  'nsICaptivePortalDetector');
+#endif
+
 function getContentWindow() {
   return shell.contentBrowser.contentWindow;
 }
@@ -81,8 +87,12 @@ var shell = {
 
   get CrashSubmit() {
     delete this.CrashSubmit;
+#ifdef MOZ_CRASHREPORTER
     Cu.import("resource://gre/modules/CrashSubmit.jsm", this);
     return this.CrashSubmit;
+#else
+    return this.CrashSubmit = null;
+#endif
   },
 
   onlineForCrashReport: function shell_onlineForCrashReport() {
@@ -103,7 +113,7 @@ var shell = {
     } catch(e) { }
 
     // Bail if there isn't a valid crashID.
-    if (!crashID) {
+    if (!this.CrashSubmit || !crashID && !this.CrashSubmit.pendingIDs().length) {
       return;
     }
 
@@ -117,18 +127,32 @@ var shell = {
       }
     } catch (e) { }
 
-    // Let Gaia notify the user of the crash.
-    this.sendChromeEvent({
-      type: "handle-crash",
-      crashID: crashID,
-      chrome: isChrome
-    });
+    // We can get here if we're just submitting old pending crashes.
+    // Check that there's a valid crashID so that we only notify the
+    // user if a crash just happened and not when we OOM. Bug 829477
+    if (crashID) {
+      this.sendChromeEvent({
+        type: "handle-crash",
+        crashID: crashID,
+        chrome: isChrome
+      });
+    }
+  },
+
+  // this function submit the pending crashes.
+  // make sure you are online.
+  submitQueuedCrashes: function shell_submitQueuedCrashes() {
+    // submit the pending queue.
+    let pending = shell.CrashSubmit.pendingIDs();
+    for (let crashid of pending) {
+      shell.CrashSubmit.submit(crashid);
+    }
   },
 
   // This function submits a crash when we're online.
   submitCrash: function shell_submitCrash(aCrashID) {
     if (this.onlineForCrashReport()) {
-      this.CrashSubmit.submit(aCrashID);
+      this.submitQueuedCrashes();
       return;
     }
 
@@ -136,13 +160,7 @@ var shell = {
       let network = subject.QueryInterface(Ci.nsINetworkInterface);
       if (network.state == Ci.nsINetworkInterface.NETWORK_STATE_CONNECTED
           && network.type == Ci.nsINetworkInterface.NETWORK_TYPE_WIFI) {
-        shell.CrashSubmit.submit(aCrashID);
-
-        // submit the pending queue.
-        let pending = shell.CrashSubmit.pendingIDs();
-        for (let crashid of pending) {
-          shell.CrashSubmit.submit(crashid);
-        }
+        shell.submitQueuedCrashes();
 
         Services.obs.removeObserver(observer, topic);
       }
@@ -213,8 +231,18 @@ var shell = {
       let androidVersion = libcutils.property_get("ro.build.version.sdk") +
                            "(" + libcutils.property_get("ro.build.version.codename") + ")";
       cr.annotateCrashReport("Android_Version", androidVersion);
+
+      SettingsListener.observe("deviceinfo.os", "", function(value) {
+        try {
+          let cr = Cc["@mozilla.org/xre/app-info;1"]
+                     .getService(Ci.nsICrashReporter);
+          cr.annotateCrashReport("B2G_OS_Version", value);
+        } catch(e) { }
+      });
 #endif
-    } catch(e) { }
+    } catch(e) {
+      dump("exception: " + e);
+    }
 
     let homeURL = this.homeURL;
     if (!homeURL) {
@@ -261,6 +289,8 @@ var shell = {
     WebappsHelper.init();
     AccessFu.attach(window);
     UserAgentOverrides.init();
+    IndexedDBPromptHelper.init();
+    CaptivePortalLoginHelper.init();
 
     // XXX could factor out into a settings->pref map.  Not worth it yet.
     SettingsListener.observe("debug.fps.enabled", false, function(value) {
@@ -278,6 +308,7 @@ var shell = {
     ppmm.addMessageListener("sms-handler", this);
     ppmm.addMessageListener("mail-handler", this);
     ppmm.addMessageListener("app-notification-send", AlertsHelper);
+    ppmm.addMessageListener("file-picker", this);
   },
 
   stop: function shell_stop() {
@@ -298,6 +329,7 @@ var shell = {
     delete Services.audioManager;
 #endif
     UserAgentOverrides.uninit();
+    IndexedDBPromptHelper.uninit();
   },
 
   // If this key event actually represents a hardware button, filter it here
@@ -374,6 +406,7 @@ var shell = {
   needBufferSysMsgs: true,
   bufferedSysMsgs: [],
   timer: null,
+  visibleAudioActive: false,
 
   handleEvent: function shell_handleEvent(evt) {
     let content = this.contentBrowser.contentWindow;
@@ -391,7 +424,7 @@ var shell = {
           Services.fm.focusedWindow = window;
         break;
       case 'sizemodechange':
-        if (window.windowState == window.STATE_MINIMIZED) {
+        if (window.windowState == window.STATE_MINIMIZED && !this.visibleAudioActive) {
           this.contentBrowser.setVisible(false);
         } else {
           this.contentBrowser.setVisible(true);
@@ -494,24 +527,40 @@ var shell = {
       url: msg.uri,
       manifestURL: msg.manifest,
       isActivity: (msg.type == 'activity'),
-      target: msg.target
+      target: msg.target,
+      expectingSystemMessage: true
     });
   },
 
   receiveMessage: function shell_receiveMessage(message) {
-    var names = { 'content-handler': 'view',
-                  'dial-handler'   : 'dial',
-                  'mail-handler'   : 'new',
-                  'sms-handler'    : 'new' }
+    var activities = { 'content-handler': { name: 'view', response: null },
+                       'dial-handler':    { name: 'dial', response: null },
+                       'mail-handler':    { name: 'new',  response: null },
+                       'sms-handler':     { name: 'new',  response: null },
+                       'file-picker':     { name: 'pick', response: 'file-picked' } };
 
-    if (!(message.name in names))
+    if (!(message.name in activities))
       return;
 
     let data = message.data;
-    new MozActivity({
-      name: names[message.name],
+    let activity = activities[message.name];
+
+    let a = new MozActivity({
+      name: activity.name,
       data: data
     });
+
+    if (activity.response) {
+      a.onsuccess = function() {
+        let sender = message.target.QueryInterface(Ci.nsIMessageSender);
+        sender.sendAsyncMessage(activity.response, { success: true,
+                                                     result:  a.result });
+      }
+      a.onerror = function() {
+        let sender = message.target.QueryInterface(Ci.nsIMessageSender);
+        sender.sendAsyncMessage(activity.response, { success: false });
+      }
+    }
   }
 };
 
@@ -603,6 +652,7 @@ var CustomEventManager = {
     dump('XXX FIXME : Got a mozContentEvent: ' + detail.type + "\n");
 
     switch(detail.type) {
+      case 'desktop-notification-show':
       case 'desktop-notification-click':
       case 'desktop-notification-close':
         AlertsHelper.handleEvent(detail);
@@ -616,6 +666,12 @@ var CustomEventManager = {
         break;
       case 'system-message-listener-ready':
         Services.obs.notifyObservers(null, 'system-message-listener-ready', null);
+        break;
+      case 'remote-debugger-prompt':
+        RemoteDebugger.handleEvent(detail);
+        break;
+      case 'captive-portal-login-cancel':
+        CaptivePortalLoginHelper.handleEvent(detail);
         break;
     }
   }
@@ -634,8 +690,16 @@ var AlertsHelper = {
     if (!listener)
      return;
 
-    let topic = detail.type == "desktop-notification-click" ? "alertclickcallback"
-                                                            : "alertfinished";
+    let topic;
+    if (detail.type == "desktop-notification-click") {
+      topic = "alertclickcallback";
+    } else if (detail.type == "desktop-notification-show") {
+      topic = "alertshow";
+    } else {
+      /* desktop-notification-close */
+      topic = "alertfinished";
+    }
+
     if (uid.startsWith("app-notif")) {
       try {
         listener.mm.sendAsyncMessage("app-notification-return", {
@@ -644,13 +708,17 @@ var AlertsHelper = {
           target: listener.target
         });
       } catch(e) {
+        // we get an exception if the app is not launched yet
+
         gSystemMessenger.sendMessage("notification", {
-          title: listener.title,
-          body: listener.text,
-          imageURL: listener.imageURL
-        },
-        Services.io.newURI(listener.target, null, null),
-        Services.io.newURI(listener.manifestURL, null, null));
+            clicked: (detail.type === "desktop-notification-click"),
+            title: listener.title,
+            body: listener.text,
+            imageURL: listener.imageURL
+          },
+          Services.io.newURI(listener.target, null, null),
+          Services.io.newURI(listener.manifestURL, null, null)
+        );
       }
     } else if (uid.startsWith("alert")) {
       try {
@@ -664,10 +732,8 @@ var AlertsHelper = {
     }
   },
 
-  registerListener: function alert_registerListener(cookie, alertListener) {
-    let uid = "alert" + this._count++;
-    this._listeners[uid] = { observer: alertListener, cookie: cookie };
-    return uid;
+  registerListener: function alert_registerListener(alertId, cookie, alertListener) {
+    this._listeners[alertId] = { observer: alertListener, cookie: cookie };
   },
 
   registerAppListener: function alert_registerAppListener(uid, listener) {
@@ -684,7 +750,7 @@ var AlertsHelper = {
           let message = messages[i];
           if (message === "notification") {
             return helper.fullLaunchPath();
-          } else if ("notification" in message) {
+          } else if (typeof message == "object" && "notification" in message) {
             return helper.resolveFromOrigin(message["notification"]);
           }
         }
@@ -702,7 +768,8 @@ var AlertsHelper = {
                                                     textClickable,
                                                     cookie,
                                                     uid,
-                                                    name,
+                                                    bidi,
+                                                    lang,
                                                     manifestUrl) {
     function send(appName, appIcon) {
       shell.sendChromeEvent({
@@ -711,8 +778,11 @@ var AlertsHelper = {
         icon: imageUrl,
         title: title,
         text: text,
+        bidi: bidi,
+        lang: lang,
         appName: appName,
-        appIcon: appIcon
+        appIcon: appIcon,
+        manifestURL: manifestUrl
       });
     }
 
@@ -735,16 +805,36 @@ var AlertsHelper = {
                                                               textClickable,
                                                               cookie,
                                                               alertListener,
-                                                              name) {
-    let uid = this.registerListener(null, alertListener);
+                                                              name,
+                                                              bidi,
+                                                              lang) {
+    let currentListener = this._listeners[name];
+    if (currentListener) {
+      currentListener.observer.observe(null, "alertfinished", currentListener.cookie);
+    }
+
+    this.registerListener(name, cookie, alertListener);
     this.showNotification(imageUrl, title, text, textClickable, cookie,
-                          uid, name, null);
+                          name, bidi, lang, null);
   },
 
-  receiveMessage: function alert_receiveMessage(message) {
-    let data = message.data;
+  closeAlert: function alert_closeAlert(name) {
+    shell.sendChromeEvent({
+      type: "desktop-notification-close",
+      id: name
+    });
+  },
+
+  receiveMessage: function alert_receiveMessage(aMessage) {
+    if (!aMessage.target.assertAppHasPermission("desktop-notification")) {
+      Cu.reportError("Desktop-notification message " + aMessage.name +
+                     " from a content process with no desktop-notification privileges.");
+      return null;
+    }
+
+    let data = aMessage.data;
     let listener = {
-      mm: message.target,
+      mm: aMessage.target,
       title: data.title,
       text: data.text,
       manifestURL: data.manifestURL,
@@ -754,7 +844,7 @@ var AlertsHelper = {
 
     this.showNotification(data.imageURL, data.title, data.text,
                           data.textClickable, null,
-                          data.uid, null, data.manifestURL);
+                          data.uid, null, null, data.manifestURL);
   },
 }
 
@@ -802,6 +892,7 @@ var WebappsHelper = {
           let manifest = new ManifestHelper(aManifest, json.origin);
           shell.sendChromeEvent({
             "type": "webapps-launch",
+            "timestamp": json.timestamp,
             "url": manifest.fullLaunchPath(json.startPoint),
             "manifestURL": json.manifestURL
           });
@@ -819,32 +910,88 @@ var WebappsHelper = {
   }
 }
 
-// Start the debugger server.
-function startDebugger() {
-  if (!DebuggerServer.initialized) {
-    // Allow remote connections.
-    DebuggerServer.init(function () { return true; });
-    DebuggerServer.addBrowserActors();
-    DebuggerServer.addActors('chrome://browser/content/dbg-browser-actors.js');
-  }
+let IndexedDBPromptHelper = {
+  _quotaPrompt: "indexedDB-quota-prompt",
+  _quotaResponse: "indexedDB-quota-response",
 
-  let port = Services.prefs.getIntPref('devtools.debugger.remote-port') || 6000;
-  try {
-    DebuggerServer.openListener(port);
-  } catch (e) {
-    dump('Unable to start debugger server: ' + e + '\n');
+  init:
+  function IndexedDBPromptHelper_init() {
+    Services.obs.addObserver(this, this._quotaPrompt, false);
+  },
+
+  uninit:
+  function IndexedDBPromptHelper_uninit() {
+    Services.obs.removeObserver(this, this._quotaPrompt, false);
+  },
+
+  observe:
+  function IndexedDBPromptHelper_observe(subject, topic, data) {
+    if (topic != this._quotaPrompt) {
+      throw new Error("Unexpected topic!");
+    }
+
+    let observer = subject.QueryInterface(Ci.nsIInterfaceRequestor)
+                          .getInterface(Ci.nsIObserver);
+    let responseTopic = this._quotaResponse;
+
+    setTimeout(function() {
+      observer.observe(null, responseTopic,
+                       Ci.nsIPermissionManager.DENY_ACTION);
+    }, 0);
   }
 }
 
-function stopDebugger() {
-  if (!DebuggerServer.initialized) {
-    return;
-  }
+let RemoteDebugger = {
+  _promptDone: false,
+  _promptAnswer: false,
 
-  try {
-    DebuggerServer.closeListener();
-  } catch (e) {
-    dump('Unable to stop debugger server: ' + e + '\n');
+  prompt: function debugger_prompt() {
+    this._promptDone = false;
+
+    shell.sendChromeEvent({
+      "type": "remote-debugger-prompt"
+    });
+
+    while(!this._promptDone) {
+      Services.tm.currentThread.processNextEvent(true);
+    }
+
+    return this._promptAnswer;
+  },
+
+  handleEvent: function debugger_handleEvent(detail) {
+    this._promptAnswer = detail.value;
+    this._promptDone = true;
+  },
+
+  // Start the debugger server.
+  start: function debugger_start() {
+    if (!DebuggerServer.initialized) {
+      // Ask for remote connections.
+      DebuggerServer.init(this.prompt.bind(this));
+      DebuggerServer.addBrowserActors();
+      DebuggerServer.addActors('chrome://browser/content/dbg-browser-actors.js');
+      DebuggerServer.addActors('chrome://browser/content/dbg-webapps-actors.js');
+    }
+
+    let port = Services.prefs.getIntPref('devtools.debugger.remote-port') || 6000;
+    try {
+      DebuggerServer.openListener(port);
+    } catch (e) {
+      dump('Unable to start debugger server: ' + e + '\n');
+    }
+  },
+
+  stop: function debugger_stop() {
+    if (!DebuggerServer.initialized) {
+      return;
+    }
+
+    try {
+      DebuggerServer.closeListener();
+    } catch (e) {
+      dump('Unable to stop debugger server: ' + e + '\n');
+    }
   }
 }
 
@@ -903,6 +1050,19 @@ window.addEventListener('ContentStart', function ss_onContentStart() {
     "ipc:content-shutdown", false);
 })();
 
+var CaptivePortalLoginHelper = {
+  init: function init() {
+    Services.obs.addObserver(this, 'captive-portal-login', false);
+    Services.obs.addObserver(this, 'captive-portal-login-abort', false);
+  },
+  handleEvent: function handleEvent(detail) {
+    Services.captivePortalDetector.cancelLogin(detail.id);
+  },
+  observe: function observe(subject, topic, data) {
+    shell.sendChromeEvent(JSON.parse(data));
+  }
+}
+
 // Listen for crashes submitted through the crash reporter UI.
 window.addEventListener('ContentStart', function cr_onContentStart() {
   let content = shell.contentBrowser.contentWindow;
@@ -916,27 +1076,28 @@ window.addEventListener('ContentStart', function cr_onContentStart() {
 window.addEventListener('ContentStart', function update_onContentStart() {
   let updatePrompt = Cc["@mozilla.org/updates/update-prompt;1"]
                        .createInstance(Ci.nsIUpdatePrompt);
+  if (!updatePrompt) {
+    return;
+  }
 
-  let content = shell.contentBrowser.contentWindow;
-  content.addEventListener("mozContentEvent", updatePrompt.wrappedJSObject);
+  updatePrompt.wrappedJSObject.handleContentStart(shell);
 });
 
 (function geolocationStatusTracker() {
-  let gGeolocationActiveCount = 0;
+  let gGeolocationActive = false;
 
   Services.obs.addObserver(function(aSubject, aTopic, aData) {
-    let oldCount = gGeolocationActiveCount;
+    let oldState = gGeolocationActive;
     if (aData == "starting") {
-      gGeolocationActiveCount += 1;
+      gGeolocationActive = true;
     } else if (aData == "shutdown") {
-      gGeolocationActiveCount -= 1;
+      gGeolocationActive = false;
     }
 
-    // We need to track changes from 1 <-> 0
-    if (gGeolocationActiveCount + oldCount == 1) {
+    if (gGeolocationActive != oldState) {
       shell.sendChromeEvent({
         type: 'geolocation-status',
-        active: (gGeolocationActiveCount == 1)
+        active: gGeolocationActive
       });
     }
 }, "geolocation-device-events", false);
@@ -960,13 +1121,14 @@ window.addEventListener('ContentStart', function update_onContentStart() {
 }, "audio-channel-changed", false);
 })();
 
-(function audioChannelChangedTracker() {
+(function visibleAudioChannelChangedTracker() {
   Services.obs.addObserver(function(aSubject, aTopic, aData) {
     shell.sendChromeEvent({
-      type: 'audio-channel-changed',
+      type: 'visible-audio-channel-changed',
       channel: aData
     });
-}, "audio-channel-changed", false);
+    shell.visibleAudioActive = (aData !== 'none');
+}, "visible-audio-channel-changed", false);
 })();
 
 (function recordingStatusTracker() {

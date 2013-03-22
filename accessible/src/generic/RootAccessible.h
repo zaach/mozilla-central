@@ -6,11 +6,9 @@
 #ifndef mozilla_a11y_RootAccessible_h__
 #define mozilla_a11y_RootAccessible_h__
 
-#include "nsCaretAccessible.h"
+#include "HyperTextAccessible.h"
 #include "DocAccessibleWrap.h"
 
-#include "nsHashtable.h"
-#include "nsCaretAccessible.h"
 #include "nsIDocument.h"
 #include "nsIDOMEventListener.h"
 
@@ -40,7 +38,6 @@ public:
   virtual uint64_t NativeState();
 
   // RootAccessible
-  nsCaretAccessible* GetCaretAccessible();
 
   /**
    * Notify that the sub document presshell was activated.
@@ -78,8 +75,6 @@ protected:
 
     uint32_t GetChromeFlags();
 #endif
-
-    nsRefPtr<nsCaretAccessible> mCaretAccessible;
 };
 
 inline RootAccessible*

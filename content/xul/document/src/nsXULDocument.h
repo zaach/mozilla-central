@@ -11,7 +11,7 @@
 #include "nsXULPrototypeCache.h"
 #include "nsTArray.h"
 
-#include "nsXMLDocument.h"
+#include "mozilla/dom/XMLDocument.h"
 #include "nsForwardReference.h"
 #include "nsIContent.h"
 #include "nsIDOMEventTarget.h"
@@ -40,8 +40,9 @@ class nsIXULPrototypeScript;
 #endif
 #include "nsURIHashKey.h"
 #include "nsInterfaceHashtable.h"
- 
-struct JSObject;
+
+class JSObject;
+struct JSTracer;
 struct PRLogModuleInfo;
 
 class nsRefMapEntry : public nsStringHashKey
@@ -80,7 +81,7 @@ private:
 /**
  * The XUL document class
  */
-class nsXULDocument : public nsXMLDocument,
+class nsXULDocument : public mozilla::dom::XMLDocument,
                       public nsIXULDocument,
                       public nsIDOMXULDocument,
                       public nsIStreamLoaderObserver,
@@ -139,7 +140,14 @@ public:
     NS_FORWARD_NSIDOMNODE_TO_NSINODE
 
     // nsIDOMDocument interface
-    NS_FORWARD_NSIDOMDOCUMENT(nsXMLDocument::)
+    NS_FORWARD_NSIDOMDOCUMENT(mozilla::dom::XMLDocument::)
+    // And explicitly import the things from nsDocument that we just shadowed
+    using nsDocument::GetImplementation;
+    using nsDocument::GetTitle;
+    using nsDocument::SetTitle;
+    using nsDocument::GetLastStyleSheetSet;
+    using nsDocument::MozSetImageElement;
+    using nsDocument::GetMozFullScreenElement;
 
     // nsDocument interface overrides
     virtual mozilla::dom::Element* GetElementById(const nsAString & elementId);
@@ -168,9 +176,13 @@ public:
                    nsIAtom* aAttrName,
                    void* aData);
 
-    NS_DECL_CYCLE_COLLECTION_CLASS_INHERITED(nsXULDocument, nsXMLDocument)
+    NS_DECL_CYCLE_COLLECTION_CLASS_INHERITED(nsXULDocument,
+                                             mozilla::dom::XMLDocument)
 
     virtual nsXPCClassInfo* GetClassInfo();
+
+    void TraceProtos(JSTracer* aTrc, uint32_t aGCNumber);
+
 protected:
     // Implementation methods
     friend nsresult
@@ -366,7 +378,8 @@ protected:
      * Note that the resulting content node is not bound to any tree
      */
     nsresult CreateElementFromPrototype(nsXULPrototypeElement* aPrototype,
-                                        mozilla::dom::Element** aResult);
+                                        mozilla::dom::Element** aResult,
+                                        bool aIsRoot);
 
     /**
      * Create a hook-up element to which content nodes can be attached for

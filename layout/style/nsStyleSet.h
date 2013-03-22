@@ -23,7 +23,6 @@
 #include "nsAutoPtr.h"
 #include "nsIStyleRule.h"
 #include "nsCSSPseudoElements.h"
-#include "nsCSSAnonBoxes.h"
 #include "mozilla/Attributes.h"
 
 class nsIURI;
@@ -233,6 +232,7 @@ class nsStyleSet
     eUserSheet, // CSS
     ePresHintSheet,
     eDocSheet, // CSS
+    eScopedDocSheet,
     eStyleAttrSheet,
     eOverrideSheet, // CSS
     eAnimationSheet,
@@ -253,7 +253,7 @@ class nsStyleSet
   nsresult InsertStyleSheetBefore(sheetType aType, nsIStyleSheet *aNewSheet,
                                   nsIStyleSheet *aReferenceSheet);
 
-  // Enable/Disable entire author style level (Doc & PresHint levels)
+  // Enable/Disable entire author style level (Doc, ScopedDoc & PresHint levels)
   bool GetAuthorStyleDisabled();
   nsresult SetAuthorStyleDisabled(bool aStyleDisabled);
 
@@ -265,6 +265,7 @@ class nsStyleSet
     return mSheets[aType].ObjectAt(aIndex);
   }
 
+  nsresult RemoveDocStyleSheet(nsIStyleSheet* aSheet);
   nsresult AddDocStyleSheet(nsIStyleSheet* aSheet, nsIDocument* aDocument);
 
   void     BeginUpdate();
@@ -342,11 +343,11 @@ class nsStyleSet
   
   // Enumerate the rules in a way that cares about the order of the
   // rules.
-  // aContent is the node the rules are for.  It might be null.  aData
+  // aElement is the element the rules are for.  It might be null.  aData
   // is the closure to pass to aCollectorFunc.  If aContent is not null,
   // aData must be a RuleProcessorData*
   void FileRules(nsIStyleRuleProcessor::EnumFunc aCollectorFunc,
-                 RuleProcessorData* aData, nsIContent* aContent,
+                 RuleProcessorData* aData, mozilla::dom::Element* aElement,
                  nsRuleWalker* aRuleWalker);
 
   // Enumerate all the rules in a way that doesn't care about the order
@@ -355,24 +356,44 @@ class nsStyleSet
                           ElementDependentRuleProcessorData* aData,
                           bool aWalkAllXBLStylesheets);
 
+  /**
+   * Bit-flags that can be passed to GetContext() in its parameter 'aFlags'.
+   */
+  enum {
+    eNoFlags =          0,
+    eIsLink =           1 << 0,
+    eIsVisitedLink =    1 << 1,
+    eDoAnimation =      1 << 2,
+
+    // Indicates that we should skip the flex-item-specific chunk of
+    // ApplyStyleFixups().  This is useful if our parent has "display: flex"
+    // but we can tell it's not going to actually be a flex container (e.g. if
+    // it's the outer frame of a button widget, and we're the inline frame for
+    // the button's label).
+    eSkipFlexItemStyleFixup = 1 << 3
+  };
+
   already_AddRefed<nsStyleContext>
   GetContext(nsStyleContext* aParentContext,
              nsRuleNode* aRuleNode,
              nsRuleNode* aVisitedRuleNode,
-             bool aIsLink,
-             bool aIsVisitedLink,
              nsIAtom* aPseudoTag,
              nsCSSPseudoElements::Type aPseudoType,
-             bool aDoAnimation,
-             mozilla::dom::Element* aElementForAnimation);
+             mozilla::dom::Element* aElementForAnimation,
+             uint32_t aFlags);
 
-  nsPresContext* PresContext() { return mRuleTree->GetPresContext(); }
+  nsPresContext* PresContext() { return mRuleTree->PresContext(); }
 
   // The sheets in each array in mSheets are stored with the most significant
   // sheet last.
   nsCOMArray<nsIStyleSheet> mSheets[eSheetTypeCount];
 
+  // mRuleProcessors[eScopedDocSheet] is always null; rule processors
+  // for scoped style sheets are stored in mScopedDocSheetRuleProcessors.
   nsCOMPtr<nsIStyleRuleProcessor> mRuleProcessors[eSheetTypeCount];
+
+  // Rule processors for HTML5 scoped style sheets, one per scope.
+  nsTArray<nsCOMPtr<nsIStyleRuleProcessor> > mScopedDocSheetRuleProcessors;
 
   // cached instance for enabling/disabling
   nsCOMPtr<nsIStyleSheet> mQuirkStyleSheet;
@@ -388,7 +409,7 @@ class nsStyleSet
   unsigned mInShutdown : 1;
   unsigned mAuthorStyleDisabled: 1;
   unsigned mInReconstruct : 1;
-  unsigned mDirty : 8;  // one dirty bit is used per sheet type
+  unsigned mDirty : 9;  // one dirty bit is used per sheet type
 
   uint32_t mUnusedRuleNodeCount; // used to batch rule node GC
   nsTArray<nsStyleContext*> mRoots; // style contexts with no parent

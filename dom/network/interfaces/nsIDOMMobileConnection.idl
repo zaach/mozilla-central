@@ -13,7 +13,7 @@ interface nsIDOMMozMobileCellInfo;
 interface nsIDOMMozIccManager;
 interface nsIDOMMozMobileCFInfo;
 
-[scriptable, builtinclass, uuid(cc4947eb-aa39-4c25-878d-618dc4d4d2bc)]
+[scriptable, builtinclass, uuid(4175a903-61e6-4fa7-af0d-1e41632ee2dd)]
 interface nsIDOMMozMobileConnection : nsIDOMEventTarget
 {
   const long ICC_SERVICE_CLASS_VOICE = (1 << 0);
@@ -29,8 +29,8 @@ interface nsIDOMMozMobileConnection : nsIDOMEventTarget
   /**
    * Indicates the state of the device's ICC card.
    *
-   * Possible values: null, 'absent', 'pinRequired', 'pukRequired',
-   * 'networkLocked', 'ready'.
+   * Possible values: null, 'unknown', 'absent', 'pinRequired', 'pukRequired',
+   * 'networkLocked', 'corporateLocked', 'serviceProviderLocked', 'ready'.
    */
   readonly attribute DOMString cardState;
 
@@ -104,7 +104,8 @@ interface nsIDOMMozMobileConnection : nsIDOMEventTarget
    * Find out about the status of an ICC lock (e.g. the PIN lock).
    *
    * @param lockType
-   *        Identifies the lock type, e.g. "pin" for the PIN lock.
+   *        Identifies the lock type, e.g. "pin" for the PIN lock, "fdn" for
+   *        the FDN lock.
    *
    * @return a DOM Request.
    *         The request's result will be an object containing
@@ -130,16 +131,27 @@ interface nsIDOMMozMobileConnection : nsIDOMEventTarget
    *   unlockCardLock({lockType: "pin",
    *                   pin: "..."});
    *
-   * (2) Network depersonalization. Unlocking the network control key (NCK).
-   *
-   *   unlockCardLock({lockType: "nck",
-   *                   pin: "..."});
-   *
-   * (3) Unlocking the PUK and supplying a new PIN:
+   * (2) Unlocking the PUK and supplying a new PIN:
    *
    *   unlockCardLock({lockType: "puk",
    *                   puk: "...",
    *                   newPin: "..."});
+   *
+   * (3) Network depersonalization. Unlocking the network control key (NCK).
+   *
+   *   unlockCardLock({lockType: "nck",
+   *                   pin: "..."});
+   *
+   * (4) Corporate depersonalization. Unlocking the corporate control key (CCK).
+   *
+   *   unlockCardLock({lockType: "cck",
+   *                   pin: "..."});
+   *
+   * (5) Service Provider depersonalization. Unlocking the service provider
+   *     control key (SPCK).
+   *
+   *   unlockCardLock({lockType: "spck",
+   *                   pin: "..."});
    *
    * @return a nsIDOMDOMRequest.
    *         The request's result will be an object containing
@@ -151,7 +163,7 @@ interface nsIDOMMozMobileConnection : nsIDOMEventTarget
    *
    *     {
    *       lockType:   "pin",
-   *       result:     false,
+   *       success:    false,
    *       retryCount: 2
    *     }
    *
@@ -159,7 +171,7 @@ interface nsIDOMMozMobileConnection : nsIDOMEventTarget
    *
    *     {
    *       lockType:  "pin",
-   *       result:    true
+   *       success:   true
    *     }
    */
   nsIDOMDOMRequest unlockCardLock(in jsval info);
@@ -176,10 +188,16 @@ interface nsIDOMMozMobileConnection : nsIDOMEventTarget
    *
    * Examples:
    *
-   * (1) Disabling the PIN lock:
+   * (1a) Disabling the PIN lock:
    *
    *   setCardLock({lockType: "pin",
    *                pin: "...",
+   *                enabled: false});
+   *
+   * (1b) Disabling the FDN lock:
+   *
+   *   setCardLock({lockType: "fdn",
+   *                pin2: "...",
    *                enabled: false});
    *
    * (2) Changing the PIN:
@@ -198,7 +216,7 @@ interface nsIDOMMozMobileConnection : nsIDOMEventTarget
    *
    *     {
    *       lockType: "pin",
-   *       result: false,
+   *       success: false,
    *       retryCount: 2
    *     }
    *
@@ -206,7 +224,7 @@ interface nsIDOMMozMobileConnection : nsIDOMEventTarget
    *
    *     {
    *       lockType: "pin",
-   *       result: true
+   *       success: true
    *     }
    */
   nsIDOMDOMRequest setCardLock(in jsval info);
@@ -308,9 +326,15 @@ interface nsIDOMMozMobileConnection : nsIDOMEventTarget
    * 'setCardLock' fails.
    */
   [implicit_jscontext] attribute jsval onicccardlockerror;
+
+  /**
+   * The 'oncfstatechange' event is notified whenever the call forwarding
+   * state changes.
+   */
+  [implicit_jscontext] attribute jsval oncfstatechange;
 };
 
-[scriptable, uuid(5ea0e4a9-4684-40da-9930-8ebb61d187f3)]
+[scriptable, uuid(c9d9ff61-a2f0-41cd-b478-9cefa7b31f31)]
 interface nsIDOMMozMobileConnectionInfo : nsISupports
 {
   /**
@@ -346,6 +370,11 @@ interface nsIDOMMozMobileConnectionInfo : nsISupports
   readonly attribute nsIDOMMozMobileNetworkInfo network;
 
   /**
+   * Mobile Country Code (MCC) of last known network operator.
+   */
+  readonly attribute DOMString lastKnownMcc;
+
+  /**
    * Type of connection.
    *
    * Possible values: 'gsm', 'cdma', gprs', 'edge', 'umts', 'hsdpa', 'evdo0',
@@ -371,7 +400,7 @@ interface nsIDOMMozMobileConnectionInfo : nsISupports
 
 };
 
-[scriptable, uuid(3bd866c7-98a5-4ef4-a464-c22d8cc6b992)]
+[scriptable, uuid(40018fc7-4c42-47b6-8de6-3591a9c622bc)]
 interface nsIDOMMozMobileNetworkInfo: nsISupports
 {
   /**
@@ -387,12 +416,12 @@ interface nsIDOMMozMobileNetworkInfo: nsISupports
   /**
    * Mobile Country Code (MCC) of the network operator
    */
-  readonly attribute unsigned short mcc;
+  readonly attribute DOMString mcc;
 
   /**
    * Mobile Network Code (MNC) of the network operator
    */
-  readonly attribute unsigned short mnc;
+  readonly attribute DOMString mnc;
 
   /**
    * State of this network operator.
@@ -416,7 +445,7 @@ interface nsIDOMMozMobileCellInfo: nsISupports
   readonly attribute unsigned long gsmCellId;
 };
 
-[scriptable, uuid(1fb27dc0-427e-11e2-a25f-0800200c9a66)]
+[scriptable, uuid(10d5c5a2-d43f-4f94-8657-cf7ccabbab6e)]
 interface nsIDOMMozMobileICCInfo : nsISupports
 {
    /**
@@ -427,17 +456,12 @@ interface nsIDOMMozMobileICCInfo : nsISupports
   /**
    * Mobile Country Code (MCC) of the subscriber's home network.
    */
-  readonly attribute unsigned short mcc;
-
-  /**
-   * Mobile Country Code (MCC) of previous subscriber's home network.
-   */
-  readonly attribute unsigned short lastKnownMcc;
+  readonly attribute DOMString mcc;
 
   /**
    * Mobile Network Code (MNC) of the subscriber's home network.
    */
-  readonly attribute unsigned short mnc;
+  readonly attribute DOMString mnc;
 
   /**
    * Service Provider Name (SPN) of the subscriber's home network.

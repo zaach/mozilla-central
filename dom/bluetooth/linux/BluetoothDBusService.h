@@ -35,23 +35,15 @@ public:
   virtual nsresult GetPairedDevicePropertiesInternal(const nsTArray<nsString>& aDeviceAddresses,
                                                      BluetoothReplyRunnable* aRunnable);
 
-  virtual nsresult StartDiscoveryInternal(const nsAString& aAdapterPath,
-                                          BluetoothReplyRunnable* aRunnable);
+  virtual nsresult StartDiscoveryInternal(BluetoothReplyRunnable* aRunnable);
 
-  virtual nsresult StopDiscoveryInternal(const nsAString& aAdapterPath,
-                                         BluetoothReplyRunnable* aRunnable);
-
-  virtual nsresult
-  GetProperties(BluetoothObjectType aType,
-                const nsAString& aPath,
-                BluetoothReplyRunnable* aRunnable);
+  virtual nsresult StopDiscoveryInternal(BluetoothReplyRunnable* aRunnable);
 
   virtual nsresult
   GetDevicePropertiesInternal(const BluetoothSignal& aSignal);
 
   virtual nsresult
   SetProperty(BluetoothObjectType aType,
-              const nsAString& aPath,
               const BluetoothNamedValue& aValue,
               BluetoothReplyRunnable* aRunnable);
 
@@ -61,27 +53,23 @@ public:
                 nsAString& aDevicePath);
 
   static bool
-  AddServiceRecords(const nsAString& aAdapterPath,
-                    const char* serviceName,
+  AddServiceRecords(const char* serviceName,
                     unsigned long long uuidMsb,
                     unsigned long long uuidLsb,
                     int channel);
 
   static bool
-  RemoveServiceRecords(const nsAString& aAdapterPath,
-                       const char* serviceName,
+  RemoveServiceRecords(const char* serviceName,
                        unsigned long long uuidMsb,
                        unsigned long long uuidLsb,
                        int channel);
 
   static bool
-  AddReservedServicesInternal(const nsAString& aAdapterPath,
-                              const nsTArray<uint32_t>& aServices,
+  AddReservedServicesInternal(const nsTArray<uint32_t>& aServices,
                               nsTArray<uint32_t>& aServiceHandlesContainer);
 
   static bool
-  RemoveReservedServicesInternal(const nsAString& aAdapterPath,
-                                 const nsTArray<uint32_t>& aServiceHandles);
+  RemoveReservedServicesInternal(const nsTArray<uint32_t>& aServiceHandles);
 
   virtual nsresult
   GetScoSocket(const nsAString& aObjectPath,
@@ -106,14 +94,12 @@ public:
                          mozilla::ipc::UnixSocketConsumer* aConsumer);
 
   virtual nsresult
-  CreatePairedDeviceInternal(const nsAString& aAdapterPath,
-                             const nsAString& aDeviceAddress,
+  CreatePairedDeviceInternal(const nsAString& aDeviceAddress,
                              int aTimeout,
                              BluetoothReplyRunnable* aRunnable);
 
   virtual nsresult
-  RemoveDeviceInternal(const nsAString& aAdapterPath,
-                       const nsAString& aDeviceObjectPath,
+  RemoveDeviceInternal(const nsAString& aDeviceObjectPath,
                        BluetoothReplyRunnable* aRunnable);
 
   virtual bool
@@ -133,11 +119,10 @@ public:
                            BluetoothReplyRunnable* aRunnable);
 
   virtual nsresult
-  PrepareAdapterInternal(const nsAString& aPath);
+  PrepareAdapterInternal();
 
   virtual void
   Connect(const nsAString& aDeviceAddress,
-          const nsAString& aAdapterPath,
           const uint16_t aProfileId,
           BluetoothReplyRunnable* aRunnable);
 
@@ -166,12 +151,13 @@ private:
                                   const char* aInterface,
                                   void (*aCB)(DBusMessage *, void *),
                                   BluetoothReplyRunnable* aRunnable);
-  nsresult SendDiscoveryMessage(const nsAString& aAdapterPath,
-                                const char* aMessageName,
+  nsresult SendDiscoveryMessage(const char* aMessageName,
                                 BluetoothReplyRunnable* aRunnable);
-  nsresult SendSetPropertyMessage(const nsString& aPath, const char* aInterface,
+  nsresult SendSetPropertyMessage(const char* aInterface,
                                   const BluetoothNamedValue& aValue,
                                   BluetoothReplyRunnable* aRunnable);
+
+  void DisconnectAllAcls(const nsAString& aAdapterPath);
 };
 
 END_BLUETOOTH_NAMESPACE

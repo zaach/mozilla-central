@@ -8,6 +8,9 @@
 #ifndef jsion_cpu_arm_assembler_h__
 #define jsion_cpu_arm_assembler_h__
 
+#include "mozilla/MathAlgorithms.h"
+#include "mozilla/Util.h"
+
 #include "ion/shared/Assembler-shared.h"
 #include "assembler/assembler/AssemblerBufferWithConstantPool.h"
 #include "ion/CompactBuffer.h"
@@ -54,6 +57,10 @@ static const Register CallTempReg3 = r8;
 static const Register CallTempReg4 = r0;
 static const Register CallTempReg5 = r1;
 
+static const Register CallTempNonArgRegs[] = { r5, r6, r7, r8 };
+static const uint32_t NumCallTempNonArgRegs =
+    mozilla::ArrayLength(CallTempNonArgRegs);
+
 static const Register PreBarrierReg = r1;
 
 static const Register InvalidReg = { Registers::invalid_reg };
@@ -91,6 +98,8 @@ static const FloatRegister d15 = {FloatRegisters::d15};
 // function boundaries.  I'm trying to make sure this is always true.
 static const uint32_t StackAlignment = 8;
 static const bool StackKeptAligned = true;
+static const uint32_t NativeFrameSize = sizeof(void*);
+static const uint32_t AlignmentAtPrologue = sizeof(void*);
 
 static const Scale ScalePointer = TimesFour;
 
@@ -698,9 +707,9 @@ class DtrOffImm : public DtrOff
 {
   public:
     DtrOffImm(int32_t imm)
-      : DtrOff(datastore::Imm12Data(abs(imm)), imm >= 0 ? IsUp : IsDown)
+      : DtrOff(datastore::Imm12Data(mozilla::Abs(imm)), imm >= 0 ? IsUp : IsDown)
     {
-        JS_ASSERT((imm < 4096) && (imm > -4096));
+        JS_ASSERT(mozilla::Abs(imm) < 4096);
     }
 };
 
@@ -783,8 +792,10 @@ class EDtrOffImm : public EDtrOff
 {
   public:
     EDtrOffImm(int32_t imm)
-      : EDtrOff(datastore::Imm8Data(abs(imm)), (imm >= 0) ? IsUp : IsDown)
-    { }
+      : EDtrOff(datastore::Imm8Data(mozilla::Abs(imm)), (imm >= 0) ? IsUp : IsDown)
+    {
+        JS_ASSERT(mozilla::Abs(imm) < 256);
+    }
 };
 
 // this is the most-derived class, since the extended data
@@ -831,8 +842,10 @@ class VFPOffImm : public VFPOff
 {
   public:
     VFPOffImm(int32_t imm)
-      : VFPOff(datastore::Imm8VFPOffData(abs(imm) >> 2), imm < 0 ? IsDown : IsUp)
-    { }
+      : VFPOff(datastore::Imm8VFPOffData(mozilla::Abs(imm) / 4), imm < 0 ? IsDown : IsUp)
+    {
+        JS_ASSERT(mozilla::Abs(imm) <= 255 * 4);
+    }
 };
 class VFPAddr
 {
@@ -1167,12 +1180,12 @@ class Assembler
     // TODO: this should actually be a pool-like object
     //       It is currently a big hack, and probably shouldn't exist
     class JumpPool;
-    js::Vector<DeferredData *, 0, SystemAllocPolicy> data_;
-    js::Vector<CodeLabel *, 0, SystemAllocPolicy> codeLabels_;
+    js::Vector<CodeLabel, 0, SystemAllocPolicy> codeLabels_;
     js::Vector<RelativePatch, 8, SystemAllocPolicy> jumps_;
     js::Vector<JumpPool *, 0, SystemAllocPolicy> jumpPools_;
     js::Vector<BufferOffset, 0, SystemAllocPolicy> tmpJumpRelocations_;
     js::Vector<BufferOffset, 0, SystemAllocPolicy> tmpDataRelocations_;
+    js::Vector<BufferOffset, 0, SystemAllocPolicy> tmpPreBarriers_;
     class JumpPool : TempObject
     {
         BufferOffset start;
@@ -1183,7 +1196,7 @@ class Assembler
     CompactBufferWriter jumpRelocations_;
     CompactBufferWriter dataRelocations_;
     CompactBufferWriter relocations_;
-    size_t dataBytesNeeded_;
+    CompactBufferWriter preBarriers_;
 
     bool enoughMemory_;
 
@@ -1206,8 +1219,7 @@ class Assembler
 
   public:
     Assembler()
-      : dataBytesNeeded_(0),
-        enoughMemory_(true),
+      : enoughMemory_(true),
         m_buffer(4, 4, 0, &pools_[0], 8),
         int32Pool(m_buffer.getPool(1)),
         doublePool(m_buffer.getPool(0)),
@@ -1215,6 +1227,13 @@ class Assembler
         dtmActive(false),
         dtmCond(Always)
     {
+    }
+
+    // We need to wait until an AutoIonContextAlloc is created by the
+    // IonMacroAssembler, before allocating any space.
+    void initWithAllocator() {
+        m_buffer.initWithAllocator();
+
         // Set up the backwards double region
         new (&pools_[2]) Pool (1024, 8, 4, 8, 8, true);
         // Set up the backwards 32 bit region
@@ -1230,6 +1249,7 @@ class Assembler
             }
         }
     }
+
     static Condition InvertCondition(Condition cond);
 
     // MacroAssemblers hold onto gcthings, so they are traced by the GC.
@@ -1243,6 +1263,9 @@ class Assembler
     void writeDataRelocation(const ImmGCPtr &ptr) {
         if (ptr.value)
             tmpDataRelocations_.append(nextOffset());
+    }
+    void writePrebarrierOffset(CodeOffsetLabel label) {
+        tmpPreBarriers_.append(BufferOffset(label.offset()));
     }
 
     enum RelocBranchStyle {
@@ -1278,22 +1301,21 @@ class Assembler
   public:
     void finish();
     void executableCopy(void *buffer);
-    void processDeferredData(IonCode *code, uint8_t *data);
-    void processCodeLabels(IonCode *code);
-    void copyJumpRelocationTable(uint8_t *buffer);
-    void copyDataRelocationTable(uint8_t *buffer);
+    void processCodeLabels(uint8_t *rawCode);
+    void copyJumpRelocationTable(uint8_t *dest);
+    void copyDataRelocationTable(uint8_t *dest);
+    void copyPreBarrierTable(uint8_t *dest);
 
-    bool addDeferredData(DeferredData *data, size_t bytes);
-
-    bool addCodeLabel(CodeLabel *label);
+    bool addCodeLabel(CodeLabel label);
 
     // Size of the instruction stream, in bytes.
     size_t size() const;
     // Size of the jump relocation table, in bytes.
     size_t jumpRelocationTableBytes() const;
     size_t dataRelocationTableBytes() const;
+    size_t preBarrierTableBytes() const;
+
     // Size of the data table, in bytes.
-    size_t dataSize() const;
     size_t bytesNeeded() const;
 
     // Write a blob of binary into the instruction stream *OR*
@@ -1307,9 +1329,7 @@ class Assembler
     static void writeInstStatic(uint32_t x, uint32_t *dest);
 
   public:
-    // resreve enough space in the instruction stream for a jumpPool.
-    // return the reserved space.
-    BufferOffset as_jumpPool(uint32_t size);
+    void writeCodePointer(AbsoluteLabel *label);
 
     BufferOffset align(int alignment);
     BufferOffset as_nop();
@@ -1527,6 +1547,7 @@ class Assembler
     void retarget(Label *label, Label *target);
     // I'm going to pretend this doesn't exist for now.
     void retarget(Label *label, void *target, Relocation::Kind reloc);
+    void Bind(uint8_t *rawCode, AbsoluteLabel *label, const void *address);
 
     void call(Label *label);
     void call(void *target);
@@ -1685,6 +1706,7 @@ class Assembler
     static void ToggleToJmp(CodeLocationLabel inst_);
     static void ToggleToCmp(CodeLocationLabel inst_);
 
+    static void ToggleCall(CodeLocationLabel inst_, bool enabled);
 }; // Assembler
 
 // An Instruction is a structure for both encoding and decoding any and all ARM instructions.
@@ -1774,6 +1796,20 @@ class InstLDR : public InstDTR
 
 };
 JS_STATIC_ASSERT(sizeof(InstDTR) == sizeof(InstLDR));
+
+class InstNOP : public Instruction
+{
+    static const uint32_t NopInst = 0x0320f000;
+
+  public:
+    InstNOP()
+      : Instruction(NopInst, Assembler::Always)
+    { }
+
+    static bool isTHIS(const Instruction &i);
+    static InstNOP *asTHIS(Instruction &i);
+};
+
 // Branching to a register, or calling a register
 class InstBranchReg : public Instruction
 {
@@ -1785,7 +1821,7 @@ class InstBranchReg : public Instruction
     };
     static const uint32_t IsBRegMask = 0x0ffffff0;
     InstBranchReg(BranchTag tag, Register rm, Assembler::Condition c)
-      : Instruction(tag | RM(rm), c)
+      : Instruction(tag | rm.code(), c)
     { }
   public:
     static bool isTHIS (const Instruction &i);
@@ -1828,6 +1864,10 @@ class InstBXReg : public InstBranchReg
 class InstBLXReg : public InstBranchReg
 {
   public:
+    InstBLXReg(Register reg, Assembler::Condition c)
+      : InstBranchReg(IsBLX, reg, c)
+    { }
+
     static bool isTHIS (const Instruction &i);
     static InstBLXReg *asTHIS (const Instruction &i);
 };
@@ -1952,6 +1992,26 @@ GetIntArgReg(uint32_t usedIntArgs, uint32_t usedFloatArgs, Register *out)
     return true;
 }
 
+// Get a register in which we plan to put a quantity that will be used as an
+// integer argument.  This differs from GetIntArgReg in that if we have no more
+// actual argument registers to use we will fall back on using whatever
+// CallTempReg* don't overlap the argument registers, and only fail once those
+// run out too.
+static inline bool
+GetTempRegForIntArg(uint32_t usedIntArgs, uint32_t usedFloatArgs, Register *out)
+{
+    if (GetIntArgReg(usedIntArgs, usedFloatArgs, out))
+        return true;
+    // Unfortunately, we have to assume things about the point at which
+    // GetIntArgReg returns false, because we need to know how many registers it
+    // can allocate.
+    usedIntArgs -= NumIntArgRegs;
+    if (usedIntArgs >= NumCallTempNonArgRegs)
+        return false;
+    *out = CallTempNonArgRegs[usedIntArgs];
+    return true;
+}
+
 static inline bool
 GetFloatArgReg(uint32_t usedIntArgs, uint32_t usedFloatArgs, FloatRegister *out)
 {
@@ -1990,11 +2050,31 @@ GetFloatArgStackDisp(uint32_t usedIntArgs, uint32_t usedFloatArgs, uint32_t *pad
 static inline bool
 GetIntArgReg(uint32_t arg, uint32_t floatArg, Register *out)
 {
-    if (arg < 4) {
+    if (arg < NumIntArgRegs) {
         *out = Register::FromCode(arg);
         return true;
     }
     return false;
+}
+
+// Get a register in which we plan to put a quantity that will be used as an
+// integer argument.  This differs from GetIntArgReg in that if we have no more
+// actual argument registers to use we will fall back on using whatever
+// CallTempReg* don't overlap the argument registers, and only fail once those
+// run out too.
+static inline bool
+GetTempRegForIntArg(uint32_t usedIntArgs, uint32_t usedFloatArgs, Register *out)
+{
+    if (GetIntArgReg(usedIntArgs, usedFloatArgs, out))
+        return true;
+    // Unfortunately, we have to assume things about the point at which
+    // GetIntArgReg returns false, because we need to know how many registers it
+    // can allocate.
+    usedIntArgs -= NumIntArgRegs;
+    if (usedIntArgs >= NumCallTempNonArgRegs)
+        return false;
+    *out = CallTempNonArgRegs[usedIntArgs];
+    return true;
 }
 
 static inline uint32_t

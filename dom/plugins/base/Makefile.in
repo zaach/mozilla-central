@@ -10,7 +10,6 @@ VPATH		= @srcdir@
 
 include $(DEPTH)/config/autoconf.mk
 
-MODULE		= plugin
 LIBRARY_NAME	= gkplugin
 EXPORT_LIBRARY = 1
 IS_COMPONENT    = 1
@@ -19,17 +18,6 @@ GRE_MODULE	= 1
 LIBXUL_LIBRARY = 1
 
 EXPORTS_NAMESPACES = mozilla
-
-XPIDLSRCS = \
-  nsIHTTPHeaderListener.idl \
-  nsIPluginDocument.idl \
-  nsIPluginHost.idl \
-  nsIPluginInputStream.idl \
-  nsIPluginInstanceOwner.idl \
-  nsIPluginTag.idl \
-  nsIPluginTagInfo.idl \
-  nspluginroot.idl \
-  $(NULL)
 
 EXPORTS = \
   npapi.h \
@@ -44,7 +32,9 @@ EXPORTS = \
   nsPluginTags.h \
   nsPluginDirServiceProvider.h \
   nsPluginHost.h \
+  nsJSNPRuntime.h \
   nsPluginInstanceOwner.h \
+  nsPluginPlayPreviewInfo.h \
   $(NULL)
 
 EXPORTS_mozilla = \
@@ -62,10 +52,10 @@ CPPSRCS		= \
 		nsPluginTags.cpp \
 		PluginPRLibrary.cpp \
 		nsPluginInstanceOwner.cpp \
+		nsPluginPlayPreviewInfo.cpp \
 		$(NULL)
 
 ifeq ($(MOZ_WIDGET_TOOLKIT),android)
-DIRS += android
 LOCAL_INCLUDES += -I$(topsrcdir)/dom/plugins/base/android
 else
 # android_npapi.h extends the NPNVariable and NPPVariable enums

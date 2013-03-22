@@ -44,6 +44,7 @@
 #include "prlog.h"
 
 #include <Carbon/Carbon.h>
+#include <algorithm>
 
 #import <AppKit/AppKit.h>
 
@@ -62,6 +63,7 @@
 #include "nsISimpleEnumerator.h"
 #include "nsCharTraits.h"
 
+#include "mozilla/Preferences.h"
 #include "mozilla/Telemetry.h"
 
 #include <unistd.h>
@@ -195,8 +197,13 @@ static const ScriptRange sComplexScripts[] = {
     { 0x0D80, 0x0DFF, { TRUETYPE_TAG('s','i','n','h'), 0, 0 } },
     { 0x0E80, 0x0EFF, { TRUETYPE_TAG('l','a','o',' '), 0, 0 } },
     { 0x0F00, 0x0FFF, { TRUETYPE_TAG('t','i','b','t'), 0, 0 } },
+    { 0x1000, 0x109f, { TRUETYPE_TAG('m','y','m','r'),
+                        TRUETYPE_TAG('m','y','m','2'), 0 } },
+    { 0x1780, 0x17ff, { TRUETYPE_TAG('k','h','m','r'), 0, 0 } },
+    // Khmer Symbols (19e0..19ff) don't seem to need any special shaping
+    { 0xaa60, 0xaa7f, { TRUETYPE_TAG('m','y','m','r'),
+                        TRUETYPE_TAG('m','y','m','2'), 0 } },
     // Thai seems to be "renderable" without AAT morphing tables
-    // xxx - Khmer?
 };
 
 static void
@@ -261,14 +268,18 @@ MacOSFontEntry::ReadCMAP()
                                     unicodeFont, symbolFont);
     }
   
-    if (NS_SUCCEEDED(rv)) {
+    if (NS_SUCCEEDED(rv) && !HasGraphiteTables()) {
+        // We assume a Graphite font knows what it's doing,
+        // and provides whatever shaping is needed for the
+        // characters it supports, so only check/clear the
+        // complex-script ranges for non-Graphite fonts
+
         // for layout support, check for the presence of mort/morx and/or
         // opentype layout tables
         bool hasAATLayout = HasFontTable(TRUETYPE_TAG('m','o','r','x')) ||
                             HasFontTable(TRUETYPE_TAG('m','o','r','t'));
         bool hasGSUB = HasFontTable(TRUETYPE_TAG('G','S','U','B'));
         bool hasGPOS = HasFontTable(TRUETYPE_TAG('G','P','O','S'));
-
         if (hasAATLayout && !(hasGSUB || hasGPOS)) {
             mRequiresAAT = true; // prefer CoreText if font has no OTL tables
         }
@@ -343,9 +354,8 @@ MacOSFontEntry::IsCFF()
 
 MacOSFontEntry::MacOSFontEntry(const nsAString& aPostscriptName,
                                int32_t aWeight,
-                               gfxFontFamily *aFamily,
                                bool aIsStandardFace)
-    : gfxFontEntry(aPostscriptName, aFamily, aIsStandardFace),
+    : gfxFontEntry(aPostscriptName, aIsStandardFace),
       mFontRef(NULL),
       mFontRefInitialized(false),
       mRequiresAAT(false),
@@ -360,7 +370,7 @@ MacOSFontEntry::MacOSFontEntry(const nsAString& aPostscriptName,
                                uint16_t aWeight, uint16_t aStretch,
                                uint32_t aItalicStyle,
                                bool aIsUserFont, bool aIsLocal)
-    : gfxFontEntry(aPostscriptName, nullptr, false),
+    : gfxFontEntry(aPostscriptName, false),
       mFontRef(NULL),
       mFontRefInitialized(false),
       mRequiresAAT(false),
@@ -541,8 +551,7 @@ gfxMacFontFamily::FindStyleVariations()
 
         // create a font entry
         MacOSFontEntry *fontEntry =
-            new MacOSFontEntry(postscriptFontName, cssWeight, this,
-                               isStandardFace);
+            new MacOSFontEntry(postscriptFontName, cssWeight, isStandardFace);
         if (!fontEntry) {
             break;
         }
@@ -735,7 +744,7 @@ gfxMacPlatformFontList::InitFontList()
     // start the delayed cmap loader
     StartLoader(kDelayBeforeLoadingCmaps, kIntervalBetweenLoadingCmaps);
 
-	return NS_OK;
+    return NS_OK;
 }
 
 void
@@ -794,7 +803,7 @@ gfxMacPlatformFontList::GetStandardFamilyName(const nsAString& aFontName, nsAStr
     // convert the name to a Pascal-style Str255 to try as Quickdraw name
     Str255 qdname;
     NS_ConvertUTF16toUTF8 utf8name(aFontName);
-    qdname[0] = NS_MAX<size_t>(255, strlen(utf8name.get()));
+    qdname[0] = std::max<size_t>(255, strlen(utf8name.get()));
     memcpy(&qdname[1], utf8name.get(), qdname[0]);
 
     // look up the Quickdraw name
@@ -826,11 +835,15 @@ gfxMacPlatformFontList::GetStandardFamilyName(const nsAString& aFontName, nsAStr
 
 void
 gfxMacPlatformFontList::ATSNotification(ATSFontNotificationInfoRef aInfo,
-                                    void* aUserArg)
+                                        void* aUserArg)
 {
     // xxx - should be carefully pruning the list of fonts, not rebuilding it from scratch
-    gfxMacPlatformFontList *qfc = (gfxMacPlatformFontList*)aUserArg;
-    qfc->UpdateFontList();
+    static_cast<gfxMacPlatformFontList*>(aUserArg)->UpdateFontList();
+
+    // modify a preference that will trigger reflow everywhere
+    static const char kPrefName[] = "font.internaluseonly.changed";
+    bool fontInternalChange = Preferences::GetBool(kPrefName, false);
+    Preferences::SetBool(kPrefName, !fontInternalChange);
 }
 
 gfxFontEntry*

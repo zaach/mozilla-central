@@ -5,11 +5,6 @@
 
 Components.utils.import("resource:///modules/MigrationUtils.jsm");
 
-const DOWNLOADS_QUERY = "place:transition=" +
-  Components.interfaces.nsINavHistoryService.TRANSITION_DOWNLOAD +
-  "&sort=" +
-  Components.interfaces.nsINavHistoryQueryOptions.SORT_BY_DATE_DESCENDING;
-
 var PlacesOrganizer = {
   _places: null,
 
@@ -80,15 +75,6 @@ var PlacesOrganizer = {
     document.getElementById("placesContext")
             .removeChild(document.getElementById("placesContext_show:info"));
 
-#ifndef MOZ_PER_WINDOW_PRIVATE_BROWSING
-    gPrivateBrowsingListener.init();
-#endif
-
-    // Select the first item in the content area view.
-    let view = ContentArea.currentView;
-    let root = view.result ? view.result.root : null;
-    if (root && root.containerOpen && root.childCount >= 0)
-      view.selectNode(root.getChild(0));
     ContentArea.focus();
   },
 
@@ -121,9 +107,6 @@ var PlacesOrganizer = {
   },
 
   destroy: function PO_destroy() {
-#ifndef MOZ_PER_WINDOW_PRIVATE_BROWSING
-    gPrivateBrowsingListener.uninit();
-#endif
   },
 
   _location: null,
@@ -279,6 +262,8 @@ var PlacesOrganizer = {
    * Handle focus changes on the places list and the current content view.
    */
   updateDetailsPane: function PO_updateDetailsPane() {
+    if (!ContentArea.currentViewOptions.showDetailsPane)
+      return;
     let view = PlacesUIUtils.getViewForNode(document.activeElement);
     if (view) {
       let selectedNodes = view.selectedNode ?
@@ -1206,89 +1191,132 @@ var ViewMenu = {
   }
 }
 
-#ifndef MOZ_PER_WINDOW_PRIVATE_BROWSING
-/**
- * Disables the "Import and Backup->Import From Another Browser" menu item
- * in private browsing mode.
- */
-let gPrivateBrowsingListener = {
-  _cmd_import: null,
-
-  init: function PO_PB_init() {
-    this._cmd_import = document.getElementById("OrganizerCommand_browserImport");
-
-    let pbs = Cc["@mozilla.org/privatebrowsing;1"].
-              getService(Ci.nsIPrivateBrowsingService);
-    if (pbs.privateBrowsingEnabled)
-      this.updateUI(true);
-
-    Services.obs.addObserver(this, "private-browsing", false);
-  },
-
-  uninit: function PO_PB_uninit() {
-    Services.obs.removeObserver(this, "private-browsing");
-  },
-
-  observe: function PO_PB_observe(aSubject, aTopic, aData) {
-    if (aData == "enter")
-      this.updateUI(true);
-    else if (aData == "exit")
-      this.updateUI(false);
-  },
-
-  updateUI: function PO_PB_updateUI(PBmode) {
-    if (PBmode)
-      this._cmd_import.setAttribute("disabled", "true");
-    else
-      this._cmd_import.removeAttribute("disabled");
-  }
-};
-#endif
-
 let ContentArea = {
+  _specialViews: new Map(),
+
   init: function CA_init() {
     this._deck = document.getElementById("placesViewsDeck");
-    this._specialViews = new Map();
+    this._toolbar = document.getElementById("placesToolbar");
     ContentTree.init();
+    this._setupView();
   },
 
-  _shouldUseNewDownloadsView: function CA_shouldUseNewDownloadsView() {
-    try {
-      return Services.prefs.getBoolPref("browser.library.useNewDownloadsView");
-    }
-    catch(ex) { }
-    return false;
-  },
-
+  /**
+   * Gets the content view to be used for loading the given query.
+   * If a custom view was set by setContentViewForQueryString, that
+   * view would be returned, else the default tree view is returned
+   *
+   * @param aQueryString
+   *        a query string
+   * @return the view to be used for loading aQueryString.
+   */
   getContentViewForQueryString:
   function CA_getContentViewForQueryString(aQueryString) {
-    if (this._specialViews.has(aQueryString))
-      return this._specialViews.get(aQueryString);
-    if (aQueryString == DOWNLOADS_QUERY && this._shouldUseNewDownloadsView()) {
-      let view = new DownloadsPlacesView(document.getElementById("downloadsRichListBox"));
-      this.setContentViewForQueryString(aQueryString, view);
-      return view;
+    try {
+      if (this._specialViews.has(aQueryString)) {
+        let { view, options } = this._specialViews.get(aQueryString);
+        if (typeof view == "function") {
+          view = view();
+          this._specialViews.set(aQueryString, { view: view, options: options });
+        }
+        return view;
+      }
+    }
+    catch(ex) {
+      Components.utils.reportError(ex);
     }
     return ContentTree.view;
   },
 
+  /**
+   * Sets a custom view to be used rather than the default places tree
+   * whenever the given query is selected in the left pane.
+   * @param aQueryString
+   *        a query string
+   * @param aView
+   *        Either the custom view or a function that will return the view
+   *        the first (and only) time it's called.
+   * @param [optional] aOptions
+   *        Object defining special options for the view.
+   * @see ContentTree.viewOptions for supported options and default values.
+   */
   setContentViewForQueryString:
-  function CA_setContentViewForQueryString(aQueryString, aView) {
-    this._specialViews.set(aQueryString, aView);
+  function CA_setContentViewForQueryString(aQueryString, aView, aOptions) {
+    if (!aQueryString ||
+        typeof aView != "object" && typeof aView != "function")
+      throw new Error("Invalid arguments");
+
+    this._specialViews.set(aQueryString, { view: aView,
+                                           options: aOptions || new Object() });
   },
 
   get currentView() PlacesUIUtils.getViewForNode(this._deck.selectedPanel),
-  set currentView(aView) {
-    if (this.currentView != aView)
-      this._deck.selectedPanel = aView.associatedElement;
-    return aView;
+  set currentView(aNewView) {
+    let oldView = this.currentView;
+    if (oldView != aNewView) {
+      this._deck.selectedPanel = aNewView.associatedElement;
+
+      // If the content area inactivated view was focused, move focus
+      // to the new view.
+      if (document.activeElement == oldView.associatedElement)
+        aNewView.associatedElement.focus();
+    }
+    return aNewView;
   },
 
   get currentPlace() this.currentView.place,
   set currentPlace(aQueryString) {
-    this.currentView = this.getContentViewForQueryString(aQueryString);
-    this.currentView.place = aQueryString;
+    let oldView = this.currentView;
+    let newView = this.getContentViewForQueryString(aQueryString);
+    newView.place = aQueryString;
+    if (oldView != newView) {
+      oldView.active = false;
+      this.currentView = newView;
+      this._setupView();
+      newView.active = true;
+    }
     return aQueryString;
+  },
+
+  /**
+   * Applies view options.
+   */
+  _setupView: function CA__setupView() {
+    let options = this.currentViewOptions;
+
+    // showDetailsPane.
+    let detailsDeck = document.getElementById("detailsDeck");
+    detailsDeck.hidden = !options.showDetailsPane;
+
+    // toolbarSet.
+    for (let elt of this._toolbar.childNodes) {
+      // On Windows and Linux the menu buttons are menus wrapped in a menubar.
+      if (elt.id == "placesMenu") {
+        for (let menuElt of elt.childNodes) {
+          menuElt.hidden = options.toolbarSet.indexOf(menuElt.id) == -1;
+        }
+      }
+      else {
+        elt.hidden = options.toolbarSet.indexOf(elt.id) == -1;
+      }
+    }
+  },
+
+  /**
+   * Options for the current view.
+   *
+   * @see ContentTree.viewOptions for supported options and default values.
+   */
+  get currentViewOptions() {
+    // Use ContentTree options as default.
+    let viewOptions = ContentTree.viewOptions;
+    if (this._specialViews.has(this.currentPlace)) {
+      let { view, options } = this._specialViews.get(this.currentPlace);
+      for (let option in options) {
+        viewOptions[option] = options[option];
+      }
+    }
+    return viewOptions;
   },
 
   focus: function() {
@@ -1303,16 +1331,17 @@ let ContentTree = {
 
   get view() this._view,
 
+  get viewOptions() Object.seal({
+    showDetailsPane: true,
+    toolbarSet: "back-button, forward-button, organizeButton, viewMenu, maintenanceButton, libraryToolbarSpacer, searchFilter"
+  }),
+
   openSelectedNode: function CT_openSelectedNode(aEvent) {
     let view = this.view;
     PlacesUIUtils.openNodeWithEvent(view.selectedNode, aEvent, view);
   },
 
   onClick: function CT_onClick(aEvent) {
-    // Only handle clicks on tree children.
-    if (aEvent.target.localName != "treechildren")
-      return;
-
     let node = this.view.selectedNode;
     if (node) {
       let doubleClick = aEvent.button == 0 && aEvent.detail == 2;

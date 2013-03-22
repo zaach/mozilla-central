@@ -579,7 +579,6 @@ nsPlacesExpiration.prototype = {
 
   onVisit: function() {},
   onTitleChanged: function() {},
-  onBeforeDeleteURI: function() {},
   onDeleteURI: function() {},
   onPageChanged: function() {},
   onDeleteVisits: function() {},
@@ -631,7 +630,7 @@ nsPlacesExpiration.prototype = {
       let wholeEntry = row.getResultByName("whole_entry");
       // Dispatch expiration notifications to history.
       this._hsn.notifyOnPageExpired(uri, visitDate, wholeEntry, guid,
-                                    Ci.nsINavHistoryObserver.REASON_EXPIRED);
+                                    Ci.nsINavHistoryObserver.REASON_EXPIRED, 0);
     }
   },
 

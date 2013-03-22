@@ -9,24 +9,28 @@
 #ifndef jsgc_storebuffer_h___
 #define jsgc_storebuffer_h___
 
+#ifndef JSGC_USE_EXACT_ROOTING
+# error "Generational GC requires exact rooting."
+#endif
+
 #include "jsgc.h"
 #include "jsalloc.h"
-
-#include "gc/Marking.h"
+#include "jsobj.h"
 
 namespace js {
 namespace gc {
 
+#ifdef JS_GC_ZEAL
 /*
  * Note: this is a stub Nursery that does not actually contain a heap, just a
  * set of pointers which are "inside" the nursery to implement verification.
  */
-class Nursery
+class VerifierNursery
 {
-    HashSet<void*, PointerHasher<void*, 3>, SystemAllocPolicy> nursery;
+    HashSet<const void *, PointerHasher<const void *, 3>, SystemAllocPolicy> nursery;
 
   public:
-    Nursery() : nursery() {}
+    VerifierNursery() : nursery() {}
 
     bool enable() {
         if (!nursery.initialized())
@@ -40,7 +44,16 @@ class Nursery
         nursery.finish();
     }
 
-    bool isInside(void *cell) const {
+    bool isEnabled() const {
+        return nursery.initialized();
+    }
+
+    bool clear() {
+        disable();
+        return enable();
+    }
+
+    bool isInside(const void *cell) const {
         JS_ASSERT((uintptr_t(cell) & 0x3) == 0);
         return nursery.initialized() && nursery.has(cell);
     }
@@ -49,6 +62,7 @@ class Nursery
         nursery.putNew(cell);
     }
 };
+#endif /* JS_GC_ZEAL */
 
 /*
  * BufferableRef represents an abstract reference for use in the generational
@@ -95,6 +109,15 @@ class HashKeyRef : public BufferableRef
  */
 class StoreBuffer
 {
+#ifdef JS_GC_ZEAL
+    /* For verification, we approximate an infinitly large buffer. */
+    static const size_t ValueBufferSize = 1024 * 1024 * sizeof(Value *);
+    static const size_t CellBufferSize = 1024 * 1024 * sizeof(Cell **);
+    static const size_t SlotBufferSize = 1024 * 1024 * (sizeof(JSObject *) + 2 * sizeof(uint32_t));
+    static const size_t RelocValueBufferSize = 1 * 1024 * sizeof(Value *);
+    static const size_t RelocCellBufferSize = 1 * 1024 * sizeof(Cell **);
+    static const size_t GenericBufferSize = 1024 * 1024 * sizeof(int);
+#else
     /* TODO: profile to find the ideal size for these. */
     static const size_t ValueBufferSize = 1 * 1024 * sizeof(Value *);
     static const size_t CellBufferSize = 2 * 1024 * sizeof(Cell **);
@@ -102,6 +125,7 @@ class StoreBuffer
     static const size_t RelocValueBufferSize = 1 * 1024 * sizeof(Value *);
     static const size_t RelocCellBufferSize = 1 * 1024 * sizeof(Cell **);
     static const size_t GenericBufferSize = 1 * 1024 * sizeof(int);
+#endif
     static const size_t TotalSize = ValueBufferSize + CellBufferSize +
                                     SlotBufferSize + RelocValueBufferSize + RelocCellBufferSize +
                                     GenericBufferSize;
@@ -119,14 +143,13 @@ class StoreBuffer
         friend class StoreBuffer;
 
         StoreBuffer *owner;
-        Nursery *nursery;
 
         T *base;      /* Pointer to the start of the buffer. */
         T *pos;       /* Pointer to the current insertion position. */
         T *top;       /* Pointer to one element after the end. */
 
-        MonoTypeBuffer(StoreBuffer *owner, Nursery *nursery)
-          : owner(owner), nursery(nursery), base(NULL), pos(NULL), top(NULL)
+        MonoTypeBuffer(StoreBuffer *owner)
+          : owner(owner), base(NULL), pos(NULL), top(NULL)
         {}
 
         MonoTypeBuffer &operator=(const MonoTypeBuffer& other) MOZ_DELETE;
@@ -138,7 +161,8 @@ class StoreBuffer
         bool isFull() const { JS_ASSERT(pos <= top); return pos == top; }
 
         /* Compaction algorithms. */
-        void compactNotInSet();
+        template <typename NurseryType>
+        void compactNotInSet(NurseryType *nursery);
 
         /*
          * Attempts to reduce the usage of the buffer by removing unnecessary
@@ -162,8 +186,8 @@ class StoreBuffer
     {
         friend class StoreBuffer;
 
-        RelocatableMonoTypeBuffer(StoreBuffer *owner, Nursery *nursery)
-          : MonoTypeBuffer<T>(owner, nursery)
+        RelocatableMonoTypeBuffer(StoreBuffer *owner)
+          : MonoTypeBuffer<T>(owner)
         {}
 
         /* Override compaction to filter out removed items. */
@@ -179,14 +203,13 @@ class StoreBuffer
         friend class StoreBuffer;
 
         StoreBuffer *owner;
-        Nursery *nursery;
 
         uint8_t *base; /* Pointer to start of buffer. */
         uint8_t *pos;  /* Pointer to current buffer position. */
         uint8_t *top;  /* Pointer to one past the last entry. */
 
-        GenericBuffer(StoreBuffer *owner, Nursery *nursery)
-          : owner(owner), nursery(nursery)
+        GenericBuffer(StoreBuffer *owner)
+          : owner(owner)
         {}
 
         GenericBuffer &operator=(const GenericBuffer& other) MOZ_DELETE;
@@ -232,8 +255,9 @@ class StoreBuffer
 
         void *location() const { return (void *)edge; }
 
-        bool inRememberedSet(Nursery *n) {
-            return !n->isInside(edge) && n->isInside(*edge);
+        template <typename NurseryType>
+        bool inRememberedSet(NurseryType *nursery) const {
+            return !nursery->isInside(edge) && nursery->isInside(*edge);
         }
 
         bool isNullEdge() const {
@@ -260,8 +284,9 @@ class StoreBuffer
         void *deref() const { return edge->isGCThing() ? edge->toGCThing() : NULL; }
         void *location() const { return (void *)edge; }
 
-        bool inRememberedSet(Nursery *n) {
-            return !n->isInside(edge) && n->isInside(deref());
+        template <typename NurseryType>
+        bool inRememberedSet(NurseryType *nursery) const {
+            return !nursery->isInside(edge) && nursery->isInside(deref());
         }
 
         bool isNullEdge() const {
@@ -280,44 +305,30 @@ class StoreBuffer
 
         JSObject *object;
         uint32_t offset;
+        HeapSlot::Kind kind;
 
-        SlotEdge(JSObject *object, uint32_t offset) : object(object), offset(offset) {}
+        SlotEdge(JSObject *object, HeapSlot::Kind kind, uint32_t offset)
+          : object(object), offset(offset), kind(kind)
+        {}
 
         bool operator==(const SlotEdge &other) const {
-            return object == other.object && offset == other.offset;
+            return object == other.object && offset == other.offset && kind == other.kind;
         }
 
         bool operator!=(const SlotEdge &other) const {
-            return object != other.object || offset != other.offset;
+            return object != other.object || offset != other.offset || kind != other.kind;
         }
 
-        HeapSlot *slotLocation() const {
-            if (object->isDenseArray()) {
-                if (offset >= object->getDenseArrayInitializedLength())
-                    return NULL;
-                return (HeapSlot *)&object->getDenseArrayElement(offset);
-            }
-            if (offset >= object->slotSpan())
-                return NULL;
-            return &object->getSlotRef(offset);
-        }
+        JS_ALWAYS_INLINE HeapSlot *slotLocation() const;
 
-        void *deref() const {
-            HeapSlot *loc = slotLocation();
-            return (loc && loc->isGCThing()) ? loc->toGCThing() : NULL;
-        }
+        JS_ALWAYS_INLINE void *deref() const;
 
-        void *location() const {
-            return (void *)slotLocation();
-        }
+        JS_ALWAYS_INLINE void *location() const;
 
-        bool inRememberedSet(Nursery *n) {
-            return !n->isInside(object) && n->isInside(deref());
-        }
+        template <typename NurseryType>
+        JS_ALWAYS_INLINE bool inRememberedSet(NurseryType *nursery) const;
 
-        bool isNullEdge() const {
-            return !deref();
-        }
+        JS_ALWAYS_INLINE bool isNullEdge() const;
     };
 
     MonoTypeBuffer<ValueEdge> bufferVal;
@@ -327,7 +338,7 @@ class StoreBuffer
     RelocatableMonoTypeBuffer<CellPtrEdge> bufferRelocCell;
     GenericBuffer bufferGeneric;
 
-    Nursery *nursery;
+    JSRuntime *runtime;
 
     void *buffer;
 
@@ -341,15 +352,20 @@ class StoreBuffer
     void setOverflowed() { overflowed = true; }
 
   public:
-    StoreBuffer(Nursery *n)
-      : bufferVal(this, n), bufferCell(this, n), bufferSlot(this, n),
-        bufferRelocVal(this, n), bufferRelocCell(this, n), bufferGeneric(this, n),
-        nursery(n), buffer(NULL), overflowed(false), enabled(false)
+    StoreBuffer(JSRuntime *rt)
+      : bufferVal(this), bufferCell(this), bufferSlot(this),
+        bufferRelocVal(this), bufferRelocCell(this), bufferGeneric(this),
+        runtime(rt), buffer(NULL), overflowed(false), enabled(false)
     {}
 
     bool enable();
     void disable();
     bool isEnabled() { return enabled; }
+
+    bool clear() {
+        disable();
+        return enable();
+    }
 
     /* Get the overflowed status. */
     bool hasOverflowed() const { return overflowed; }
@@ -361,8 +377,8 @@ class StoreBuffer
     void putCell(Cell **o) {
         bufferCell.put(o);
     }
-    void putSlot(JSObject *obj, uint32_t slot) {
-        bufferSlot.put(SlotEdge(obj, slot));
+    void putSlot(JSObject *obj, HeapSlot::Kind kind, uint32_t slot) {
+        bufferSlot.put(SlotEdge(obj, kind, slot));
     }
 
     /* Insert or update a single edge in the Relocatable buffer. */

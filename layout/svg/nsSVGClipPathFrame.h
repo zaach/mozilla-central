@@ -31,11 +31,9 @@ public:
   NS_DECL_FRAMEARENA_HELPERS
 
   // nsIFrame methods:
-  NS_IMETHOD BuildDisplayList(nsDisplayListBuilder*   aBuilder,
-                              const nsRect&           aDirtyRect,
-                              const nsDisplayListSet& aLists) {
-    return NS_OK;
-  }
+  virtual void BuildDisplayList(nsDisplayListBuilder*   aBuilder,
+                                const nsRect&           aDirtyRect,
+                                const nsDisplayListSet& aLists) MOZ_OVERRIDE {}
 
   // nsSVGClipPathFrame methods:
   nsresult ClipPaint(nsRenderingContext* aContext,
@@ -58,9 +56,9 @@ public:
                               nsIAtom*        aAttribute,
                               int32_t         aModType);
 
-  NS_IMETHOD Init(nsIContent*      aContent,
-                  nsIFrame*        aParent,
-                  nsIFrame*        aPrevInFlow);
+  virtual void Init(nsIContent*      aContent,
+                    nsIFrame*        aParent,
+                    nsIFrame*        aPrevInFlow) MOZ_OVERRIDE;
 
   /**
    * Get the "type" of the frame

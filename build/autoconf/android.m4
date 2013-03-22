@@ -15,12 +15,9 @@ MOZ_ARG_WITH_STRING(android-toolchain,
                           location of the android toolchain],
     android_toolchain=$withval)
 
-dnl default gnu compiler version is 4.4.3
-android_gnu_compiler_version=4.4.3
-
 MOZ_ARG_WITH_STRING(android-gnu-compiler-version,
 [  --with-android-gnu-compiler-version=VER
-                          gnu compiler version to use, default 4.4.3],
+                          gnu compiler version to use],
     android_gnu_compiler_version=$withval)
 
 MOZ_ARG_ENABLE_BOOL(android-libstdcxx,
@@ -29,19 +26,11 @@ MOZ_ARG_ENABLE_BOOL(android-libstdcxx,
     MOZ_ANDROID_LIBSTDCXX=1,
     MOZ_ANDROID_LIBSTDCXX= )
 
-dnl default android_version is different per target cpu
-case "$target_cpu" in
-arm)
-    android_version=5
-    ;;
-i?86|mipsel)
-    android_version=9
-    ;;
-esac
+android_version=9
 
 MOZ_ARG_WITH_STRING(android-version,
 [  --with-android-version=VER
-                          android platform version, default 5 for arm, 9 for x86/mips],
+                          android platform version, default 9],
     android_version=$withval)
 
 MOZ_ARG_WITH_STRING(android-platform,
@@ -75,23 +64,32 @@ case "$target" in
 
         kernel_name=`uname -s | tr "[[:upper:]]" "[[:lower:]]"`
 
-        case "$target_cpu" in
-        arm)
-            target_name=arm-linux-androideabi-$android_gnu_compiler_version
-            ;;
-        i?86)
-            target_name=x86-$android_gnu_compiler_version
-            ;;
-        mipsel)
-            target_name=mipsel-linux-android-$android_gnu_compiler_version
-            ;;
-        esac
-        android_toolchain="$android_ndk"/toolchains/$target_name/prebuilt/$kernel_name-x86
+        for version in $android_gnu_compiler_version 4.6 4.4.3 ; do
+            case "$target_cpu" in
+            arm)
+                target_name=arm-linux-androideabi-$version
+                ;;
+            i?86)
+                target_name=x86-$version
+                ;;
+            mipsel)
+                target_name=mipsel-linux-android-$version
+                ;;
+            esac
+            android_toolchain="$android_ndk"/toolchains/$target_name/prebuilt/$kernel_name-x86
 
-        if test -d "$android_toolchain" ; then
-            AC_MSG_RESULT([$android_toolchain])
-        else
+            if test -d "$android_toolchain" ; then
+                android_gnu_compiler_version=$version
+                break
+            elif test -n "$android_gnu_compiler_version" ; then
+                AC_MSG_ERROR([not found. Your --with-android-gnu-compiler-version may be wrong.])
+            fi
+        done
+
+        if test -z "$android_gnu_compiler_version" ; then
             AC_MSG_ERROR([not found. You have to specify --with-android-toolchain=/path/to/ndk/toolchain.])
+        else
+            AC_MSG_RESULT([$android_toolchain])
         fi
     fi
 

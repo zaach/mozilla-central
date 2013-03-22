@@ -6,6 +6,7 @@
 #include "WebGLContext.h"
 #include "WebGLProgram.h"
 #include "mozilla/dom/WebGLRenderingContextBinding.h"
+#include "nsContentUtils.h"
 
 using namespace mozilla;
 
@@ -43,8 +44,8 @@ static bool SplitLastSquareBracket(nsACString& string, nsCString& bracketPart)
 }
 
 JSObject*
-WebGLProgram::WrapObject(JSContext *cx, JSObject *scope, bool *triedToWrap) {
-    return dom::WebGLProgramBinding::Wrap(cx, scope, this, triedToWrap);
+WebGLProgram::WrapObject(JSContext *cx, JSObject *scope) {
+    return dom::WebGLProgramBinding::Wrap(cx, scope, this);
 }
 
 WebGLProgram::WebGLProgram(WebGLContext *context)

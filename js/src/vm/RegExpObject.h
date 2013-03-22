@@ -14,6 +14,8 @@
 #include "jscntxt.h"
 #include "jsobj.h"
 
+#include "gc/Barrier.h"
+#include "gc/Marking.h"
 #include "js/TemplateLib.h"
 #include "vm/MatchPairs.h"
 
@@ -107,6 +109,7 @@ CloneRegExpObject(JSContext *cx, JSObject *obj, JSObject *proto);
 class RegExpShared
 {
     friend class RegExpCompartment;
+    friend class RegExpStatics;
     friend class RegExpGuard;
 
     typedef frontend::TokenStream TokenStream;
@@ -120,11 +123,12 @@ class RegExpShared
 #endif
 
     /*
-     * Source to the RegExp. Safe to hold: if the RegExpShared is active,
-     * then at least one RegExpObject must be referencing the RegExpShared,
-     * and the RegExpObject keeps alive the source JSAtom.
+     * Source to the RegExp, for lazy compilation.
+     * The source must be rooted while activeUseCount is non-zero
+     * via RegExpGuard or explicit calls to trace().
      */
     JSAtom *           source;
+
     RegExpFlag         flags;
     unsigned           parenCount;
 
@@ -149,6 +153,11 @@ class RegExpShared
     RegExpShared(JSRuntime *rt, JSAtom *source, RegExpFlag flags);
     ~RegExpShared();
 
+    /* Explicit trace function for use by the RegExpStatics and JITs. */
+    void trace(JSTracer *trc) {
+        MarkStringUnbarriered(trc, &source, "regexpshared source");
+    }
+
     /* Static functions to expose some Yarr logic. */
     static inline bool isJITRuntimeEnabled(JSContext *cx);
     static void reportYarrError(JSContext *cx, TokenStream *ts, ErrorCode error);
@@ -158,11 +167,11 @@ class RegExpShared
     inline void prepareForUse(JSContext *cx);
 
     /* Primary interface: run this regular expression on the given string. */
-    RegExpRunStatus execute(JSContext *cx, StableCharPtr chars, size_t length,
+    RegExpRunStatus execute(JSContext *cx, const jschar *chars, size_t length,
                             size_t *lastIndex, MatchPairs &matches);
 
     /* Run the regular expression without collecting matches, for test(). */
-    RegExpRunStatus executeMatchOnly(JSContext *cx, StableCharPtr chars, size_t length,
+    RegExpRunStatus executeMatchOnly(JSContext *cx, const jschar *chars, size_t length,
                                      size_t *lastIndex, MatchPair &match);
 
     /* Accessors */
@@ -198,22 +207,26 @@ class RegExpShared
 class RegExpGuard
 {
     RegExpShared *re_;
+
+    /*
+     * Prevent the RegExp source from being collected:
+     * because RegExpShared objects compile at execution time, the source
+     * must remain rooted for the active lifetime of the RegExpShared.
+     */
+    RootedAtom source_;
+
     RegExpGuard(const RegExpGuard &) MOZ_DELETE;
     void operator=(const RegExpGuard &) MOZ_DELETE;
+
   public:
-    RegExpGuard() : re_(NULL) {}
-    RegExpGuard(RegExpShared &re) : re_(&re) {
-        re_->incRef();
-    }
-    void init(RegExpShared &re) {
-        JS_ASSERT(!re_);
-        re_ = &re;
-        re_->incRef();
-    }
-    ~RegExpGuard() {
-        if (re_)
-            re_->decRef();
-    }
+    inline RegExpGuard(JSContext *cx);
+    inline RegExpGuard(JSContext *cx, RegExpShared &re);
+    inline ~RegExpGuard();
+
+  public:
+    inline void init(RegExpShared &re);
+    inline void release();
+
     bool initialized() const { return !!re_; }
     RegExpShared *re() const { JS_ASSERT(initialized()); return re_; }
     RegExpShared *operator->() { return re(); }
@@ -225,9 +238,12 @@ class RegExpCompartment
     struct Key {
         JSAtom *atom;
         uint16_t flag;
+
         Key() {}
         Key(JSAtom *atom, RegExpFlag flag)
-          : atom(atom), flag(flag) {}
+          : atom(atom), flag(flag)
+        { }
+
         typedef Key Lookup;
         static HashNumber hash(const Lookup &l) {
             return DefaultHasher<JSAtom *>::hash(l.atom) ^ (l.flag << 1);
@@ -262,7 +278,7 @@ class RegExpCompartment
     bool get(JSContext *cx, JSAtom *source, RegExpFlag flags, RegExpGuard *g);
 
     /* Like 'get', but compile 'maybeOpt' (if non-null). */
-    bool get(JSContext *cx, JSAtom *source, JSString *maybeOpt, RegExpGuard *g);
+    bool get(JSContext *cx, HandleAtom source, JSString *maybeOpt, RegExpGuard *g);
 
     size_t sizeOfExcludingThis(JSMallocSizeOfFun mallocSizeOf);
 };
@@ -285,17 +301,19 @@ class RegExpObject : public JSObject
      * execution, as opposed to during something like XDR.
      */
     static RegExpObject *
-    create(JSContext *cx, RegExpStatics *res, StableCharPtr chars, size_t length,
+    create(JSContext *cx, RegExpStatics *res, const jschar *chars, size_t length,
            RegExpFlag flags, frontend::TokenStream *ts);
 
     static RegExpObject *
-    createNoStatics(JSContext *cx, StableCharPtr chars, size_t length, RegExpFlag flags,
+    createNoStatics(JSContext *cx, const jschar *chars, size_t length, RegExpFlag flags,
                     frontend::TokenStream *ts);
 
     static RegExpObject *
     createNoStatics(JSContext *cx, HandleAtom atom, RegExpFlag flags, frontend::TokenStream *ts);
 
     /* Accessors. */
+
+    static unsigned lastIndexSlot() { return LAST_INDEX_SLOT; }
 
     const Value &getLastIndex() const { return getSlot(LAST_INDEX_SLOT); }
     inline void setLastIndex(double d);
@@ -338,9 +356,9 @@ class RegExpObject : public JSObject
      * encoding their initial properties. Return the shape after
      * changing this regular expression object's last property to it.
      */
-    UnrootedShape assignInitialShape(JSContext *cx);
+    RawShape assignInitialShape(JSContext *cx);
 
-    inline bool init(JSContext *cx, HandleAtom source, RegExpFlag flags);
+    bool init(JSContext *cx, HandleAtom source, RegExpFlag flags);
 
     /*
      * Precondition: the syntax for |source| has already been validated.

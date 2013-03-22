@@ -8,6 +8,8 @@
 #include "WMFDecoder.h"
 #include "WMFUtils.h"
 #include "WMFByteStream.h"
+#include "WMFSourceReaderCallback.h"
+#include "mozilla/dom/TimeRanges.h"
 
 #ifndef MOZ_SAMPLE_TYPE_FLOAT32
 #error We expect 32bit float audio samples on desktop for the Windows Media Foundation media backend.
@@ -28,13 +30,12 @@ extern PRLogModuleInfo* gMediaDecoderLog;
 // Uncomment to enable verbose per-sample logging.
 //#define LOG_SAMPLE_DECODE 1
 
-WMFReader::WMFReader(MediaDecoder* aDecoder)
+WMFReader::WMFReader(AbstractMediaDecoder* aDecoder)
   : MediaDecoderReader(aDecoder),
     mSourceReader(nullptr),
     mAudioChannels(0),
     mAudioBytesPerSample(0),
     mAudioRate(0),
-    mVideoWidth(0),
     mVideoHeight(0),
     mVideoStride(0),
     mHasAudio(false),
@@ -52,10 +53,10 @@ WMFReader::~WMFReader()
   // Note: We must shutdown the byte stream before calling MFShutdown, else we
   // get assertion failures when unlocking the byte stream's work queue.
   if (mByteStream) {
-    nsresult rv = mByteStream->Shutdown();
+    DebugOnly<nsresult> rv = mByteStream->Shutdown();
     NS_ASSERTION(NS_SUCCEEDED(rv), "Failed to shutdown WMFByteStream");
   }
-  HRESULT hr = wmf::MFShutdown();
+  DebugOnly<HRESULT> hr = wmf::MFShutdown();
   NS_ASSERTION(SUCCEEDED(hr), "MFShutdown failed");
   MOZ_COUNT_DTOR(WMFReader);
 }
@@ -65,7 +66,7 @@ WMFReader::OnDecodeThreadStart()
 {
   NS_ASSERTION(mDecoder->OnDecodeThread(), "Should be on decode thread.");
   HRESULT hr = CoInitializeEx(0, COINIT_MULTITHREADED);
-  NS_ENSURE_TRUE(SUCCEEDED(hr), );
+  NS_ENSURE_TRUE_VOID(SUCCEEDED(hr));
 }
 
 void
@@ -88,9 +89,10 @@ WMFReader::Init(MediaDecoderReader* aCloneDonor)
     return NS_ERROR_FAILURE;
   }
 
-  // Must be created on main thread.
-  mByteStream = new WMFByteStream(mDecoder->GetResource());
+  mSourceReaderCallback = new WMFSourceReaderCallback();
 
+  // Must be created on main thread.
+  mByteStream = new WMFByteStream(mDecoder->GetResource(), mSourceReaderCallback);
   return mByteStream->Init();
 }
 
@@ -118,12 +120,12 @@ ConfigureSourceReaderStream(IMFSourceReader *aReader,
   NS_ENSURE_TRUE(aReader, E_POINTER);
   NS_ENSURE_TRUE(aAllowedInSubTypes, E_POINTER);
 
-  IMFMediaTypePtr nativeType;
-  IMFMediaTypePtr type;
+  RefPtr<IMFMediaType> nativeType;
+  RefPtr<IMFMediaType> type;
   HRESULT hr;
 
   // Find the native format of the stream.
-  hr = aReader->GetNativeMediaType(aStreamIndex, 0, &nativeType);
+  hr = aReader->GetNativeMediaType(aStreamIndex, 0, byRef(nativeType));
   NS_ENSURE_TRUE(SUCCEEDED(hr), hr);
 
   // Get the native output subtype of the stream. This denotes the uncompressed
@@ -152,7 +154,7 @@ ConfigureSourceReaderStream(IMFSourceReader *aReader,
   NS_ENSURE_TRUE(SUCCEEDED(hr), hr);
 
   // Define the output type.
-  hr = wmf::MFCreateMediaType(&type);
+  hr = wmf::MFCreateMediaType(byRef(type));
   NS_ENSURE_TRUE(SUCCEEDED(hr), hr);
 
   hr = type->SetGUID(MF_MT_MAJOR_TYPE, majorType);
@@ -234,7 +236,114 @@ GetDefaultStride(IMFMediaType *aType, uint32_t* aOutStride)
   return hr;
 }
 
-void
+static int32_t
+MFOffsetToInt32(const MFOffset& aOffset)
+{
+  return int32_t(aOffset.value + (aOffset.fract / 65536.0f));
+}
+
+// Gets the sub-region of the video frame that should be displayed.
+// See: http://msdn.microsoft.com/en-us/library/windows/desktop/bb530115(v=vs.85).aspx
+static HRESULT
+GetPictureRegion(IMFMediaType* aMediaType, nsIntRect& aOutPictureRegion)
+{
+  // Determine if "pan and scan" is enabled for this media. If it is, we
+  // only display a region of the video frame, not the entire frame.
+  BOOL panScan = MFGetAttributeUINT32(aMediaType, MF_MT_PAN_SCAN_ENABLED, FALSE);
+
+  // If pan and scan mode is enabled. Try to get the display region.
+  HRESULT hr = E_FAIL;
+  MFVideoArea videoArea;
+  memset(&videoArea, 0, sizeof(MFVideoArea));
+  if (panScan) {
+    hr = aMediaType->GetBlob(MF_MT_PAN_SCAN_APERTURE,
+                             (UINT8*)&videoArea,
+                             sizeof(MFVideoArea),
+                             NULL);
+  }
+
+  // If we're not in pan-and-scan mode, or the pan-and-scan region is not set,
+  // check for a minimimum display aperture.
+  if (!panScan || hr == MF_E_ATTRIBUTENOTFOUND) {
+    hr = aMediaType->GetBlob(MF_MT_MINIMUM_DISPLAY_APERTURE,
+                             (UINT8*)&videoArea,
+                             sizeof(MFVideoArea),
+                             NULL);
+  }
+
+  if (hr == MF_E_ATTRIBUTENOTFOUND) {
+    // Minimum display aperture is not set, for "backward compatibility with
+    // some components", check for a geometric aperture.
+    hr = aMediaType->GetBlob(MF_MT_GEOMETRIC_APERTURE,
+                             (UINT8*)&videoArea,
+                             sizeof(MFVideoArea),
+                             NULL);
+  }
+
+  if (SUCCEEDED(hr)) {
+    // The media specified a picture region, return it.
+    aOutPictureRegion = nsIntRect(MFOffsetToInt32(videoArea.OffsetX),
+                                  MFOffsetToInt32(videoArea.OffsetY),
+                                  videoArea.Area.cx,
+                                  videoArea.Area.cy);
+    return S_OK;
+  }
+
+  // No picture region defined, fall back to using the entire video area.
+  UINT32 width = 0, height = 0;
+  hr = MFGetAttributeSize(aMediaType, MF_MT_FRAME_SIZE, &width, &height);
+  NS_ENSURE_TRUE(SUCCEEDED(hr), hr);
+  aOutPictureRegion = nsIntRect(0, 0, width, height);
+  return S_OK;
+}
+
+HRESULT
+WMFReader::ConfigureVideoFrameGeometry(IMFMediaType* aMediaType)
+{
+  NS_ENSURE_TRUE(aMediaType != nullptr, E_POINTER);
+
+  nsIntRect pictureRegion;
+  HRESULT hr = GetPictureRegion(aMediaType, pictureRegion);
+  NS_ENSURE_TRUE(SUCCEEDED(hr), hr);
+
+  UINT32 width = 0, height = 0;
+  hr = MFGetAttributeSize(aMediaType, MF_MT_FRAME_SIZE, &width, &height);
+  NS_ENSURE_TRUE(SUCCEEDED(hr), hr);
+
+  uint32_t aspectNum = 0, aspectDenom = 0;
+  hr = MFGetAttributeRatio(aMediaType,
+                           MF_MT_PIXEL_ASPECT_RATIO,
+                           &aspectNum,
+                           &aspectDenom);
+  NS_ENSURE_TRUE(SUCCEEDED(hr), hr);
+
+  // Calculate and validate the picture region and frame dimensions after
+  // scaling by the pixel aspect ratio.
+  nsIntSize frameSize = nsIntSize(width, height);
+  nsIntSize displaySize = nsIntSize(pictureRegion.width, pictureRegion.height);
+  ScaleDisplayByAspectRatio(displaySize, float(aspectNum) / float(aspectDenom));
+  if (!VideoInfo::ValidateVideoRegion(frameSize, pictureRegion, displaySize)) {
+    // Video track's frame sizes will overflow. Ignore the video track.
+    return E_FAIL;
+  }
+
+  // Success! Save state.
+  mInfo.mDisplay = displaySize;
+  GetDefaultStride(aMediaType, &mVideoStride);
+  mVideoHeight = height;
+  mPictureRegion = pictureRegion;
+
+  LOG("WMFReader frame geometry frame=(%u,%u) stride=%u picture=(%d, %d, %d, %d) display=(%d,%d) PAR=%d:%d",
+      width, height,
+      mVideoStride,
+      mPictureRegion.x, mPictureRegion.y, mPictureRegion.width, mPictureRegion.height,
+      displaySize.width, displaySize.height,
+      aspectNum, aspectDenom);
+
+  return S_OK;
+}
+
+HRESULT
 WMFReader::ConfigureVideoDecoder()
 {
   NS_ASSERTION(mSourceReader, "Must have a SourceReader before configuring decoders!");
@@ -242,7 +351,8 @@ WMFReader::ConfigureVideoDecoder()
   // Determine if we have video.
   if (!mSourceReader ||
       !SourceReaderHasStream(mSourceReader, MF_SOURCE_READER_FIRST_VIDEO_STREAM)) {
-    return;
+    // No stream, no error.
+    return S_OK;
   }
 
   static const GUID MP4VideoTypes[] = {
@@ -255,81 +365,60 @@ WMFReader::ConfigureVideoDecoder()
                                            NS_ARRAY_LENGTH(MP4VideoTypes));
   if (FAILED(hr)) {
     LOG("Failed to configured video output for MFVideoFormat_YV12");
-    return;
+    return hr;
   }
 
-  IMFMediaTypePtr mediaType;
+  RefPtr<IMFMediaType> mediaType;
   hr = mSourceReader->GetCurrentMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM,
-                                          &mediaType);
+                                          byRef(mediaType));
   if (FAILED(hr)) {
     NS_WARNING("Failed to get configured video media type");
-    return;
+    return hr;
   }
 
-  if (FAILED(MFGetAttributeSize(mediaType, MF_MT_FRAME_SIZE, &mVideoWidth, &mVideoHeight))) {
-    NS_WARNING("WMF video decoder failed to get frame dimensions!");
-    return;
+  if (FAILED(ConfigureVideoFrameGeometry(mediaType))) {
+    NS_WARNING("Failed configured video frame dimensions");
+    return hr;
   }
-
-  LOG("Video frame %u x %u", mVideoWidth, mVideoHeight);
-  uint32_t aspectNum = 0, aspectDenom = 0;
-  if (FAILED(MFGetAttributeRatio(mediaType,
-                                 MF_MT_PIXEL_ASPECT_RATIO,
-                                 &aspectNum,
-                                 &aspectDenom))) {
-    NS_WARNING("WMF video decoder failed to get pixel aspect ratio!");
-    return;
-  }
-  LOG("Video aspect ratio %u x %u", aspectNum, aspectDenom);
-
-  GetDefaultStride(mediaType, &mVideoStride);
-
-  // Calculate and validate the frame size.
-  nsIntSize frameSize = nsIntSize(mVideoWidth, mVideoHeight);
-  nsIntRect pictureRegion = nsIntRect(0, 0, mVideoWidth, mVideoHeight);
-  nsIntSize displaySize = frameSize;
-  ScaleDisplayByAspectRatio(displaySize, float(aspectNum)/float(aspectDenom));
-  if (!VideoInfo::ValidateVideoRegion(frameSize, pictureRegion, displaySize)) {
-    // Video track's frame sizes will overflow. Ignore the video track.
-    return;
-  }
-  mInfo.mDisplay = displaySize;
 
   LOG("Successfully configured video stream");
 
   mHasVideo = mInfo.mHasVideo = true;
+
+  return S_OK;
 }
 
-void
+HRESULT
 WMFReader::ConfigureAudioDecoder()
 {
   NS_ASSERTION(mSourceReader, "Must have a SourceReader before configuring decoders!");
 
   if (!mSourceReader ||
       !SourceReaderHasStream(mSourceReader, MF_SOURCE_READER_FIRST_AUDIO_STREAM)) {
-    // No audio stream.
-    return;
+    // No stream, no error.
+    return S_OK;
   }
 
   static const GUID MP4AudioTypes[] = {
     MFAudioFormat_AAC,
     MFAudioFormat_MP3
   };
-  if (FAILED(ConfigureSourceReaderStream(mSourceReader,
-                                         MF_SOURCE_READER_FIRST_AUDIO_STREAM,
-                                         MFAudioFormat_Float,
-                                         MP4AudioTypes,
-                                         NS_ARRAY_LENGTH(MP4AudioTypes)))) {
+  HRESULT hr = ConfigureSourceReaderStream(mSourceReader,
+                                           MF_SOURCE_READER_FIRST_AUDIO_STREAM,
+                                           MFAudioFormat_Float,
+                                           MP4AudioTypes,
+                                           NS_ARRAY_LENGTH(MP4AudioTypes));
+  if (FAILED(hr)) {
     NS_WARNING("Failed to configure WMF Audio decoder for PCM output");
-    return;
+    return hr;
   }
 
-  IMFMediaTypePtr mediaType;
-  HRESULT hr = mSourceReader->GetCurrentMediaType(MF_SOURCE_READER_FIRST_AUDIO_STREAM,
-                                                  &mediaType);
+  RefPtr<IMFMediaType> mediaType;
+  hr = mSourceReader->GetCurrentMediaType(MF_SOURCE_READER_FIRST_AUDIO_STREAM,
+                                          byRef(mediaType));
   if (FAILED(hr)) {
     NS_WARNING("Failed to get configured audio media type");
-    return;
+    return hr;
   }
 
   mAudioRate = MFGetAttributeUINT32(mediaType, MF_MT_AUDIO_SAMPLES_PER_SECOND, 0);
@@ -342,6 +431,8 @@ WMFReader::ConfigureAudioDecoder()
 
   LOG("Successfully configured audio stream. rate=%u channels=%u bitsPerSample=%u",
       mAudioRate, mAudioChannels, mAudioBytesPerSample);
+
+  return S_OK;
 }
 
 nsresult
@@ -353,11 +444,21 @@ WMFReader::ReadMetadata(VideoInfo* aInfo,
   LOG("WMFReader::ReadMetadata()");
   HRESULT hr;
 
-  hr = wmf::MFCreateSourceReaderFromByteStream(mByteStream, NULL, &mSourceReader);
+  RefPtr<IMFAttributes> attr;
+  hr = wmf::MFCreateAttributes(byRef(attr), 1);
   NS_ENSURE_TRUE(SUCCEEDED(hr), NS_ERROR_FAILURE);
 
-  ConfigureVideoDecoder();
-  ConfigureAudioDecoder();
+  hr = attr->SetUnknown(MF_SOURCE_READER_ASYNC_CALLBACK, mSourceReaderCallback);
+  NS_ENSURE_TRUE(SUCCEEDED(hr), NS_ERROR_FAILURE);
+
+  hr = wmf::MFCreateSourceReaderFromByteStream(mByteStream, attr, byRef(mSourceReader));
+  NS_ENSURE_TRUE(SUCCEEDED(hr), NS_ERROR_FAILURE);
+
+  hr = ConfigureVideoDecoder();
+  NS_ENSURE_TRUE(SUCCEEDED(hr), NS_ERROR_FAILURE);
+
+  hr = ConfigureAudioDecoder();
+  NS_ENSURE_TRUE(SUCCEEDED(hr), NS_ERROR_FAILURE);
 
   // Abort if both video and audio failed to initialize.
   NS_ENSURE_TRUE(mInfo.mHasAudio || mInfo.mHasVideo, NS_ERROR_FAILURE);
@@ -392,28 +493,43 @@ WMFReader::DecodeAudioData()
 {
   NS_ASSERTION(mDecoder->OnDecodeThread(), "Should be on decode thread.");
 
-  DWORD flags;
-  LONGLONG timestampHns;
   HRESULT hr;
-
-  IMFSamplePtr sample;
   hr = mSourceReader->ReadSample(MF_SOURCE_READER_FIRST_AUDIO_STREAM,
                                  0, // control flags
-                                 nullptr, // read stream index
-                                 &flags,
-                                 &timestampHns,
-                                 &sample);
+                                 0, // read stream index
+                                 nullptr,
+                                 nullptr,
+                                 nullptr);
 
-  if (FAILED(hr) ||
-      (flags & MF_SOURCE_READERF_ERROR) ||
-      (flags & MF_SOURCE_READERF_ENDOFSTREAM)) {
-    // End of stream.
+  if (FAILED(hr)) {
+    LOG("WMFReader::DecodeAudioData() ReadSample failed with hr=0x%x", hr);
+    // End the stream.
     mAudioQueue.Finish();
     return false;
   }
 
-  IMFMediaBufferPtr buffer;
-  hr = sample->ConvertToContiguousBuffer(&buffer);
+  DWORD flags = 0;
+  LONGLONG timestampHns = 0;
+  RefPtr<IMFSample> sample;
+  hr = mSourceReaderCallback->Wait(&flags, &timestampHns, byRef(sample));
+  if (FAILED(hr) ||
+      (flags & MF_SOURCE_READERF_ERROR) ||
+      (flags & MF_SOURCE_READERF_ENDOFSTREAM) ||
+      (flags & MF_SOURCE_READERF_CURRENTMEDIATYPECHANGED)) {
+    LOG("WMFReader::DecodeAudioData() ReadSample failed with hr=0x%x flags=0x%x",
+        hr, flags);
+    // End the stream.
+    mAudioQueue.Finish();
+    return false;
+  }
+
+  if (!sample) {
+    // Not enough data? Try again...
+    return true;
+  }
+
+  RefPtr<IMFMediaBuffer> buffer;
+  hr = sample->ConvertToContiguousBuffer(byRef(buffer));
   NS_ENSURE_TRUE(SUCCEEDED(hr), false);
 
   BYTE* data = nullptr; // Note: *data will be owned by the IMFMediaBuffer, we don't need to free it.
@@ -457,17 +573,26 @@ WMFReader::DecodeVideoFrame(bool &aKeyframeSkip,
   uint32_t parsed = 0, decoded = 0;
   AbstractMediaDecoder::AutoNotifyDecoded autoNotify(mDecoder, parsed, decoded);
 
-  DWORD flags;
-  LONGLONG timestampHns;
   HRESULT hr;
 
-  IMFSamplePtr sample;
   hr = mSourceReader->ReadSample(MF_SOURCE_READER_FIRST_VIDEO_STREAM,
                                  0, // control flags
-                                 nullptr, // read stream index
-                                 &flags,
-                                 &timestampHns,
-                                 &sample);
+                                 0, // read stream index
+                                 nullptr,
+                                 nullptr,
+                                 nullptr);
+  if (FAILED(hr)) {
+    LOG("WMFReader::DecodeVideoData() ReadSample failed with hr=0x%x", hr);
+    // End the stream.
+    mVideoQueue.Finish();
+    return false;
+  }
+
+  DWORD flags = 0;
+  LONGLONG timestampHns = 0;
+  RefPtr<IMFSample> sample;
+  hr = mSourceReaderCallback->Wait(&flags, &timestampHns, byRef(sample));
+
   if (flags & MF_SOURCE_READERF_ERROR) {
     NS_WARNING("WMFReader: Catastrophic failure reading video sample");
     // Future ReadSample() calls will fail, so give up and report end of stream.
@@ -483,12 +608,25 @@ WMFReader::DecodeVideoFrame(bool &aKeyframeSkip,
   if (!sample) {
     if ((flags & MF_SOURCE_READERF_ENDOFSTREAM)) {
       LOG("WMFReader; Null sample after video decode, at end of stream");
-      // End of stream.
+      // End the stream.
       mVideoQueue.Finish();
       return false;
     }
     LOG("WMFReader; Null sample after video decode. Maybe insufficient data...");
     return true;
+  }
+
+  if ((flags & MF_SOURCE_READERF_CURRENTMEDIATYPECHANGED)) {
+    LOG("WMFReader: Video media type changed!");
+    RefPtr<IMFMediaType> mediaType;
+    hr = mSourceReader->GetCurrentMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM,
+                                            byRef(mediaType));
+    if (FAILED(hr) ||
+        FAILED(ConfigureVideoFrameGeometry(mediaType))) {
+      NS_WARNING("Failed to reconfigure video media type");
+      mVideoQueue.Finish();
+      return false;
+    }
   }
 
   int64_t timestamp = HNsToUsecs(timestampHns);
@@ -498,10 +636,10 @@ WMFReader::DecodeVideoFrame(bool &aKeyframeSkip,
   int64_t offset = mDecoder->GetResource()->Tell();
   int64_t duration = GetSampleDuration(sample);
 
-  IMFMediaBufferPtr buffer;
+  RefPtr<IMFMediaBuffer> buffer;
 
   // Must convert to contiguous buffer to use IMD2DBuffer interface.
-  hr = sample->ConvertToContiguousBuffer(&buffer);
+  hr = sample->ConvertToContiguousBuffer(byRef(buffer));
   if (FAILED(hr)) {
     NS_WARNING("ConvertToContiguousBuffer() failed!");
     return true;
@@ -512,8 +650,9 @@ WMFReader::DecodeVideoFrame(bool &aKeyframeSkip,
   // but only some systems (Windows 8?) support it.
   BYTE* data = nullptr;
   LONG stride = 0;
-  IMF2DBufferPtr twoDBuffer = buffer;
-  if (twoDBuffer) {
+  RefPtr<IMF2DBuffer> twoDBuffer;
+  hr = buffer->QueryInterface(static_cast<IMF2DBuffer**>(byRef(twoDBuffer)));
+  if (SUCCEEDED(hr)) {
     hr = twoDBuffer->Lock2D(&data, &stride);
     NS_ENSURE_TRUE(SUCCEEDED(hr), false);
   } else {
@@ -569,7 +708,7 @@ WMFReader::DecodeVideoFrame(bool &aKeyframeSkip,
                                    b,
                                    false,
                                    -1,
-                                   nsIntRect(0, 0, mVideoWidth, mVideoHeight));
+                                   mPictureRegion);
   if (twoDBuffer) {
     twoDBuffer->Unlock2D();
   } else {
@@ -585,8 +724,8 @@ WMFReader::DecodeVideoFrame(bool &aKeyframeSkip,
   mVideoQueue.Push(v);
 
   #ifdef LOG_SAMPLE_DECODE
-  LOG("Decoded video sample timestamp=%lld duration=%lld stride=%d width=%u height=%u flags=%u",
-      timestamp, duration, stride, mVideoWidth, mVideoHeight, flags);
+  LOG("Decoded video sample timestamp=%lld duration=%lld stride=%d height=%u flags=%u",
+      timestamp, duration, stride, mVideoHeight, flags);
   #endif
 
   if ((flags & MF_SOURCE_READERF_ENDOFSTREAM)) {
@@ -626,7 +765,7 @@ WMFReader::Seek(int64_t aTargetUs,
 }
 
 nsresult
-WMFReader::GetBuffered(nsTimeRanges* aBuffered, int64_t aStartTime)
+WMFReader::GetBuffered(mozilla::dom::TimeRanges* aBuffered, int64_t aStartTime)
 {
   MediaResource* stream = mDecoder->GetResource();
   int64_t durationUs = 0;

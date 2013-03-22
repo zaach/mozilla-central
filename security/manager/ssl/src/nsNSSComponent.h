@@ -16,13 +16,15 @@
 #include "nsIEntropyCollector.h"
 #include "nsString.h"
 #include "nsIStringBundle.h"
-#include "nsIDOMEventTarget.h"
 #include "nsIPrefBranch.h"
 #include "nsIObserver.h"
 #include "nsIObserverService.h"
 #include "nsWeakReference.h"
 #include "nsIScriptSecurityManager.h"
+#ifndef MOZ_DISABLE_CRYPTOLEGACY
+#include "nsIDOMEventTarget.h"
 #include "nsSmartCardMonitor.h"
+#endif
 #include "nsINSSErrorsService.h"
 #include "nsITimer.h"
 #include "nsNetUtil.h"
@@ -41,7 +43,6 @@
 {0xa277189c, 0x1dd1, 0x11b2, {0xa8, 0xc9, 0xe4, 0xe8, 0xbf, 0xb1, 0x33, 0x8e}}
 
 #define PSM_COMPONENT_CONTRACTID "@mozilla.org/psm;1"
-#define PSM_COMPONENT_CLASSNAME "Mozilla PSM Component"
 
 //Define an interface that we can use to look up from the
 //callbacks passed to NSS.
@@ -53,11 +54,7 @@
 
 #define NS_PSMCONTENTLISTEN_CID {0xc94f4a30, 0x64d7, 0x11d4, {0x99, 0x60, 0x00, 0xb0, 0xd0, 0x23, 0x54, 0xa0}}
 #define NS_PSMCONTENTLISTEN_CONTRACTID "@mozilla.org/security/psmdownload;1"
-
-#define NS_CRYPTO_HASH_CLASSNAME "Mozilla Crypto Hash Function Component"
 #define NS_CRYPTO_HASH_CID {0x36a1d3b3, 0xd886, 0x4317, {0x96, 0xff, 0x87, 0xb0, 0x00, 0x5c, 0xfe, 0xf7}}
-
-#define NS_CRYPTO_HMAC_CLASSNAME "Mozilla Crypto HMAC Function Component"
 #define NS_CRYPTO_HMAC_CID {0xa496d0a2, 0xdff7, 0x4e23, {0xbd, 0x65, 0x1c, 0xa7, 0x42, 0xfa, 0x17, 0x8a}}
 
 enum EnsureNSSOperator
@@ -146,6 +143,7 @@ class NS_NO_VTABLE nsINSSComponent : public nsISupports {
   
   NS_IMETHOD LogoutAuthenticatedPK11() = 0;
 
+#ifndef MOZ_DISABLE_CRYPTOLEGACY
   NS_IMETHOD LaunchSmartCardThread(SECMODModule *module) = 0;
 
   NS_IMETHOD ShutdownSmartCardThread(SECMODModule *module) = 0;
@@ -153,6 +151,7 @@ class NS_NO_VTABLE nsINSSComponent : public nsISupports {
   NS_IMETHOD PostEvent(const nsAString &eventType, const nsAString &token) = 0;
 
   NS_IMETHOD DispatchEvent(const nsAString &eventType, const nsAString &token) = 0;
+#endif
   
   NS_IMETHOD EnsureIdentityInfoLoaded() = 0;
 
@@ -253,10 +252,15 @@ public:
   NS_IMETHOD DownloadCRLDirectly(nsAutoString, nsAutoString);
   NS_IMETHOD RememberCert(CERTCertificate *cert);
 
+#ifndef MOZ_DISABLE_CRYPTOLEGACY
   NS_IMETHOD LaunchSmartCardThread(SECMODModule *module);
   NS_IMETHOD ShutdownSmartCardThread(SECMODModule *module);
   NS_IMETHOD PostEvent(const nsAString &eventType, const nsAString &token);
   NS_IMETHOD DispatchEvent(const nsAString &eventType, const nsAString &token);
+  void LaunchSmartCardThreads();
+  void ShutdownSmartCardThreads();
+  nsresult DispatchEventToWindow(nsIDOMWindow *domWin, const nsAString &eventType, const nsAString &token);
+#endif
   NS_IMETHOD EnsureIdentityInfoLoaded();
   NS_IMETHOD IsNSSInitialized(bool *initialized);
 
@@ -267,7 +271,7 @@ public:
 private:
 
   nsresult InitializeNSS(bool showWarningBox);
-  nsresult ShutdownNSS();
+  void ShutdownNSS();
 
 #ifdef XP_MACOSX
   void TryCFM2MachOMigration(nsIFile *cfmPath, nsIFile *machoPath);
@@ -275,8 +279,6 @@ private:
   
   void InstallLoadableRoots();
   void UnloadLoadableRoots();
-  void LaunchSmartCardThreads();
-  void ShutdownSmartCardThreads();
   void CleanupIdentityInfo();
   void setValidationOptions(nsIPrefBranch * pref);
   nsresult InitializePIPNSSBundle();
@@ -287,11 +289,9 @@ private:
   nsresult DownloadCrlSilently();
   nsresult PostCRLImportEvent(const nsCSubstring &urlString, nsIStreamListener *psmDownloader);
   nsresult getParamsForNextCrlToDownload(nsAutoString *url, PRTime *time, nsAutoString *key);
-  nsresult DispatchEventToWindow(nsIDOMWindow *domWin, const nsAString &eventType, const nsAString &token);
 
   // Methods that we use to handle the profile change notifications (and to
   // synthesize a full profile change when we're just doing a profile startup):
-  void DoProfileApproveChange(nsISupports* aSubject);
   void DoProfileChangeNetTeardown();
   void DoProfileChangeTeardown(nsISupports* aSubject);
   void DoProfileBeforeChange(nsISupports* aSubject);
@@ -316,7 +316,9 @@ private:
   bool mUpdateTimerInitialized;
   static int mInstanceCount;
   nsNSSShutDownList *mShutdownObjectList;
+#ifndef MOZ_DISABLE_CRYPTOLEGACY
   SmartCardThreadList *mThreadList;
+#endif
   bool mIsNetworkDown;
 
   void deleteBackgroundThreads();

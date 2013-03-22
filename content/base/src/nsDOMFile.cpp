@@ -178,6 +178,9 @@ NS_IMETHODIMP
 nsDOMFileBase::GetMozLastModifiedDate(uint64_t* aLastModifiedDate)
 {
   NS_ASSERTION(mIsFile, "Should only be called on files");
+  if (IsDateUnknown()) {
+    mLastModificationDate = PR_Now();
+  }
   *aLastModifiedDate = mLastModificationDate;
   return NS_OK;
 }
@@ -450,7 +453,10 @@ NS_IMPL_THREADSAFE_RELEASE(nsDOMFile)
 ////////////////////////////////////////////////////////////////////////////
 // nsDOMFileCC implementation
 
-NS_IMPL_CYCLE_COLLECTION_0(nsDOMFileCC)
+NS_IMPL_CYCLE_COLLECTION_UNLINK_0(nsDOMFileCC)
+NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(nsDOMFileCC)
+  // We don't have anything to traverse, but some of our subclasses do.
+NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 
 NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION(nsDOMFileCC)
   NS_INTERFACE_MAP_ENTRY_AMBIGUOUS(nsISupports, nsIDOMFile)
@@ -489,7 +495,6 @@ nsDOMFileFile::GetLastModifiedDate(JSContext* cx, JS::Value* aLastModifiedDate)
   NS_ASSERTION(mIsFile, "Should only be called on files");
 
   PRTime msecs;
-  mFile->GetLastModifiedTime(&msecs);
   if (IsDateUnknown()) {
     nsresult rv = mFile->GetLastModifiedTime(&msecs);
     NS_ENSURE_SUCCESS(rv, rv);
@@ -562,6 +567,12 @@ NS_IMETHODIMP
 nsDOMFileFile::GetMozLastModifiedDate(uint64_t* aLastModifiedDate)
 {
   NS_ASSERTION(mIsFile, "Should only be called on files");
+  if (IsDateUnknown()) {
+    PRTime msecs;
+    nsresult rv = mFile->GetLastModifiedTime(&msecs);
+    NS_ENSURE_SUCCESS(rv, rv);
+    mLastModificationDate = msecs;
+  }
   *aLastModifiedDate = mLastModificationDate;
   return NS_OK;
 }
@@ -607,8 +618,7 @@ nsDOMMemoryFile::DataOwner::sDataOwners;
 /* static */ bool
 nsDOMMemoryFile::DataOwner::sMemoryReporterRegistered;
 
-NS_MEMORY_REPORTER_MALLOC_SIZEOF_FUN(DOMMemoryFileDataOwnerSizeOf,
-                                     "memory-file-data");
+NS_MEMORY_REPORTER_MALLOC_SIZEOF_FUN(DOMMemoryFileDataOwnerMallocSizeOf)
 
 class nsDOMMemoryFileDataOwnerMemoryReporter MOZ_FINAL
   : public nsIMemoryMultiReporter
@@ -643,7 +653,7 @@ class nsDOMMemoryFileDataOwnerMemoryReporter MOZ_FINAL
     for (DataOwner *owner = DataOwner::sDataOwners->getFirst();
          owner; owner = owner->getNext()) {
 
-      size_t size = DOMMemoryFileDataOwnerSizeOf(owner->mData);
+      size_t size = DOMMemoryFileDataOwnerMallocSizeOf(owner->mData);
 
       if (size < LARGE_OBJECT_MIN_SIZE) {
         smallObjectsTotal += size;
@@ -700,7 +710,7 @@ class nsDOMMemoryFileDataOwnerMemoryReporter MOZ_FINAL
 };
 
 NS_IMPL_ISUPPORTS1(nsDOMMemoryFileDataOwnerMemoryReporter,
-                   nsIMemoryMultiReporter);
+                   nsIMemoryMultiReporter)
 
 /* static */ void
 nsDOMMemoryFile::DataOwner::EnsureMemoryReporterRegistered()
@@ -719,25 +729,21 @@ nsDOMMemoryFile::DataOwner::EnsureMemoryReporterRegistered()
 ////////////////////////////////////////////////////////////////////////////
 // nsDOMFileList implementation
 
-DOMCI_DATA(FileList, nsDOMFileList)
-
 NS_IMPL_CYCLE_COLLECTION_WRAPPERCACHE_0(nsDOMFileList)
 
 NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION(nsDOMFileList)
   NS_WRAPPERCACHE_INTERFACE_MAP_ENTRY
   NS_INTERFACE_MAP_ENTRY_AMBIGUOUS(nsISupports, nsIDOMFileList)
   NS_INTERFACE_MAP_ENTRY(nsIDOMFileList)
-  NS_DOM_INTERFACE_MAP_ENTRY_CLASSINFO(FileList)
 NS_INTERFACE_MAP_END
 
 NS_IMPL_CYCLE_COLLECTING_ADDREF(nsDOMFileList)
 NS_IMPL_CYCLE_COLLECTING_RELEASE(nsDOMFileList)
 
 JSObject*
-nsDOMFileList::WrapObject(JSContext *cx, JSObject *scope,
-                          bool *triedToWrap)
+nsDOMFileList::WrapObject(JSContext *cx, JSObject *scope)
 {
-  return FileListBinding::Wrap(cx, scope, this, triedToWrap);
+  return FileListBinding::Wrap(cx, scope, this);
 }
 
 NS_IMETHODIMP

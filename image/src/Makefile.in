@@ -10,7 +10,6 @@ VPATH		= @srcdir@
 
 include $(DEPTH)/config/autoconf.mk
 
-MODULE		= imglib2
 LIBRARY_NAME	= imglib2_s
 FORCE_STATIC_LIB = 1
 MODULE_NAME	= nsImageLib2Module
@@ -27,8 +26,11 @@ EXPORTS		=  imgLoader.h \
 CPPSRCS		= \
 			Image.cpp \
 			ImageFactory.cpp \
+                        ImageMetadata.cpp \
+			ImageWrapper.cpp \
 			Decoder.cpp \
 			DiscardTracker.cpp \
+			FrozenImage.cpp \
 			RasterImage.cpp \
 			ScriptedNotificationObserver.cpp \
 			SVGDocumentWrapper.cpp \
@@ -44,7 +46,10 @@ CPPSRCS		= \
 # We need to instantiate the decoders
 LOCAL_INCLUDES += -I$(topsrcdir)/image/decoders
 
-# Because SVGDocumentWrapper.cpp includes "nsSVGSVGElement.h"
+# For URI-related functionality
+LOCAL_INCLUDES += -I$(topsrcdir)/netwerk/base/src
+
+# Because SVGDocumentWrapper.cpp includes "mozilla/dom/SVGSVGElement.h"
 LOCAL_INCLUDES += \
 			-I$(topsrcdir)/content/svg/content/src \
 			-I$(topsrcdir)/content/base/src \

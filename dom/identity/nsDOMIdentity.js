@@ -49,7 +49,7 @@ nsDOMIdentity.prototype = {
     // Authentication
     beginAuthentication: 'r',
     completeAuthentication: 'r',
-    raiseAuthenticationFailure: 'r',
+    raiseAuthenticationFailure: 'r'
   },
 
   // require native events unless syntheticEventsOk is set
@@ -405,7 +405,7 @@ nsDOMIdentity.prototype = {
       case "Identity:RP:Watch:OnLogin":
         // Do we have a watcher?
         if (!this._rpWatcher) {
-          dump("WARNING: Received OnLogin message, but there is no RP watcher\n");
+          this._log("WARNING: Received OnLogin message, but there is no RP watcher");
           return;
         }
 
@@ -420,7 +420,7 @@ nsDOMIdentity.prototype = {
       case "Identity:RP:Watch:OnLogout":
         // Do we have a watcher?
         if (!this._rpWatcher) {
-          dump("WARNING: Received OnLogout message, but there is no RP watcher\n");
+          this._log("WARNING: Received OnLogout message, but there is no RP watcher");
           return;
         }
 
@@ -431,7 +431,7 @@ nsDOMIdentity.prototype = {
       case "Identity:RP:Watch:OnReady":
         // Do we have a watcher?
         if (!this._rpWatcher) {
-          dump("WARNING: Received OnReady message, but there is no RP watcher\n");
+          this._log("WARNING: Received OnReady message, but there is no RP watcher");
           return;
         }
 
@@ -439,10 +439,10 @@ nsDOMIdentity.prototype = {
           this._rpWatcher.onready();
         }
         break;
-      case "Identity:RP:Request:OnCancel":
+      case "Identity:RP:Watch:OnCancel":
         // Do we have a watcher?
         if (!this._rpWatcher) {
-          dump("WARNING: Received OnCancel message, but there is no RP watcher\n");
+          this._log("WARNING: Received OnCancel message, but there is no RP watcher");
           return;
         }
 
@@ -524,6 +524,14 @@ nsDOMIdentity.prototype = {
     return message;
   },
 
+  uninit: function DOMIdentity_uninit() {
+    this._log("nsDOMIdentity uninit()");
+    this._identityInternal._mm.sendAsyncMessage(
+      "Identity:RP:Unwatch",
+      { id: this._id }
+    );
+  }
+
 };
 
 /**
@@ -549,6 +557,8 @@ nsDOMIdentityInternal.prototype = {
     if (wId != this._innerWindowID) {
       return;
     }
+
+    this._identity.uninit();
 
     Services.obs.removeObserver(this, "inner-window-destroyed");
     this._identity._initializeState();
@@ -598,14 +608,14 @@ nsDOMIdentityInternal.prototype = {
       "Identity:RP:Watch:OnLogin",
       "Identity:RP:Watch:OnLogout",
       "Identity:RP:Watch:OnReady",
-      "Identity:RP:Request:OnCancel",
+      "Identity:RP:Watch:OnCancel",
       "Identity:IDP:CallBeginProvisioningCallback",
       "Identity:IDP:CallGenKeyPairCallback",
-      "Identity:IDP:CallBeginAuthenticationCallback",
+      "Identity:IDP:CallBeginAuthenticationCallback"
     ];
-    this._messages.forEach((function(msgName) {
+    this._messages.forEach(function(msgName) {
       this._mm.addMessageListener(msgName, this);
-    }).bind(this));
+    }, this);
 
     // Setup observers so we can remove message listeners.
     Services.obs.addObserver(this, "inner-window-destroyed", false);
@@ -622,14 +632,14 @@ nsDOMIdentityInternal.prototype = {
   },
 
   // Component setup.
-  classID: Components.ID("{8bcac6a3-56a4-43a4-a44c-cdf42763002f}"),
+  classID: Components.ID("{210853d9-2c97-4669-9761-b1ab9cbf57ef}"),
 
   QueryInterface: XPCOMUtils.generateQI(
     [Ci.nsIDOMGlobalPropertyInitializer, Ci.nsIMessageListener]
   ),
 
   classInfo: XPCOMUtils.generateCI({
-    classID: Components.ID("{8bcac6a3-56a4-43a4-a44c-cdf42763002f}"),
+    classID: Components.ID("{210853d9-2c97-4669-9761-b1ab9cbf57ef}"),
     contractID: "@mozilla.org/dom/identity;1",
     interfaces: [],
     classDescription: "Identity DOM Implementation"

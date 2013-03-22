@@ -74,9 +74,14 @@ RegExpStatics::executeLazy(JSContext *cx)
     if (!pendingLazyEvaluation)
         return true;
 
-    JS_ASSERT(regexp);
+    JS_ASSERT(lazySource);
     JS_ASSERT(matchesInput);
-    JS_ASSERT(lastIndex != size_t(-1));
+    JS_ASSERT(lazyIndex != size_t(-1));
+
+    /* Retrieve or create the RegExpShared in this compartment. */
+    RegExpGuard g(cx);
+    if (!cx->compartment->regExps.get(cx, lazySource, lazyFlags, &g))
+        return false;
 
     /*
      * It is not necessary to call aboutToWrite(): evaluation of
@@ -84,20 +89,23 @@ RegExpStatics::executeLazy(JSContext *cx)
      */
 
     size_t length = matchesInput->length();
-    StableCharPtr chars(matchesInput->chars(), length);
+    const jschar *chars = matchesInput->chars();
 
     /* Execute the full regular expression. */
-    RegExpGuard shared;
-    if (!regexp->getShared(cx, &shared))
-        return false;
-
-    RegExpRunStatus status = shared->execute(cx, chars, length, &this->lastIndex, this->matches);
+    RegExpRunStatus status = g->execute(cx, chars, length, &this->lazyIndex, this->matches);
     if (status == RegExpRunStatus_Error)
         return false;
 
+    /*
+     * RegExpStatics are only updated on successful (matching) execution.
+     * Re-running the same expression must therefore produce a matching result.
+     */
+    JS_ASSERT(status == RegExpRunStatus_Success);
+
     /* Unset lazy state and remove rooted values that now have no use. */
     pendingLazyEvaluation = false;
-    regexp = NULL;
+    lazySource = NULL;
+    lazyIndex = size_t(-1);
 
     return true;
 }

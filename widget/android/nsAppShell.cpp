@@ -76,20 +76,26 @@ public:
         mBrowserApp(aBrowserApp), mPoints(aPoints), mTabId(aTabId), mBuffer(aBuffer) {}
 
     virtual nsresult Run() {
+        jobject buffer = mBuffer->GetObject();
         nsCOMPtr<nsIDOMWindow> domWindow;
         nsCOMPtr<nsIBrowserTab> tab;
         mBrowserApp->GetBrowserTab(mTabId, getter_AddRefs(tab));
-        if (!tab)
-            return NS_OK;
+        if (!tab) {
+            AndroidBridge::Bridge()->SendThumbnail(buffer, mTabId, false);
+            return NS_ERROR_FAILURE;
+        }
 
         tab->GetWindow(getter_AddRefs(domWindow));
-        if (!domWindow)
-            return NS_OK;
+        if (!domWindow) {
+            AndroidBridge::Bridge()->SendThumbnail(buffer, mTabId, false);
+            return NS_ERROR_FAILURE;
+        }
 
         NS_ASSERTION(mPoints.Length() == 1, "Thumbnail event does not have enough coordinates");
 
-        AndroidBridge::Bridge()->CaptureThumbnail(domWindow, mPoints[0].x, mPoints[0].y, mTabId, mBuffer->GetObject());
-        return NS_OK;
+        nsresult rv = AndroidBridge::Bridge()->CaptureThumbnail(domWindow, mPoints[0].x, mPoints[0].y, mTabId, buffer);
+        AndroidBridge::Bridge()->SendThumbnail(buffer, mTabId, NS_SUCCEEDED(rv));
+        return rv;
     }
 private:
     nsCOMPtr<nsIAndroidBrowserApp> mBrowserApp;
@@ -371,6 +377,7 @@ nsAppShell::ProcessNextNativeEvent(bool mayWait)
         obsServ->NotifyObservers(nullptr, "profile-change-net-teardown", context.get());
         obsServ->NotifyObservers(nullptr, "profile-change-teardown", context.get());
         obsServ->NotifyObservers(nullptr, "profile-before-change", context.get());
+        obsServ->NotifyObservers(nullptr, "profile-before-change2", context.get());
         nsCOMPtr<nsIAppStartup> appSvc = do_GetService("@mozilla.org/toolkit/app-startup;1");
         if (appSvc)
             appSvc->Quit(nsIAppStartup::eForceQuit);
@@ -473,7 +480,7 @@ nsAppShell::ProcessNextNativeEvent(bool mayWait)
             uri,
             flag ? flag : ""
         };
-        nsresult rv = cmdline->Init(4, const_cast<char **>(argv), nullptr, nsICommandLine::STATE_REMOTE_AUTO);
+        nsresult rv = cmdline->Init(4, argv, nullptr, nsICommandLine::STATE_REMOTE_AUTO);
         if (NS_SUCCEEDED(rv))
             cmdline->Run();
         nsMemory::Free(uri);
@@ -553,8 +560,16 @@ nsAppShell::ProcessNextNativeEvent(bool mayWait)
         break;
     }
 
+    case AndroidGeckoEvent::NOOP:
+        break;
+
     default:
         nsWindow::OnGlobalAndroidEvent(curEvent);
+        break;
+    }
+
+    if (curEvent->AckNeeded()) {
+        AndroidBridge::Bridge()->AcknowledgeEvent();
     }
 
     EVLOG("nsAppShell: -- done event %p %d", (void*)curEvent.get(), curEvent->Type());
@@ -626,13 +641,15 @@ nsAppShell::PostEvent(AndroidGeckoEvent *ae)
             }
             break;
 
+        case AndroidGeckoEvent::COMPOSITOR_CREATE:
         case AndroidGeckoEvent::COMPOSITOR_PAUSE:
         case AndroidGeckoEvent::COMPOSITOR_RESUME:
             // Give priority to these events, but maintain their order wrt each other.
             {
                 uint32_t i = 0;
                 while (i < mEventQueue.Length() &&
-                       (mEventQueue[i]->Type() == AndroidGeckoEvent::COMPOSITOR_PAUSE ||
+                       (mEventQueue[i]->Type() == AndroidGeckoEvent::COMPOSITOR_CREATE ||
+                        mEventQueue[i]->Type() == AndroidGeckoEvent::COMPOSITOR_PAUSE ||
                         mEventQueue[i]->Type() == AndroidGeckoEvent::COMPOSITOR_RESUME)) {
                     i++;
                 }
@@ -646,17 +663,19 @@ nsAppShell::PostEvent(AndroidGeckoEvent *ae)
                 // coalesce this new draw event with the one already in the queue
                 const nsIntRect& oldRect = mQueuedDrawEvent->Rect();
                 const nsIntRect& newRect = ae->Rect();
-                int combinedArea = (oldRect.width * oldRect.height) +
-                                   (newRect.width * newRect.height);
-
                 nsIntRect combinedRect = oldRect.Union(newRect);
+
+#if defined(DEBUG) || defined(FORCE_ALOG)
                 // XXX We may want to consider using regions instead of rectangles.
                 //     Print an error if we're upload a lot more than we would
                 //     if we handled this as two separate events.
+                int combinedArea = (oldRect.width * oldRect.height) +
+                                   (newRect.width * newRect.height);
                 int boundsArea = combinedRect.width * combinedRect.height;
                 if (boundsArea > combinedArea * 8)
                     ALOG("nsAppShell: Area of bounds greatly exceeds combined area: %d > %d",
                          boundsArea, combinedArea);
+#endif
 
                 // coalesce into the new draw event rather than the queued one because
                 // it is not always safe to move draws earlier in the queue; there may

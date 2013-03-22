@@ -79,23 +79,6 @@ enum FlipStyle {
 #define POPUPALIGNMENT_TOPCENTER 17
 #define POPUPALIGNMENT_BOTTOMCENTER 18
 
-// The constants here are selected so that horizontally and vertically flipping
-// can be easily handled using the two flip macros below.
-#define POPUPPOSITION_UNKNOWN -1
-#define POPUPPOSITION_BEFORESTART 0
-#define POPUPPOSITION_BEFOREEND 1
-#define POPUPPOSITION_AFTERSTART 2
-#define POPUPPOSITION_AFTEREND 3
-#define POPUPPOSITION_STARTBEFORE 4
-#define POPUPPOSITION_ENDBEFORE 5
-#define POPUPPOSITION_STARTAFTER 6
-#define POPUPPOSITION_ENDAFTER 7
-#define POPUPPOSITION_OVERLAP 8
-#define POPUPPOSITION_AFTERPOINTER 9
-
-#define POPUPPOSITION_HFLIP(v) (v ^ 1)
-#define POPUPPOSITION_VFLIP(v) (v ^ 2)
-
 #define INC_TYP_INTERVAL  1000  // 1s. If the interval between two keypresses is shorter than this, 
                                 //   treat as a continue typing
 // XXX, kyle.yuan@sun.com, there are 4 definitions for the same purpose:
@@ -107,8 +90,8 @@ enum FlipStyle {
 
 nsIFrame* NS_NewMenuPopupFrame(nsIPresShell* aPresShell, nsStyleContext* aContext);
 
-class nsIViewManager;
-class nsIView;
+class nsViewManager;
+class nsView;
 class nsMenuPopupFrame;
 
 class nsMenuPopupFrame : public nsBoxFrame, public nsMenuParent
@@ -166,9 +149,9 @@ public:
   void AttachedDismissalListener();
 
   // Overridden methods
-  NS_IMETHOD Init(nsIContent*      aContent,
-                  nsIFrame*        aParent,
-                  nsIFrame*        aPrevInFlow) MOZ_OVERRIDE;
+  virtual void Init(nsIContent*      aContent,
+                    nsIFrame*        aParent,
+                    nsIFrame*        aPrevInFlow) MOZ_OVERRIDE;
 
   NS_IMETHOD AttributeChanged(int32_t aNameSpaceID,
                               nsIAtom* aAttribute,
@@ -187,7 +170,7 @@ public:
 
   void EnsureWidget();
 
-  nsresult CreateWidgetForView(nsIView* aView);
+  nsresult CreateWidgetForView(nsView* aView);
   uint8_t GetShadowStyle();
 
   NS_IMETHOD SetInitialChildList(ChildListID     aListID,
@@ -198,7 +181,7 @@ public:
   // layout, position and display the popup as needed
   void LayoutPopup(nsBoxLayoutState& aState, nsIFrame* aParentMenu, bool aSizedToPopup);
 
-  nsIView* GetRootViewForPopup(nsIFrame* aStartFrame);
+  nsView* GetRootViewForPopup(nsIFrame* aStartFrame);
 
   // set the position of the popup either relative to the anchor aAnchorFrame
   // (or the frame for mAnchorContent if aAnchorFrame is null) or at a specific
@@ -326,14 +309,11 @@ public:
   // This position is in CSS pixels.
   nsIntPoint ScreenPosition() const { return nsIntPoint(mScreenXPos, mScreenYPos); }
 
-  NS_IMETHOD BuildDisplayList(nsDisplayListBuilder*   aBuilder,
-                              const nsRect&           aDirtyRect,
-                              const nsDisplayListSet& aLists) MOZ_OVERRIDE;
+  virtual void BuildDisplayList(nsDisplayListBuilder*   aBuilder,
+                                const nsRect&           aDirtyRect,
+                                const nsDisplayListSet& aLists) MOZ_OVERRIDE;
 
   nsIntPoint GetLastClientOffset() const { return mLastClientOffset; }
-
-  // Return the alignment of the popup
-  int8_t GetAlignmentPosition() const;
 
 protected:
 
@@ -386,13 +366,13 @@ protected:
    */
   bool IsDirectionRTL() const {
     return mAnchorContent && mAnchorContent->GetPrimaryFrame()
-      ? mAnchorContent->GetPrimaryFrame()->GetStyleVisibility()->mDirection == NS_STYLE_DIRECTION_RTL
-      : GetStyleVisibility()->mDirection == NS_STYLE_DIRECTION_RTL;
+      ? mAnchorContent->GetPrimaryFrame()->StyleVisibility()->mDirection == NS_STYLE_DIRECTION_RTL
+      : StyleVisibility()->mDirection == NS_STYLE_DIRECTION_RTL;
   }
 
   // Create a popup view for this frame. The view is added a child of the root
   // view, and is initially hidden.
-  nsresult CreatePopupView();
+  void CreatePopupView();
 
   nsString     mIncrementalString;  // for incremental typing navigation
 
@@ -430,8 +410,6 @@ protected:
   // popup alignment relative to the anchor node
   int8_t mPopupAlignment;
   int8_t mPopupAnchor;
-  int8_t mPosition;
-
   // One of nsIPopupBoxObject::ROLLUP_DEFAULT/ROLLUP_CONSUME/ROLLUP_NO_CONSUME
   int8_t mConsumeRollupEvent;
   bool mFlipBoth; // flip in both directions

@@ -13,7 +13,6 @@
 #include "jsfriendapi.h"
 #include "jsinterp.h"
 #include "jsprobes.h"
-#include "jsxml.h"
 #include "jsgc.h"
 
 #include "builtin/Object.h" // For js::obj_construct
@@ -101,14 +100,14 @@ NewObjectCache::fillType(EntryIndex entry, Class *clasp, js::types::TypeObject *
 }
 
 inline JSObject *
-NewObjectCache::newObjectFromHit(JSContext *cx, EntryIndex entry_)
+NewObjectCache::newObjectFromHit(JSContext *cx, EntryIndex entry_, js::gc::InitialHeap heap)
 {
     JS_ASSERT(unsigned(entry_) < mozilla::ArrayLength(entries));
     Entry *entry = &entries[entry_];
 
-    JSObject *obj = js_TryNewGCObject(cx, entry->kind);
+    JSObject *obj = js_NewGCObject<NoGC>(cx, entry->kind, heap);
     if (obj) {
-        copyCachedToObject(obj, reinterpret_cast<JSObject *>(&entry->templateObject));
+        copyCachedToObject(obj, reinterpret_cast<JSObject *>(&entry->templateObject), entry->kind);
         Probes::createObject(cx, obj);
         return obj;
     }
@@ -135,56 +134,6 @@ struct PreserveRegsGuard
     FrameRegs &regs_;
 };
 
-#if JS_HAS_XML_SUPPORT
-
-class AutoNamespaceArray : protected AutoGCRooter {
-  public:
-    AutoNamespaceArray(JSContext *cx)
-        : AutoGCRooter(cx, NAMESPACES), context(cx) {
-        array.init();
-    }
-
-    ~AutoNamespaceArray() {
-        array.finish(context->runtime->defaultFreeOp());
-    }
-
-    uint32_t length() const { return array.length; }
-
-  private:
-    JSContext *context;
-    friend void AutoGCRooter::trace(JSTracer *trc);
-
-  public:
-    JSXMLArray<JSObject> array;
-};
-
-#endif /* JS_HAS_XML_SUPPORT */
-
-template <typename T>
-class AutoPtr
-{
-    JSContext *cx;
-    T *value;
-
-    AutoPtr(const AutoPtr &other) MOZ_DELETE;
-
-  public:
-    explicit AutoPtr(JSContext *cx) : cx(cx), value(NULL) {}
-    ~AutoPtr() {
-        js_delete<T>(value);
-    }
-
-    void operator=(T *ptr) { value = ptr; }
-
-    typedef void ***** ConvertibleToBool;
-    operator ConvertibleToBool() const { return (ConvertibleToBool) value; }
-
-    const T *operator->() const { return value; }
-    T *operator->() { return value; }
-
-    T *get() { return value; }
-};
-
 #ifdef JS_CRASH_DIAGNOSTICS
 class CompartmentChecker
 {
@@ -205,6 +154,11 @@ class CompartmentChecker
         MOZ_CRASH();
     }
 
+    static void fail(JS::Zone *z1, JS::Zone *z2) {
+        printf("*** Zone mismatch %p vs. %p\n", (void *) z1, (void *) z2);
+        MOZ_CRASH();
+    }
+
     /* Note: should only be used when neither c1 nor c2 may be the default compartment. */
     static void check(JSCompartment *c1, JSCompartment *c2) {
         JS_ASSERT(c1 != c1->rt->atomsCompartment);
@@ -222,6 +176,11 @@ class CompartmentChecker
         }
     }
 
+    void checkZone(JS::Zone *z) {
+        if (compartment && z != compartment->zone())
+            fail(compartment->zone(), z);
+    }
+
     void check(JSObject *obj) {
         if (obj)
             check(obj->compartment());
@@ -234,7 +193,7 @@ class CompartmentChecker
 
     void check(JSString *str) {
         if (!str->isAtom())
-            check(str->compartment());
+            checkZone(str->zone());
     }
 
     void check(const js::Value &v) {
@@ -282,6 +241,11 @@ class CompartmentChecker
         if (fp)
             check(fp->scopeChain());
     }
+
+    void check(AbstractFramePtr frame) {
+        if (frame)
+            check(frame.scopeChain());
+    }
 };
 #endif /* JS_CRASH_DIAGNOSTICS */
 
@@ -290,6 +254,7 @@ class CompartmentChecker
  * depends on other objects not having been swept yet.
  */
 #define START_ASSERT_SAME_COMPARTMENT()                                       \
+    JS_ASSERT(cx->compartment->zone() == cx->zone());                         \
     if (cx->runtime->isHeapBusy())                                            \
         return;                                                               \
     CompartmentChecker c(cx)
@@ -483,8 +448,8 @@ JSContext::findVersion() const
     if (hasVersionOverride)
         return versionOverride;
 
-    if (stack.hasfp())
-        return fp()->script()->getVersion();
+    if (JSScript *script = stack.currentScript(NULL, js::ContextStack::ALLOW_CROSS_COMPARTMENT))
+        return script->getVersion();
 
     return defaultVersion;
 }
@@ -514,23 +479,6 @@ JSContext::maybeOverrideVersion(JSVersion newVersion)
     return true;
 }
 
-inline unsigned
-JSContext::getCompileOptions() const { return js::VersionFlagsToOptions(findVersion()); }
-
-inline unsigned
-JSContext::allOptions() const { return getRunOptions() | getCompileOptions(); }
-
-inline void
-JSContext::setCompileOptions(unsigned newcopts)
-{
-    JS_ASSERT((newcopts & JSCOMPILEOPTION_MASK) == newcopts);
-    if (JS_LIKELY(getCompileOptions() == newcopts))
-        return;
-    JSVersion version = findVersion();
-    JSVersion newVersion = js::OptionFlagsToVersion(newcopts, version);
-    maybeOverrideVersion(newVersion);
-}
-
 inline js::LifoAlloc &
 JSContext::analysisLifoAlloc()
 {
@@ -540,7 +488,7 @@ JSContext::analysisLifoAlloc()
 inline js::LifoAlloc &
 JSContext::typeLifoAlloc()
 {
-    return compartment->typeLifoAlloc;
+    return zone()->types.typeLifoAlloc;
 }
 
 inline void
@@ -579,7 +527,7 @@ JSContext::setDefaultCompartmentObject(JSObject *obj)
          * defaultCompartmentObject->compartment()).
          */
         JS_ASSERT(!hasfp());
-        compartment = obj ? obj->compartment() : NULL;
+        setCompartment(obj ? obj->compartment() : NULL);
         if (throwing)
             wrapPendingException();
     }
@@ -596,7 +544,7 @@ inline void
 JSContext::enterCompartment(JSCompartment *c)
 {
     enterCompartmentDepth_++;
-    compartment = c;
+    setCompartment(c);
     c->enter();
     if (throwing)
         wrapPendingException();
@@ -619,12 +567,33 @@ JSContext::leaveCompartment(JSCompartment *oldCompartment)
      * oldCompartment.
      */
     if (hasEnteredCompartment() || !defaultCompartmentObject_)
-        compartment = oldCompartment;
+        setCompartment(oldCompartment);
     else
-        compartment = defaultCompartmentObject_->compartment();
+        setCompartment(defaultCompartmentObject_->compartment());
 
     if (throwing)
         wrapPendingException();
+}
+
+inline JS::Zone *
+JSContext::zone() const
+{
+    JS_ASSERT_IF(!compartment, !zone_);
+    JS_ASSERT_IF(compartment, compartment->zone() == zone_);
+    return zone_;
+}
+
+inline void
+JSContext::updateMallocCounter(size_t nbytes)
+{
+    runtime->updateMallocCounter(zone(), nbytes);
+}
+
+inline void
+JSContext::setCompartment(JSCompartment *comp)
+{
+    compartment = comp;
+    zone_ = comp ? comp->zone() : NULL;
 }
 
 #endif /* jscntxtinlines_h___ */

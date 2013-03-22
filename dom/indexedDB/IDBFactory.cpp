@@ -42,6 +42,7 @@
 #include "Key.h"
 
 #include "ipc/IndexedDBChild.h"
+#include <algorithm>
 
 USING_INDEXEDDB_NAMESPACE
 
@@ -213,15 +214,7 @@ IDBFactory::Create(ContentParent* aContentParent,
     do_CreateInstance("@mozilla.org/nullprincipal;1");
   NS_ENSURE_TRUE(principal, NS_ERROR_FAILURE);
 
-  JSContext* cx = nsContentUtils::GetSafeJSContext();
-  NS_ENSURE_TRUE(cx, NS_ERROR_FAILURE);
-
-  nsCxPusher pusher;
-  if (!pusher.Push(cx)) {
-    NS_WARNING("Failed to push safe JS context!");
-    return NS_ERROR_FAILURE;
-  }
-
+  SafeAutoJSContext cx;
   JSAutoRequest ar(cx);
 
   nsIXPConnect* xpc = nsContentUtils::XPConnect();
@@ -445,7 +438,7 @@ IDBFactory::LoadDatabaseInformation(mozIStorageConnection* aConnection,
   int64_t version = 0;
   rv = stmt->GetInt64(0, &version);
 
-  *aVersion = NS_MAX<int64_t>(version, 0);
+  *aVersion = std::max<int64_t>(version, 0);
 
   return rv;
 }
@@ -483,8 +476,6 @@ IDBFactory::SetDatabaseMetadata(DatabaseInfo* aDatabaseInfo,
 
   return NS_OK;
 }
-
-NS_IMPL_CYCLE_COLLECTION_CLASS(IDBFactory)
 
 NS_IMPL_CYCLE_COLLECTING_ADDREF(IDBFactory)
 NS_IMPL_CYCLE_COLLECTING_RELEASE(IDBFactory)

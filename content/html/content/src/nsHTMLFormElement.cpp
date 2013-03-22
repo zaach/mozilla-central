@@ -52,6 +52,7 @@
 
 #include "nsIDOMHTMLButtonElement.h"
 #include "mozilla/dom/HTMLCollectionBinding.h"
+#include "mozilla/dom/BindingUtils.h"
 #include "nsSandboxFlags.h"
 
 using namespace mozilla::dom;
@@ -123,10 +124,9 @@ public:
   nsresult GetSortedControls(nsTArray<nsGenericHTMLFormElement*>& aControls) const;
 
   // nsWrapperCache
-  virtual JSObject* WrapObject(JSContext *cx, JSObject *scope,
-                               bool *triedToWrap)
+  virtual JSObject* WrapObject(JSContext *cx, JSObject *scope)
   {
-    return HTMLCollectionBinding::Wrap(cx, scope, this, triedToWrap);
+    return HTMLCollectionBinding::Wrap(cx, scope, this);
   }
 
   nsHTMLFormElement* mForm;  // WEAK - the form owns me
@@ -183,6 +183,9 @@ ShouldBeInElements(nsIFormControl* aFormControl)
   case NS_FORM_INPUT_TEL :
   case NS_FORM_INPUT_URL :
   case NS_FORM_INPUT_NUMBER :
+  case NS_FORM_INPUT_RANGE :
+  case NS_FORM_INPUT_DATE :
+  case NS_FORM_INPUT_TIME :
   case NS_FORM_SELECT :
   case NS_FORM_TEXTAREA :
   case NS_FORM_FIELDSET :
@@ -283,7 +286,6 @@ ElementTraverser(const nsAString& key, nsIDOMHTMLInputElement* element,
   return PL_DHASH_NEXT;
 }
 
-NS_IMPL_CYCLE_COLLECTION_CLASS(nsHTMLFormElement)
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INHERITED(nsHTMLFormElement,
                                                   nsGenericHTMLElement)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mControls)
@@ -1088,6 +1090,20 @@ AssertDocumentOrder(const nsTArray<nsGenericHTMLFormElement*>& aControls,
 }
 #endif
 
+void
+nsHTMLFormElement::PostPasswordEvent()
+{
+  // Don't fire another add event if we have a pending add event.
+  if (mFormPasswordEvent.get()) {
+    return;
+  }
+
+  nsRefPtr<FormPasswordEvent> event =
+    new FormPasswordEvent(this, NS_LITERAL_STRING("DOMFormHasPassword"));
+  mFormPasswordEvent = event;
+  event->PostDOMEvent();
+}
+
 nsresult
 nsHTMLFormElement::AddElement(nsGenericHTMLFormElement* aChild,
                               bool aUpdateValidity, bool aNotify)
@@ -1155,12 +1171,14 @@ nsHTMLFormElement::AddElement(nsGenericHTMLFormElement* aChild,
   // If it is a password control, and the password manager has not yet been
   // initialized, initialize the password manager
   //
-  if (!gPasswordManagerInitialized && type == NS_FORM_INPUT_PASSWORD) {
-    // Initialize the password manager category
-    gPasswordManagerInitialized = true;
-    NS_CreateServicesFromCategory(NS_PASSWORDMANAGER_CATEGORY,
-                                  nullptr,
-                                  NS_PASSWORDMANAGER_CATEGORY);
+  if (type == NS_FORM_INPUT_PASSWORD) {
+    if (!gPasswordManagerInitialized) {
+      gPasswordManagerInitialized = true;
+      NS_CreateServicesFromCategory(NS_PASSWORDMANAGER_CATEGORY,
+                                    nullptr,
+                                    NS_PASSWORDMANAGER_CATEGORY);
+    }
+    PostPasswordEvent();
   }
  
   // Default submit element handling
@@ -2177,7 +2195,6 @@ ControlTraverser(const nsAString& key, nsISupports* control, void* userArg)
   return PL_DHASH_NEXT;
 }
 
-NS_IMPL_CYCLE_COLLECTION_CLASS(nsFormControlList)
 NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(nsFormControlList)
   tmp->Clear();
   NS_IMPL_CYCLE_COLLECTION_UNLINK_PRESERVED_WRAPPER
@@ -2190,8 +2207,6 @@ NS_IMPL_CYCLE_COLLECTION_TRACE_BEGIN(nsFormControlList)
   NS_IMPL_CYCLE_COLLECTION_TRACE_PRESERVED_WRAPPER
 NS_IMPL_CYCLE_COLLECTION_TRACE_END
 
-DOMCI_DATA(HTMLCollection, nsFormControlList)
-
 // XPConnect interface list for nsFormControlList
 NS_INTERFACE_TABLE_HEAD(nsFormControlList)
   NS_WRAPPERCACHE_INTERFACE_MAP_ENTRY
@@ -2199,7 +2214,6 @@ NS_INTERFACE_TABLE_HEAD(nsFormControlList)
                       nsIHTMLCollection,
                       nsIDOMHTMLCollection)
   NS_INTERFACE_TABLE_TO_MAP_SEGUE_CYCLE_COLLECTION(nsFormControlList)
-  NS_DOM_INTERFACE_MAP_ENTRY_CLASSINFO(HTMLCollection)
 NS_INTERFACE_MAP_END
 
 

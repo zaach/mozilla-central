@@ -10,7 +10,6 @@ VPATH		= @srcdir@
 
 include $(DEPTH)/config/autoconf.mk
 
-MODULE		= content
 LIBRARY_NAME	= gkconxbl_s
 LIBXUL_LIBRARY	= 1
 FAIL_ON_WARNINGS = 1
@@ -38,6 +37,7 @@ CPPSRCS		= \
 EXPORTS   = \
   nsBindingManager.h \
   nsXBLBinding.h \
+  nsXBLService.h \
   $(NULL)
 
 include $(topsrcdir)/config/config.mk

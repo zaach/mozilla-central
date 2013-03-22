@@ -8,7 +8,6 @@
 #include "nsIHttpChannel.h"
 #include "nsIHttpChannelInternal.h"
 #include "nsIFileChannel.h"
-#include "nsICachingChannel.h"
 #include "nsMimeTypes.h"
 #include "nsISupportsPrimitives.h"
 #include "nsNetCID.h"
@@ -127,15 +126,15 @@ nsPluginByteRangeStreamListener::OnStartRequest(nsIRequest *request, nsISupports
   }
   
   if (responseCode != 200) {
-    bool bWantsAllNetworkStreams = false;
+    uint32_t wantsAllNetworkStreams = 0;
     rv = pslp->GetPluginInstance()->GetValueFromPlugin(NPPVpluginWantsAllNetworkStreams,
-                                                       &bWantsAllNetworkStreams);
+                                                       &wantsAllNetworkStreams);
     // If the call returned an error code make sure we still use our default value.
     if (NS_FAILED(rv)) {
-      bWantsAllNetworkStreams = false;
+      wantsAllNetworkStreams = 0;
     }
 
-    if (!bWantsAllNetworkStreams){
+    if (!wantsAllNetworkStreams){
       return NS_ERROR_FAILURE;
     }
   }
@@ -359,8 +358,6 @@ nsresult nsPluginStreamListenerPeer::Initialize(nsIURI *aURL,
 }
 
 // SetupPluginCacheFile is called if we have to save the stream to disk.
-// the most likely cause for this is either there is no disk cache available
-// or the stream is coming from a https server.
 //
 // These files will be deleted when the host is destroyed.
 //
@@ -371,7 +368,7 @@ nsPluginStreamListenerPeer::SetupPluginCacheFile(nsIChannel* channel)
   nsresult rv = NS_OK;
   
   bool useExistingCacheFile = false;
-  nsRefPtr<nsPluginHost> pluginHost = dont_AddRef(nsPluginHost::GetInst());
+  nsRefPtr<nsPluginHost> pluginHost = nsPluginHost::GetInst();
 
   // Look for an existing cache file for the URI.
   nsTArray< nsRefPtr<nsNPAPIPluginInstance> > *instances = pluginHost->InstanceArray();
@@ -479,20 +476,20 @@ nsPluginStreamListenerPeer::OnStartRequest(nsIRequest *request,
     }
 
     if (responseCode > 206) { // not normal
-      bool bWantsAllNetworkStreams = false;
+      uint32_t wantsAllNetworkStreams = 0;
 
       // We don't always have an instance here already, but if we do, check
       // to see if it wants all streams.
       if (mPluginInstance) {
         rv = mPluginInstance->GetValueFromPlugin(NPPVpluginWantsAllNetworkStreams,
-                                                 &bWantsAllNetworkStreams);
+                                                 &wantsAllNetworkStreams);
         // If the call returned an error code make sure we still use our default value.
         if (NS_FAILED(rv)) {
-          bWantsAllNetworkStreams = false;
+          wantsAllNetworkStreams = 0;
         }
       }
 
-      if (!bWantsAllNetworkStreams) {
+      if (!wantsAllNetworkStreams) {
         mRequestFailed = true;
         return NS_ERROR_FAILURE;
       }
@@ -517,7 +514,7 @@ nsPluginStreamListenerPeer::OnStartRequest(nsIRequest *request,
 
   // it's possible for the server to not send a Content-Length.
   // we should still work in this case.
-  if (NS_FAILED(rv) || length == -1) {
+  if (NS_FAILED(rv) || length < 0 || length > UINT32_MAX) {
     // check out if this is file channel
     nsCOMPtr<nsIFileChannel> fileChannel = do_QueryInterface(channel);
     if (fileChannel) {
@@ -528,7 +525,7 @@ nsPluginStreamListenerPeer::OnStartRequest(nsIRequest *request,
     mLength = 0;
   }
   else {
-    mLength = length;
+    mLength = uint32_t(length);
   }
 
   nsAutoCString aContentType; // XXX but we already got the type above!
@@ -759,13 +756,9 @@ nsresult nsPluginStreamListenerPeer::ServeStreamAsFile(nsIRequest *request,
   // force the plugin to use stream as file
   mStreamType = NP_ASFILE;
   
-  // then check it out if browser cache is not available
-  nsCOMPtr<nsICachingChannel> cacheChannel = do_QueryInterface(request);
-  if (!(cacheChannel && (NS_SUCCEEDED(cacheChannel->SetCacheAsFile(true))))) {
-    nsCOMPtr<nsIChannel> channel = do_QueryInterface(request);
-    if (channel) {
-      SetupPluginCacheFile(channel);
-    }
+  nsCOMPtr<nsIChannel> channel = do_QueryInterface(request);
+  if (channel) {
+    SetupPluginCacheFile(channel);
   }
   
   // unset mPendingRequests
@@ -984,15 +977,10 @@ NS_IMETHODIMP nsPluginStreamListenerPeer::OnStopRequest(nsIRequest *request,
     if (mLocalCachedFileHolder)
       localFile = mLocalCachedFileHolder->file();
     else {
-      nsCOMPtr<nsICachingChannel> cacheChannel = do_QueryInterface(request);
-      if (cacheChannel) {
-        cacheChannel->GetCacheFile(getter_AddRefs(localFile));
-      } else {
-        // see if it is a file channel.
-        nsCOMPtr<nsIFileChannel> fileChannel = do_QueryInterface(request);
-        if (fileChannel) {
-          fileChannel->GetFile(getter_AddRefs(localFile));
-        }
+      // see if it is a file channel.
+      nsCOMPtr<nsIFileChannel> fileChannel = do_QueryInterface(request);
+      if (fileChannel) {
+        fileChannel->GetFile(getter_AddRefs(localFile));
       }
     }
     
@@ -1143,11 +1131,7 @@ nsresult nsPluginStreamListenerPeer::SetUpStreamListener(nsIRequest *request,
     // check it out if this is not a file channel.
     nsCOMPtr<nsIFileChannel> fileChannel = do_QueryInterface(request);
     if (!fileChannel) {
-      // and browser cache is not available
-      nsCOMPtr<nsICachingChannel> cacheChannel = do_QueryInterface(request);
-      if (!(cacheChannel && (NS_SUCCEEDED(cacheChannel->SetCacheAsFile(true))))) {
         useLocalCache = true;
-      }
     }
   }
   

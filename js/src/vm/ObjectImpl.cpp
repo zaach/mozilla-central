@@ -8,17 +8,16 @@
 #include "mozilla/Assertions.h"
 #include "mozilla/Attributes.h"
 
-#include "jsscope.h"
-#include "jsobjinlines.h"
-
 #include "js/TemplateLib.h"
+#include "js/Value.h"
+#include "vm/Debugger.h"
+#include "vm/ObjectImpl.h"
 
-#include "Debugger.h"
-#include "ObjectImpl.h"
+#include "jsatominlines.h"
 
 #include "gc/Barrier-inl.h"
-
-#include "ObjectImpl-inl.h"
+#include "vm/ObjectImpl-inl.h"
+#include "vm/Shape-inl.h"
 
 using namespace js;
 
@@ -65,7 +64,7 @@ PropDesc::checkSetter(JSContext *cx)
 }
 
 static bool
-CheckArgCompartment(JSContext *cx, JSObject *obj, const Value &v,
+CheckArgCompartment(JSContext *cx, JSObject *obj, HandleValue v,
                     const char *methodname, const char *propname)
 {
     if (v.isObject() && v.toObject().compartment() != obj->compartment()) {
@@ -81,7 +80,7 @@ CheckArgCompartment(JSContext *cx, JSObject *obj, const Value &v,
  * Reject non-callable getters and setters.
  */
 bool
-PropDesc::unwrapDebuggerObjectsInto(JSContext *cx, Debugger *dbg, JSObject *obj,
+PropDesc::unwrapDebuggerObjectsInto(JSContext *cx, Debugger *dbg, HandleObject obj,
                                     PropDesc *unwrapped) const
 {
     MOZ_ASSERT(!isUndefined());
@@ -89,27 +88,33 @@ PropDesc::unwrapDebuggerObjectsInto(JSContext *cx, Debugger *dbg, JSObject *obj,
     *unwrapped = *this;
 
     if (unwrapped->hasValue()) {
-        if (!dbg->unwrapDebuggeeValue(cx, &unwrapped->value_) ||
-            !CheckArgCompartment(cx, obj, unwrapped->value_, "defineProperty", "value"))
+        RootedValue value(cx, unwrapped->value_);
+        if (!dbg->unwrapDebuggeeValue(cx, &value) ||
+            !CheckArgCompartment(cx, obj, value, "defineProperty", "value"))
         {
             return false;
         }
+        unwrapped->value_ = value;
     }
 
     if (unwrapped->hasGet()) {
-        if (!dbg->unwrapDebuggeeValue(cx, &unwrapped->get_) ||
-            !CheckArgCompartment(cx, obj, unwrapped->get_, "defineProperty", "get"))
+        RootedValue get(cx, unwrapped->get_);
+        if (!dbg->unwrapDebuggeeValue(cx, &get) ||
+            !CheckArgCompartment(cx, obj, get, "defineProperty", "get"))
         {
             return false;
         }
+        unwrapped->get_ = get;
     }
 
     if (unwrapped->hasSet()) {
-        if (!dbg->unwrapDebuggeeValue(cx, &unwrapped->set_) ||
-            !CheckArgCompartment(cx, obj, unwrapped->set_, "defineProperty", "set"))
+        RootedValue set(cx, unwrapped->set_);
+        if (!dbg->unwrapDebuggeeValue(cx, &set) ||
+            !CheckArgCompartment(cx, obj, set, "defineProperty", "set"))
         {
             return false;
         }
+        unwrapped->set_ = set;
     }
 
     return true;
@@ -121,7 +126,7 @@ PropDesc::unwrapDebuggerObjectsInto(JSContext *cx, Debugger *dbg, JSObject *obj,
  * so reconstitute desc->pd_ if needed.
  */
 bool
-PropDesc::wrapInto(JSContext *cx, JSObject *obj, const jsid &id, jsid *wrappedId,
+PropDesc::wrapInto(JSContext *cx, HandleObject obj, const jsid &id, jsid *wrappedId,
                    PropDesc *desc) const
 {
     MOZ_ASSERT(!isUndefined());
@@ -133,12 +138,16 @@ PropDesc::wrapInto(JSContext *cx, JSObject *obj, const jsid &id, jsid *wrappedId
         return false;
 
     *desc = *this;
-    if (!comp->wrap(cx, &desc->value_))
+    RootedValue value(cx, desc->value_);
+    RootedValue get(cx, desc->get_);
+    RootedValue set(cx, desc->set_);
+
+    if (!comp->wrap(cx, &value) || !comp->wrap(cx, &get) || !comp->wrap(cx, &set))
         return false;
-    if (!comp->wrap(cx, &desc->get_))
-        return false;
-    if (!comp->wrap(cx, &desc->set_))
-        return false;
+
+    desc->value_ = value;
+    desc->get_ = get;
+    desc->set_ = set;
     return !obj->isProxy() || desc->makeObject(cx);
 }
 
@@ -147,6 +156,30 @@ static ObjectElements emptyElementsHeader(0, 0);
 /* Objects with no elements share one empty set of elements. */
 HeapSlot *js::emptyObjectElements =
     reinterpret_cast<HeapSlot *>(uintptr_t(&emptyElementsHeader) + sizeof(ObjectElements));
+
+/* static */ bool
+ObjectElements::ConvertElementsToDoubles(JSContext *cx, uintptr_t elementsPtr)
+{
+    /*
+     * This function is infallible, but has a fallible interface so that it can
+     * be called directly from Ion code. Only arrays can have their dense
+     * elements converted to doubles, and arrays never have empty elements.
+     */
+    HeapSlot *elementsHeapPtr = (HeapSlot *) elementsPtr;
+    JS_ASSERT(elementsHeapPtr != emptyObjectElements);
+
+    ObjectElements *header = ObjectElements::fromElements(elementsHeapPtr);
+    JS_ASSERT(!header->shouldConvertDoubleElements());
+
+    Value *vp = (Value *) elementsPtr;
+    for (size_t i = 0; i < header->initializedLength; i++) {
+        if (vp[i].isInt32())
+            vp[i].setDouble(vp[i].toInt32());
+    }
+
+    header->setShouldConvertDoubleElements();
+    return true;
+}
 
 #ifdef DEBUG
 void
@@ -164,8 +197,8 @@ js::ObjectImpl::checkShapeConsistency()
 
     MOZ_ASSERT(isNative());
 
-    UnrootedShape shape = lastProperty();
-    UnrootedShape prev = NULL;
+    RawShape shape = lastProperty();
+    RawShape prev = NULL;
 
     if (inDictionaryMode()) {
         MOZ_ASSERT(shape->hasTable());
@@ -199,7 +232,7 @@ js::ObjectImpl::checkShapeConsistency()
             if (shape->hasTable()) {
                 ShapeTable &table = shape->table();
                 MOZ_ASSERT(shape->parent);
-                for (Shape::Range r(shape); !r.empty(); r.popFront()) {
+                for (Shape::Range<NoGC> r(shape); !r.empty(); r.popFront()) {
                     Shape **spp = table.search(r.front().propid(), false);
                     MOZ_ASSERT(SHAPE_FETCH(spp) == &r.front());
                 }
@@ -217,25 +250,25 @@ js::ObjectImpl::checkShapeConsistency()
 void
 js::ObjectImpl::initSlotRange(uint32_t start, const Value *vector, uint32_t length)
 {
-    JSCompartment *comp = compartment();
+    JSRuntime *rt = runtime();
     HeapSlot *fixedStart, *fixedEnd, *slotsStart, *slotsEnd;
     getSlotRange(start, length, &fixedStart, &fixedEnd, &slotsStart, &slotsEnd);
     for (HeapSlot *sp = fixedStart; sp < fixedEnd; sp++)
-        sp->init(comp, this->asObjectPtr(), start++, *vector++);
+        sp->init(rt, this->asObjectPtr(), HeapSlot::Slot, start++, *vector++);
     for (HeapSlot *sp = slotsStart; sp < slotsEnd; sp++)
-        sp->init(comp, this->asObjectPtr(), start++, *vector++);
+        sp->init(rt, this->asObjectPtr(), HeapSlot::Slot, start++, *vector++);
 }
 
 void
 js::ObjectImpl::copySlotRange(uint32_t start, const Value *vector, uint32_t length)
 {
-    JSCompartment *comp = compartment();
+    JS::Zone *zone = this->zone();
     HeapSlot *fixedStart, *fixedEnd, *slotsStart, *slotsEnd;
     getSlotRange(start, length, &fixedStart, &fixedEnd, &slotsStart, &slotsEnd);
     for (HeapSlot *sp = fixedStart; sp < fixedEnd; sp++)
-        sp->set(comp, this->asObjectPtr(), start++, *vector++);
+        sp->set(zone, this->asObjectPtr(), HeapSlot::Slot, start++, *vector++);
     for (HeapSlot *sp = slotsStart; sp < slotsEnd; sp++)
-        sp->set(comp, this->asObjectPtr(), start++, *vector++);
+        sp->set(zone, this->asObjectPtr(), HeapSlot::Slot, start++, *vector++);
 }
 
 #ifdef DEBUG
@@ -249,6 +282,11 @@ js::ObjectImpl::slotInRange(uint32_t slot, SentinelAllowed sentinel) const
 }
 #endif /* DEBUG */
 
+// See bug 844580.
+#if defined(_MSC_VER)
+# pragma optimize("g", off)
+#endif
+
 #if defined(_MSC_VER) && _MSC_VER >= 1500
 /*
  * Work around a compiler bug in MSVC9 and above, where inlining this function
@@ -257,22 +295,17 @@ js::ObjectImpl::slotInRange(uint32_t slot, SentinelAllowed sentinel) const
  */
 MOZ_NEVER_INLINE
 #endif
-UnrootedShape
-js::ObjectImpl::nativeLookup(JSContext *cx, jsid idArg)
+RawShape
+js::ObjectImpl::nativeLookup(JSContext *cx, jsid id)
 {
-    AssertCanGC();
     MOZ_ASSERT(isNative());
     Shape **spp;
-    RootedId id(cx, idArg);
     return Shape::search(cx, lastProperty(), id, &spp);
 }
 
-UnrootedShape
-js::ObjectImpl::nativeLookupNoAllocation(jsid id)
-{
-    MOZ_ASSERT(isNative());
-    return Shape::searchNoAllocation(lastProperty(), id);
-}
+#if defined(_MSC_VER)
+# pragma optimize("", on)
+#endif
 
 void
 js::ObjectImpl::markChildren(JSTracer *trc)
@@ -281,13 +314,15 @@ js::ObjectImpl::markChildren(JSTracer *trc)
 
     MarkShape(trc, &shape_, "shape");
 
-    Class *clasp = shape_->getObjectClass();
+    Class *clasp = type_->clasp;
     JSObject *obj = asObjectPtr();
     if (clasp->trace)
         clasp->trace(trc, obj);
 
-    if (shape_->isNative())
+    if (shape_->isNative()) {
         MarkObjectSlots(trc, obj, 0, obj->slotSpan());
+        gc::MarkArraySlots(trc, obj->getDenseInitializedLength(), obj->getDenseElements(), "objectElements");
+    }
 }
 
 bool
@@ -303,7 +338,7 @@ DenseElementsHeader::getOwnElement(JSContext *cx, Handle<ObjectImpl*> obj, uint3
     }
 
     HeapSlot &slot = obj->elements[index];
-    if (slot.isMagic(JS_ARRAY_HOLE)) {
+    if (slot.isMagic(JS_ELEMENTS_HOLE)) {
         *desc = PropDesc::undefined();
         return true;
     }
@@ -403,7 +438,7 @@ DenseElementsHeader::defineElement(JSContext *cx, Handle<ObjectImpl*> obj, uint3
     uint32_t initLen = initializedLength();
     if (index < initLen) {
         HeapSlot &slot = obj->elements[index];
-        if (!slot.isMagic(JS_ARRAY_HOLE)) {
+        if (!slot.isMagic(JS_ELEMENTS_HOLE)) {
             /*
              * The element exists with attributes { [[Enumerable]]: true,
              * [[Configurable]]: true, [[Writable]]: true, [[Value]]: slot }.
@@ -445,7 +480,7 @@ DenseElementsHeader::defineElement(JSContext *cx, Handle<ObjectImpl*> obj, uint3
 
     /* But if we were able to ensure the element's existence, we're good. */
     MOZ_ASSERT(res == ObjectImpl::Succeeded);
-    obj->elements[index].set(obj->asObjectPtr(), index, desc.value());
+    obj->elements[index].set(obj->asObjectPtr(), HeapSlot::Element, index, desc.value());
     *succeeded = true;
     return true;
 }
@@ -505,11 +540,8 @@ js::GetOwnProperty(JSContext *cx, Handle<ObjectImpl*> obj, PropertyId pid_, unsi
         return false;
     }
 
-    /* |shape| is always set /after/ a GC. */
-    UnrootedShape shape = obj->nativeLookup(cx, pid);
+    RootedShape shape(cx, obj->nativeLookup(cx, pid));
     if (!shape) {
-        DropUnrooted(shape);
-
         /* Not found: attempt to resolve it. */
         Class *clasp = obj->getClass();
         JSResolveOp resolve = clasp->resolve;
@@ -606,6 +638,7 @@ js::GetProperty(JSContext *cx, Handle<ObjectImpl*> obj, Handle<ObjectImpl*> rece
         }
 
         PropDesc desc;
+        PropDesc::AutoRooter rootDesc(cx, &desc);
         if (!GetOwnProperty(cx, current, pid, resolveFlags, &desc))
             return false;
 
@@ -662,6 +695,7 @@ js::GetElement(JSContext *cx, Handle<ObjectImpl*> obj, Handle<ObjectImpl*> recei
 
     Rooted<ObjectImpl*> current(cx, obj);
 
+    RootedValue getter(cx);
     do {
         MOZ_ASSERT(current);
 
@@ -692,8 +726,8 @@ js::GetElement(JSContext *cx, Handle<ObjectImpl*> obj, Handle<ObjectImpl*> recei
 
         /* If it's an accessor property, call its [[Get]] with the receiver. */
         if (desc.isAccessorDescriptor()) {
-            Value get = desc.getterValue();
-            if (get.isUndefined()) {
+            getter = desc.getterValue();
+            if (getter.isUndefined()) {
                 vp->setUndefined();
                 return true;
             }
@@ -702,8 +736,8 @@ js::GetElement(JSContext *cx, Handle<ObjectImpl*> obj, Handle<ObjectImpl*> recei
             if (!cx->stack.pushInvokeArgs(cx, 0, &args))
                 return false;
 
-            /* Push get, receiver, and no args. */
-            args.setCallee(get);
+            /* Push getter, receiver, and no args. */
+            args.setCallee(getter);
             args.setThis(ObjectValue(*current));
 
             bool ok = Invoke(cx, args);
@@ -893,6 +927,7 @@ js::SetElement(JSContext *cx, Handle<ObjectImpl*> obj, Handle<ObjectImpl*> recei
     NEW_OBJECT_REPRESENTATION_ONLY();
 
     Rooted<ObjectImpl*> current(cx, obj);
+    RootedValue setter(cx);
 
     MOZ_ASSERT(receiver);
 
@@ -926,7 +961,7 @@ js::SetElement(JSContext *cx, Handle<ObjectImpl*> obj, Handle<ObjectImpl*> recei
             }
 
             if (ownDesc.isAccessorDescriptor()) {
-                Value setter = ownDesc.setterValue();
+                setter = ownDesc.setterValue();
                 if (setter.isUndefined()) {
                     *succeeded = false;
                     return true;

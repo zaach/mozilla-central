@@ -19,6 +19,7 @@
 #include "IDBEvents.h"
 #include "IDBFactory.h"
 #include "IndexedDatabaseManager.h"
+#include <algorithm>
 
 using namespace mozilla;
 USING_INDEXEDDB_NAMESPACE
@@ -1357,7 +1358,8 @@ protected:
   { }
 
   // Need an upgradeneeded event here.
-  virtual already_AddRefed<nsDOMEvent> CreateSuccessEvent() MOZ_OVERRIDE;
+  virtual already_AddRefed<nsIDOMEvent> CreateSuccessEvent(
+    mozilla::dom::EventTarget* aOwner) MOZ_OVERRIDE;
 
   virtual nsresult NotifyTransactionPreComplete(IDBTransaction* aTransaction)
                                                 MOZ_OVERRIDE;
@@ -1529,7 +1531,7 @@ public:
 
       // Otherwise fire a versionchange event.
       nsRefPtr<nsDOMEvent> event = 
-        IDBVersionChangeEvent::Create(mOldVersion, mNewVersion);
+        IDBVersionChangeEvent::Create(database, mOldVersion, mNewVersion);
       NS_ENSURE_TRUE(event, NS_ERROR_FAILURE);
 
       bool dummy;
@@ -1541,7 +1543,8 @@ public:
     for (uint32_t index = 0; index < count; index++) {
       if (!mWaitingDatabases[index]->IsClosed()) {
         nsRefPtr<nsDOMEvent> event =
-          IDBVersionChangeEvent::CreateBlocked(mOldVersion, mNewVersion);
+          IDBVersionChangeEvent::CreateBlocked(mRequest,
+                                               mOldVersion, mNewVersion);
         NS_ENSURE_TRUE(event, NS_ERROR_FAILURE);
 
         bool dummy;
@@ -1568,7 +1571,7 @@ private:
 
 } // anonymous namespace
 
-NS_IMPL_THREADSAFE_ISUPPORTS1(OpenDatabaseHelper, nsIRunnable);
+NS_IMPL_THREADSAFE_ISUPPORTS1(OpenDatabaseHelper, nsIRunnable)
 
 nsresult
 OpenDatabaseHelper::Init()
@@ -1679,9 +1682,9 @@ OpenDatabaseHelper::DoDatabaseWork()
     nsRefPtr<ObjectStoreInfo>& objectStoreInfo = mObjectStores[i];
     for (uint32_t j = 0; j < objectStoreInfo->indexes.Length(); j++) {
       IndexInfo& indexInfo = objectStoreInfo->indexes[j];
-      mLastIndexId = NS_MAX(indexInfo.id, mLastIndexId);
+      mLastIndexId = std::max(indexInfo.id, mLastIndexId);
     }
-    mLastObjectStoreId = NS_MAX(objectStoreInfo->id, mLastObjectStoreId);
+    mLastObjectStoreId = std::max(objectStoreInfo->id, mLastObjectStoreId);
   }
 
   // See if we need to do a VERSION_CHANGE transaction
@@ -2199,8 +2202,8 @@ OpenDatabaseHelper::BlockDatabase()
 void
 OpenDatabaseHelper::DispatchSuccessEvent()
 {
-  nsRefPtr<nsDOMEvent> event =
-    CreateGenericEvent(NS_LITERAL_STRING(SUCCESS_EVT_STR),
+  nsRefPtr<nsIDOMEvent> event =
+    CreateGenericEvent(mOpenDBRequest, NS_LITERAL_STRING(SUCCESS_EVT_STR),
                        eDoesNotBubble, eNotCancelable);
   if (!event) {
     NS_ERROR("Failed to create event!");
@@ -2214,8 +2217,8 @@ OpenDatabaseHelper::DispatchSuccessEvent()
 void
 OpenDatabaseHelper::DispatchErrorEvent()
 {
-  nsRefPtr<nsDOMEvent> event =
-    CreateGenericEvent(NS_LITERAL_STRING(ERROR_EVT_STR),
+  nsRefPtr<nsIDOMEvent> event =
+    CreateGenericEvent(mOpenDBRequest, NS_LITERAL_STRING(ERROR_EVT_STR),
                        eDoesBubble, eCancelable);
   if (!event) {
     NS_ERROR("Failed to create event!");
@@ -2246,7 +2249,7 @@ OpenDatabaseHelper::ReleaseMainThreadObjects()
   HelperBase::ReleaseMainThreadObjects();
 }
 
-NS_IMPL_ISUPPORTS_INHERITED0(SetVersionHelper, AsyncConnectionHelper);
+NS_IMPL_ISUPPORTS_INHERITED0(SetVersionHelper, AsyncConnectionHelper)
 
 nsresult
 SetVersionHelper::Init()
@@ -2317,12 +2320,13 @@ VersionChangeEventsRunnable::QueueVersionChange(
   NS_DispatchToCurrentThread(eventsRunnable);
 }
 
-already_AddRefed<nsDOMEvent>
-SetVersionHelper::CreateSuccessEvent()
+already_AddRefed<nsIDOMEvent>
+SetVersionHelper::CreateSuccessEvent(mozilla::dom::EventTarget* aOwner)
 {
   NS_ASSERTION(mCurrentVersion < mRequestedVersion, "Huh?");
 
-  return IDBVersionChangeEvent::CreateUpgradeNeeded(mCurrentVersion,
+  return IDBVersionChangeEvent::CreateUpgradeNeeded(aOwner,
+                                                    mCurrentVersion,
                                                     mRequestedVersion);
 }
 

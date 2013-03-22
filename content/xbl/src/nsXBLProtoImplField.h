@@ -12,6 +12,8 @@
 #include "nsString.h"
 #include "nsXBLProtoImplMember.h"
 
+class nsIObjectInputStream;
+class nsIObjectOutputStream;
 class nsIURI;
 
 class nsXBLProtoImplField
@@ -31,9 +33,11 @@ public:
 
   nsresult InstallField(nsIScriptContext* aContext,
                         JSObject* aBoundNode,
-                        nsIPrincipal* aPrincipal,
                         nsIURI* aBindingDocURI,
                         bool* aDidInstall) const;
+
+  nsresult InstallAccessors(JSContext* aCx,
+                            JSObject* aTargetClassObject);
 
   nsresult Read(nsIScriptContext* aContext, nsIObjectInputStream* aStream);
   nsresult Write(nsIScriptContext* aContext, nsIObjectOutputStream* aStream);

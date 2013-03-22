@@ -7,8 +7,9 @@
 #include "AudioContext.h"
 #include "nsContentUtils.h"
 #include "nsIDOMWindow.h"
+#include "nsPIDOMWindow.h"
 #include "mozilla/ErrorResult.h"
-#include "mozilla/dom/AudioContextBinding.h"
+#include "MediaStreamGraph.h"
 #include "AudioDestinationNode.h"
 #include "AudioBufferSourceNode.h"
 #include "AudioBuffer.h"
@@ -18,6 +19,7 @@
 #include "AudioListener.h"
 #include "DynamicsCompressorNode.h"
 #include "BiquadFilterNode.h"
+#include "nsNetUtil.h"
 
 namespace mozilla {
 namespace dom {
@@ -28,11 +30,14 @@ NS_IMPL_CYCLE_COLLECTION_WRAPPERCACHE_3(AudioContext,
 NS_IMPL_CYCLE_COLLECTION_ROOT_NATIVE(AudioContext, AddRef)
 NS_IMPL_CYCLE_COLLECTION_UNROOT_NATIVE(AudioContext, Release)
 
+static uint8_t gWebAudioOutputKey;
+
 AudioContext::AudioContext(nsIDOMWindow* aWindow)
   : mWindow(aWindow)
-  , mDestination(new AudioDestinationNode(this))
-  , mSampleRate(44100) // hard-code for now
+  , mDestination(new AudioDestinationNode(this, MediaStreamGraph::GetInstance()))
 {
+  // Actually play audio
+  mDestination->Stream()->AddAudioOutput(&gWebAudioOutputKey);
   SetIsDOMBinding();
 }
 
@@ -41,25 +46,23 @@ AudioContext::~AudioContext()
 }
 
 JSObject*
-AudioContext::WrapObject(JSContext* aCx, JSObject* aScope,
-                         bool* aTriedToWrap)
+AudioContext::WrapObject(JSContext* aCx, JSObject* aScope)
 {
-  return mozAudioContextBinding::Wrap(aCx, aScope, this, aTriedToWrap);
+  return AudioContextBinding::Wrap(aCx, aScope, this);
 }
 
 /* static */ already_AddRefed<AudioContext>
-AudioContext::Constructor(nsISupports* aGlobal, ErrorResult& aRv)
+AudioContext::Constructor(const GlobalObject& aGlobal, ErrorResult& aRv)
 {
-  nsCOMPtr<nsPIDOMWindow> window = do_QueryInterface(aGlobal);
+  nsCOMPtr<nsPIDOMWindow> window = do_QueryInterface(aGlobal.Get());
   if (!window) {
     aRv.Throw(NS_ERROR_FAILURE);
     return nullptr;
   }
 
-  AudioContext* object = new AudioContext(window);
-  NS_ADDREF(object);
+  nsRefPtr<AudioContext> object = new AudioContext(window);
   window->AddAudioContext(object);
-  return object;
+  return object.forget();
 }
 
 already_AddRefed<AudioBufferSourceNode>
@@ -75,11 +78,23 @@ AudioContext::CreateBuffer(JSContext* aJSContext, uint32_t aNumberOfChannels,
                            uint32_t aLength, float aSampleRate,
                            ErrorResult& aRv)
 {
-  nsRefPtr<AudioBuffer> buffer = new AudioBuffer(this, aLength, aSampleRate);
+  if (aSampleRate < 8000 || aSampleRate > 96000) {
+    aRv.Throw(NS_ERROR_DOM_SYNTAX_ERR);
+    return nullptr;
+  }
+
+  if (aLength > INT32_MAX) {
+    aRv.Throw(NS_ERROR_OUT_OF_MEMORY);
+    return nullptr;
+  }
+
+  nsRefPtr<AudioBuffer> buffer =
+    new AudioBuffer(this, int32_t(aLength), aSampleRate);
   if (!buffer->InitializeBuffers(aNumberOfChannels, aJSContext)) {
     aRv.Throw(NS_ERROR_OUT_OF_MEMORY);
     return nullptr;
   }
+
   return buffer.forget();
 }
 
@@ -133,6 +148,54 @@ AudioContext::Listener()
   return mListener;
 }
 
-}
+void
+AudioContext::DecodeAudioData(const ArrayBuffer& aBuffer,
+                              DecodeSuccessCallback& aSuccessCallback,
+                              const Optional<OwningNonNull<DecodeErrorCallback> >& aFailureCallback)
+{
+  // Sniff the content of the media.
+  // Failed type sniffing will be handled by AsyncDecodeMedia.
+  nsAutoCString contentType;
+  NS_SniffContent(NS_DATA_SNIFFER_CATEGORY, nullptr,
+                  aBuffer.Data(), aBuffer.Length(),
+                  contentType);
+
+  nsCOMPtr<DecodeErrorCallback> failureCallback;
+  if (aFailureCallback.WasPassed()) {
+    failureCallback = aFailureCallback.Value().get();
+  }
+  nsAutoPtr<WebAudioDecodeJob> job(
+    new WebAudioDecodeJob(contentType, aBuffer, this,
+                          &aSuccessCallback, failureCallback));
+  mDecoder.AsyncDecodeMedia(contentType.get(),
+                            job->mBuffer, job->mLength, *job);
+  // Transfer the ownership to mDecodeJobs
+  mDecodeJobs.AppendElement(job.forget());
 }
 
+void
+AudioContext::RemoveFromDecodeQueue(WebAudioDecodeJob* aDecodeJob)
+{
+  mDecodeJobs.RemoveElement(aDecodeJob);
+}
+
+MediaStreamGraph*
+AudioContext::Graph() const
+{
+  return Destination()->Stream()->Graph();
+}
+
+MediaStream*
+AudioContext::DestinationStream() const
+{
+  return Destination()->Stream();
+}
+
+double
+AudioContext::CurrentTime() const
+{
+  return MediaTimeToSeconds(Destination()->Stream()->GetCurrentTime());
+}
+
+}
+}

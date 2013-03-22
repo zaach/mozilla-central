@@ -29,6 +29,7 @@
 
 #include "nsAnimationManager.h"
 #include "nsTransitionManager.h"
+#include <algorithm>
 
 #ifdef DEBUG
 #include <stdio.h>
@@ -758,22 +759,11 @@ FrameLayerBuilder::Init(nsDisplayListBuilder* aBuilder, LayerManager* aManager)
 void
 FrameLayerBuilder::FlashPaint(gfxContext *aContext)
 {
-  static bool sPaintFlashingEnabled;
-  static bool sPaintFlashingPrefCached = false;
-
-  if (!sPaintFlashingPrefCached) {
-    sPaintFlashingPrefCached = true;
-    mozilla::Preferences::AddBoolVarCache(&sPaintFlashingEnabled,
-                                          "nglayout.debug.paint_flashing");
-  }
-
-  if (sPaintFlashingEnabled) {
-    float r = float(rand()) / RAND_MAX;
-    float g = float(rand()) / RAND_MAX;
-    float b = float(rand()) / RAND_MAX;
-    aContext->SetColor(gfxRGBA(r, g, b, 0.2));
-    aContext->Paint();
-  }
+  float r = float(rand()) / RAND_MAX;
+  float g = float(rand()) / RAND_MAX;
+  float b = float(rand()) / RAND_MAX;
+  aContext->SetColor(gfxRGBA(r, g, b, 0.4));
+  aContext->Paint();
 }
 
 FrameLayerBuilder::DisplayItemData*
@@ -922,6 +912,7 @@ FrameLayerBuilder::RemoveFrameFromLayerManager(nsIFrame* aFrame,
         nsIntRegion rgn = old.ScaleToOutsidePixels(thebesData->mXScale, thebesData->mYScale, thebesData->mAppUnitsPerDevPixel);
         rgn.MoveBy(-GetTranslationForThebesLayer(t));
         thebesData->mRegionToInvalidate.Or(thebesData->mRegionToInvalidate, rgn);
+        thebesData->mRegionToInvalidate.SimplifyOutward(8);
       }
     }
 
@@ -1529,7 +1520,7 @@ ContainerState::ThebesLayerData::UpdateCommonClipCount(
     const FrameLayerBuilder::Clip& aCurrentClip)
 {
   if (mCommonClipCount >= 0) {
-    int32_t end = NS_MIN<int32_t>(aCurrentClip.mRoundedClipRects.Length(),
+    int32_t end = std::min<int32_t>(aCurrentClip.mRoundedClipRects.Length(),
                                   mCommonClipCount);
     int32_t clipCount = 0;
     for (; clipCount < end; ++clipCount) {
@@ -2145,7 +2136,8 @@ ContainerState::ProcessDisplayItems(const nsDisplayList& aList,
       // Note that items without their own layers can't be skipped this
       // way, since their ThebesLayer may decide it wants to draw them
       // into its buffer even if they're currently covered.
-      if (itemVisibleRect.IsEmpty() && layerState != LAYER_ACTIVE_EMPTY) {
+      if (itemVisibleRect.IsEmpty() &&
+          !item->ShouldBuildLayerEvenIfInvisible(mBuilder)) {
         continue;
       }
 
@@ -2170,7 +2162,11 @@ ContainerState::ProcessDisplayItems(const nsDisplayList& aList,
                                mParameters.mYScale);
       }
 
-      ownLayer->SetIsFixedPosition(isFixed);
+      // If a transform layer is marked as fixed then the shadow transform gets
+      // overwritten by CompositorParent when doing scroll compensation on
+      // fixed layers. This means we need to make sure transform layers are not
+      // marked as fixed.
+      ownLayer->SetIsFixedPosition(isFixed && type != nsDisplayItem::TYPE_TRANSFORM);
 
       // Update that layer's clip and visible rects.
       NS_ASSERTION(ownLayer->Manager() == mManager, "Wrong manager");
@@ -2197,7 +2193,9 @@ ContainerState::ProcessDisplayItems(const nsDisplayList& aList,
         data->mDrawAboveRegion.SimplifyOutward(4);
       }
       itemVisibleRect.MoveBy(mParameters.mOffset);
-      RestrictVisibleRegionForLayer(ownLayer, itemVisibleRect);
+      if (!nsDisplayTransform::IsLayerPrerendered(ownLayer)) {
+        RestrictVisibleRegionForLayer(ownLayer, itemVisibleRect);
+      }
 
       // rounded rectangle clipping using mask layers
       // (must be done after visible rect is set on layer)
@@ -2683,14 +2681,15 @@ ContainerState::Finish(uint32_t* aTextContentFlags, LayerManagerData* aData)
   *aTextContentFlags = textContentFlags;
 }
 
-static FrameLayerBuilder::ContainerParameters
+static bool
 ChooseScaleAndSetTransform(FrameLayerBuilder* aLayerBuilder,
                            nsDisplayListBuilder* aDisplayListBuilder,
                            nsIFrame* aContainerFrame,
                            const gfx3DMatrix* aTransform,
                            const FrameLayerBuilder::ContainerParameters& aIncomingScale,
                            ContainerLayer* aLayer,
-                           LayerState aState)
+                           LayerState aState,
+                           FrameLayerBuilder::ContainerParameters& aOutgoingScale)
 {
   nsIntPoint offset;
 
@@ -2724,6 +2723,9 @@ ChooseScaleAndSetTransform(FrameLayerBuilder* aLayerBuilder,
   }
   transform = transform * gfx3DMatrix::Translation(offset.x + aIncomingScale.mOffset.x, offset.y + aIncomingScale.mOffset.y, 0);
 
+  if (transform.IsSingular()) {
+    return false;
+  }
 
   bool canDraw2D = transform.CanDraw2D(&transform2d);
   gfxSize scale;
@@ -2782,19 +2784,21 @@ ChooseScaleAndSetTransform(FrameLayerBuilder* aLayerBuilder,
   aLayer->SetBaseTransform(transform);
   aLayer->SetPreScale(1.0f/float(scale.width),
                       1.0f/float(scale.height));
+  aLayer->SetInheritedScale(aIncomingScale.mXScale,
+                            aIncomingScale.mYScale);
 
-  FrameLayerBuilder::ContainerParameters
-    result(scale.width, scale.height, -offset, aIncomingScale);
+  aOutgoingScale = 
+    FrameLayerBuilder::ContainerParameters(scale.width, scale.height, -offset, aIncomingScale);
   if (aTransform) {
-    result.mInTransformedSubtree = true;
+    aOutgoingScale.mInTransformedSubtree = true;
     if (aContainerFrame->AreLayersMarkedActive(nsChangeHint_UpdateTransformLayer)) {
-      result.mInActiveTransformedSubtree = true;
+      aOutgoingScale.mInActiveTransformedSubtree = true;
     }
   }
   if (isRetained && (!canDraw2D || transform2d.HasNonIntegerTranslation())) {
-    result.mDisableSubpixelAntialiasingInDescendants = true;
+    aOutgoingScale.mDisableSubpixelAntialiasingInDescendants = true;
   }
-  return result;
+  return true;
 }
 
 /* static */ PLDHashOperator
@@ -2847,6 +2851,10 @@ FrameLayerBuilder::BuildContainerLayerFor(nsDisplayListBuilder* aBuilder,
   NS_ASSERTION(!aContainerItem ||
                aContainerItem->GetUnderlyingFrame() == aContainerFrame,
                "Container display item must match given frame");
+
+  if (!aParameters.mXScale || !aParameters.mYScale) {
+    return nullptr;
+  }
 
   nsRefPtr<ContainerLayer> containerLayer;
   if (aManager == mRetainingManager) {
@@ -2902,9 +2910,11 @@ FrameLayerBuilder::BuildContainerLayerFor(nsDisplayListBuilder* aBuilder,
     return containerLayer.forget();
   }
 
-  ContainerParameters scaleParameters =
-    ChooseScaleAndSetTransform(this, aBuilder, aContainerFrame, aTransform, aParameters,
-                               containerLayer, state);
+  ContainerParameters scaleParameters;
+  if (!ChooseScaleAndSetTransform(this, aBuilder, aContainerFrame, aTransform, aParameters,
+                                  containerLayer, state, scaleParameters)) {
+    return nullptr;
+  }
 
   uint32_t oldGeneration = mContainerLayerGeneration;
   mContainerLayerGeneration = ++mMaxContainerLayerGeneration;
@@ -3349,7 +3359,10 @@ FrameLayerBuilder::DrawThebesLayer(ThebesLayer* aLayer,
     aContext->Restore();
   }
 
-  FlashPaint(aContext);
+  if (presContext->RefreshDriver()->GetPaintFlashing()) {
+    FlashPaint(aContext);
+  }
+
   if (!aRegionToInvalidate.IsEmpty()) {
     aLayer->AddInvalidRect(aRegionToInvalidate.GetBounds());
   }
@@ -3433,7 +3446,7 @@ FrameLayerBuilder::Clip::ApplyRoundedRectsTo(gfxContext* aContext,
                                              int32_t A2D,
                                              uint32_t aBegin, uint32_t aEnd) const
 {
-  aEnd = NS_MIN<uint32_t>(aEnd, mRoundedClipRects.Length());
+  aEnd = std::min<uint32_t>(aEnd, mRoundedClipRects.Length());
 
   for (uint32_t i = aBegin; i < aEnd; ++i) {
     AddRoundedRectPathTo(aContext, A2D, mRoundedClipRects[i]);
@@ -3446,7 +3459,7 @@ FrameLayerBuilder::Clip::DrawRoundedRectsTo(gfxContext* aContext,
                                             int32_t A2D,
                                             uint32_t aBegin, uint32_t aEnd) const
 {
-  aEnd = NS_MIN<uint32_t>(aEnd, mRoundedClipRects.Length());
+  aEnd = std::min<uint32_t>(aEnd, mRoundedClipRects.Length());
 
   if (aEnd - aBegin == 0)
     return;
@@ -3705,8 +3718,8 @@ ContainerState::SetupMaskLayer(Layer *aLayer, const FrameLayerBuilder::Clip& aCl
 
   uint32_t maxSize = mManager->GetMaxTextureSize();
   NS_ASSERTION(maxSize > 0, "Invalid max texture size");
-  nsIntSize surfaceSize(NS_MIN<int32_t>(boundingRect.Width(), maxSize),
-                        NS_MIN<int32_t>(boundingRect.Height(), maxSize));
+  nsIntSize surfaceSize(std::min<int32_t>(boundingRect.Width(), maxSize),
+                        std::min<int32_t>(boundingRect.Height(), maxSize));
 
   // maskTransform is applied to the clip when it is painted into the mask (as a
   // component of imageTransform), and its inverse used when the mask is used for

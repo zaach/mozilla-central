@@ -9,7 +9,6 @@ VPATH     = @srcdir@
 
 include $(DEPTH)/config/autoconf.mk
 
-MODULE           = dom
 LIBRARY_NAME     = dom_activities_s
 LIBXUL_LIBRARY   = 1
 FORCE_STATIC_LIB = 1
@@ -36,6 +35,7 @@ EXTRA_COMPONENTS = \
 
 EXTRA_JS_MODULES =   \
   ActivitiesService.jsm \
+  ActivitiesServiceFilter.jsm \
   $(NULL)
 
 include $(topsrcdir)/config/config.mk

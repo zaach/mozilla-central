@@ -29,7 +29,8 @@
 #include "PowerManager.h"
 #include "nsIDOMWakeLock.h"
 #include "nsIPowerManagerService.h"
-#include "SmsManager.h"
+#include "mozilla/dom/SmsManager.h"
+#include "mozilla/dom/MobileMessageManager.h"
 #include "nsISmsService.h"
 #include "mozilla/Hal.h"
 #include "nsIWebNavigation.h"
@@ -37,9 +38,11 @@
 #include "mozilla/ClearOnShutdown.h"
 #include "mozilla/StaticPtr.h"
 #include "Connection.h"
+#include "nsIObserverService.h"
 #ifdef MOZ_B2G_RIL
 #include "MobileConnection.h"
 #include "mozilla/dom/CellBroadcast.h"
+#include "mozilla/dom/Voicemail.h"
 #endif
 #include "nsIIdleObserver.h"
 #include "nsIPermissionManager.h"
@@ -67,7 +70,6 @@
 #include "nsIDOMGlobalPropertyInitializer.h"
 
 using namespace mozilla::dom::power;
-using namespace mozilla::dom::sms;
 
 // This should not be in the namespace.
 DOMCI_DATA(Navigator, mozilla::dom::Navigator)
@@ -102,6 +104,10 @@ Navigator::Navigator(nsPIDOMWindow* aWindow)
 {
   NS_ASSERTION(aWindow->IsInnerWindow(),
                "Navigator must get an inner window!");
+  nsCOMPtr<nsIObserverService> obsService =
+    mozilla::services::GetObserverService();
+  if (obsService)
+    obsService->AddObserver(this, "plugin-info-updated", false);
 }
 
 Navigator::~Navigator()
@@ -118,6 +124,8 @@ NS_INTERFACE_MAP_BEGIN(Navigator)
   NS_INTERFACE_MAP_ENTRY(nsINavigatorBattery)
   NS_INTERFACE_MAP_ENTRY(nsIDOMNavigatorDesktopNotification)
   NS_INTERFACE_MAP_ENTRY(nsIDOMMozNavigatorSms)
+  NS_INTERFACE_MAP_ENTRY(nsIDOMMozNavigatorMobileMessage)
+  NS_INTERFACE_MAP_ENTRY(nsIObserver)
 #ifdef MOZ_MEDIA_NAVIGATOR
   NS_INTERFACE_MAP_ENTRY(nsINavigatorUserMedia)
   NS_INTERFACE_MAP_ENTRY(nsIDOMNavigatorUserMedia)
@@ -129,6 +137,7 @@ NS_INTERFACE_MAP_BEGIN(Navigator)
 #ifdef MOZ_B2G_RIL
   NS_INTERFACE_MAP_ENTRY(nsIMozNavigatorMobileConnection)
   NS_INTERFACE_MAP_ENTRY(nsIMozNavigatorCellBroadcast)
+  NS_INTERFACE_MAP_ENTRY(nsIMozNavigatorVoicemail)
 #endif
 #ifdef MOZ_B2G_BT
   NS_INTERFACE_MAP_ENTRY(nsIDOMNavigatorBluetooth)
@@ -151,6 +160,12 @@ void
 Navigator::Invalidate()
 {
   mWindow = nullptr;
+
+  nsCOMPtr<nsIObserverService> obsService =
+    mozilla::services::GetObserverService();
+  if (obsService) {
+    obsService->RemoveObserver(this, "plugin-info-updated");
+  }
 
   if (mPlugins) {
     mPlugins->Invalidate();
@@ -181,6 +196,11 @@ Navigator::Invalidate()
   if (mSmsManager) {
     mSmsManager->Shutdown();
     mSmsManager = nullptr;
+  }
+
+  if (mMobileMessageManager) {
+    mMobileMessageManager->Shutdown();
+    mMobileMessageManager = nullptr;
   }
 
 #ifdef MOZ_B2G_RIL
@@ -248,6 +268,19 @@ Navigator::GetWindow()
   return win;
 }
 
+//*****************************************************************************
+//    Navigator::nsIObserver
+//*****************************************************************************
+
+NS_IMETHODIMP
+Navigator::Observe(nsISupports *aSubject, const char *aTopic,
+                   const PRUnichar *aData) {
+  if (!nsCRT::strcmp(aTopic, "plugin-info-updated") && mPlugins) {
+    mPlugins->Refresh(false);
+  }
+
+  return NS_OK;
+}
 
 //*****************************************************************************
 //    Navigator::nsIDOMNavigator
@@ -279,7 +312,7 @@ Navigator::GetUserAgent(nsAString& aUserAgent)
     do_GetService("@mozilla.org/dom/site-specific-user-agent;1");
   NS_ENSURE_TRUE(siteSpecificUA, NS_OK);
 
-  return siteSpecificUA->GetUserAgentForURI(codebaseURI, aUserAgent);
+  return siteSpecificUA->GetUserAgentForURIAndWindow(codebaseURI, win, aUserAgent);
 }
 
 NS_IMETHODIMP
@@ -1097,7 +1130,7 @@ NS_IMETHODIMP Navigator::GetMozNotification(nsIDOMDesktopNotificationCenter** aR
 //*****************************************************************************
 
 NS_IMETHODIMP
-Navigator::GetBattery(nsIDOMBatteryManager** aBattery)
+Navigator::GetBattery(nsISupports** aBattery)
 {
   if (!mBatteryManager) {
     *aBattery = nullptr;
@@ -1170,6 +1203,41 @@ Navigator::GetMozSms(nsIDOMMozSmsManager** aSmsManager)
   return NS_OK;
 }
 
+//*****************************************************************************
+//    Navigator::nsIDOMNavigatorMobileMessage
+//*****************************************************************************
+
+NS_IMETHODIMP
+Navigator::GetMozMobileMessage(nsIDOMMozMobileMessageManager** aMobileMessageManager)
+{
+  *aMobileMessageManager = nullptr;
+
+#ifndef MOZ_WEBSMS_BACKEND
+  return NS_OK;
+#endif
+
+  // First of all, the general pref has to be turned on.
+  bool enabled = false;
+  Preferences::GetBool("dom.sms.enabled", &enabled);
+  NS_ENSURE_TRUE(enabled, NS_OK);
+
+  if (!mMobileMessageManager) {
+    nsCOMPtr<nsPIDOMWindow> window = do_QueryReferent(mWindow);
+    NS_ENSURE_TRUE(window && window->GetDocShell(), NS_OK);
+
+    if (!CheckPermission("sms")) {
+      return NS_OK;
+    }
+
+    mMobileMessageManager = new MobileMessageManager();
+    mMobileMessageManager->Init(window);
+  }
+
+  NS_ADDREF(*aMobileMessageManager = mMobileMessageManager);
+
+  return NS_OK;
+}
+
 #ifdef MOZ_B2G_RIL
 
 //*****************************************************************************
@@ -1220,6 +1288,10 @@ Navigator::GetMozTelephony(nsIDOMTelephony** aTelephony)
   telephony.forget(aTelephony);
   return NS_OK;
 }
+
+//*****************************************************************************
+//    nsNavigator::nsINavigatorVoicemail
+//*****************************************************************************
 
 NS_IMETHODIMP
 Navigator::GetMozVoicemail(nsIDOMMozVoicemail** aVoicemail)
@@ -1456,7 +1528,9 @@ Navigator::OnNavigation()
 #ifdef MOZ_MEDIA_NAVIGATOR
   // Inform MediaManager in case there are live streams or pending callbacks.
   MediaManager *manager = MediaManager::Get();
-  manager->OnNavigation(win->WindowID());
+  if (manager) {
+    manager->OnNavigation(win->WindowID());
+  }
 #endif
   if (mCameraManager) {
     mCameraManager->OnNavigation(win->WindowID());
@@ -1483,7 +1557,7 @@ Navigator::CheckPermission(const char* type)
 //*****************************************************************************
 #ifdef MOZ_AUDIO_CHANNEL_MANAGER
 NS_IMETHODIMP
-Navigator::GetMozAudioChannelManager(nsIAudioChannelManager** aAudioChannelManager)
+Navigator::GetMozAudioChannelManager(nsISupports** aAudioChannelManager)
 {
   *aAudioChannelManager = nullptr;
 

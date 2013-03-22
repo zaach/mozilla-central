@@ -16,6 +16,7 @@ Cu.import("resource://gre/modules/PluralForm.jsm");
 Cu.import("resource:///modules/devtools/StyleEditor.jsm");
 Cu.import("resource:///modules/devtools/StyleEditorUtil.jsm");
 Cu.import("resource:///modules/devtools/SplitView.jsm");
+Cu.import("resource://gre/modules/commonjs/sdk/core/promise.js");
 
 const STYLE_EDITOR_TEMPLATE = "stylesheet";
 
@@ -43,33 +44,42 @@ this.StyleEditorChrome = function StyleEditorChrome(aRoot, aContentWindow)
   this._editors = [];
   this._listeners = []; // @see addChromeListener
 
+  // Store the content window so that we can call the real contentWindow setter
+  // in the open method.
+  this._contentWindowTemp = aContentWindow;
+
   this._contentWindow = null;
-  this._isContentAttached = false;
-
-  let initializeUI = function (aEvent) {
-    if (aEvent) {
-      this._window.removeEventListener("load", initializeUI, false);
-    }
-
-    let viewRoot = this._root.parentNode.querySelector(".splitview-root");
-    this._view = new SplitView(viewRoot);
-
-    this._setupChrome();
-
-    // attach to the content window
-    this.contentWindow = aContentWindow;
-    this._contentWindowID = null;
-  }.bind(this);
-
-  if (this._document.readyState == "complete") {
-    initializeUI();
-  } else {
-    this._window.addEventListener("load", initializeUI, false);
-  }
 }
 
 StyleEditorChrome.prototype = {
   _styleSheetToSelect: null,
+
+  open: function() {
+    let deferred = Promise.defer();
+    let initializeUI = function (aEvent) {
+      if (aEvent) {
+        this._window.removeEventListener("load", initializeUI, false);
+      }
+      let viewRoot = this._root.parentNode.querySelector(".splitview-root");
+      this._view = new SplitView(viewRoot);
+      this._setupChrome();
+
+      // We need to juggle arount the contentWindow items because we need to
+      // trigger the setter at the appropriate time.
+      this.contentWindow = this._contentWindowTemp; // calls setter
+      this._contentWindowTemp = null;
+
+      deferred.resolve();
+    }.bind(this);
+
+    if (this._document.readyState == "complete") {
+      initializeUI();
+    } else {
+      this._window.addEventListener("load", initializeUI, false);
+    }
+
+    return deferred.promise;
+  },
 
   /**
    * Retrieve the content window attached to this chrome.
@@ -151,15 +161,6 @@ StyleEditorChrome.prototype = {
   },
 
   /**
-    * Retrieve whether the content has been attached and StyleEditor instances
-    * exist for all of its stylesheets.
-    *
-    * @return boolean
-    * @see addChromeListener
-    */
-  get isContentAttached() this._isContentAttached,
-
-  /**
    * Retrieve an array with the StyleEditor instance for each live style sheet,
    * ordered by style sheet index.
    *
@@ -177,17 +178,31 @@ StyleEditorChrome.prototype = {
   },
 
   /**
+   * Get whether any of the editors have unsaved changes.
+   *
+   * @return boolean
+   */
+  get isDirty()
+  {
+    if (this._markedDirty === true) {
+      return true;
+    }
+    return this.editors.some(function(editor) {
+      return editor.sourceEditor && editor.sourceEditor.dirty;
+    });
+  },
+
+  /*
+   * Mark the style editor as having unsaved changes.
+   */
+  markDirty: function SEC_markDirty() {
+    this._markedDirty = true;
+  },
+
+  /**
    * Add a listener for StyleEditorChrome events.
    *
    * The listener implements IStyleEditorChromeListener := {
-   *   onContentAttach:        Called when a content window has been attached.
-   *                           All editors are instantiated, though they might
-   *                           not be loaded yet.
-   *                           Arguments: (StyleEditorChrome aChrome)
-   *                           @see contentWindow
-   *                           @see StyleEditor.isLoaded
-   *                           @see StyleEditor.addActionListener
-   *
    *   onContentDetach:        Called when the content window has been detached.
    *                           Arguments: (StyleEditorChrome aChrome)
    *                           @see contentWindow
@@ -253,22 +268,34 @@ StyleEditorChrome.prototype = {
   },
 
   /**
+   * Create a new style editor, add to the list of editors, and bind this
+   * object as an action listener.
+   * @param DOMDocument aDocument
+   *        The document that the stylesheet is being referenced in.
+   * @param CSSStyleSheet aSheet
+   *        Optional stylesheet to edit from the document.
+   * @return StyleEditor
+   */
+  _createStyleEditor: function SEC__createStyleEditor(aDocument, aSheet) {
+    let editor = new StyleEditor(aDocument, aSheet);
+    this._editors.push(editor);
+    editor.addActionListener(this);
+    return editor;
+  },
+
+  /**
    * Set up the chrome UI. Install event listeners and so on.
    */
   _setupChrome: function SEC__setupChrome()
   {
     // wire up UI elements
     wire(this._view.rootElement, ".style-editor-newButton", function onNewButton() {
-      let editor = new StyleEditor(this.contentDocument);
-      this._editors.push(editor);
-      editor.addActionListener(this);
+      let editor = this._createStyleEditor(this.contentDocument);
       editor.load();
     }.bind(this));
 
     wire(this._view.rootElement, ".style-editor-importButton", function onImportButton() {
-      let editor = new StyleEditor(this.contentDocument);
-      this._editors.push(editor);
-      editor.addActionListener(this);
+      let editor = this._createStyleEditor(this.contentDocument);
       editor.importFromFile(this._mockImportFile || null, this._window);
     }.bind(this));
   },
@@ -287,8 +314,36 @@ StyleEditorChrome.prototype = {
 
     // (re)enable UI
     let matches = this._root.querySelectorAll("toolbarbutton,input,select");
-    for (let i = 0; i < matches.length; ++i) {
+    for (let i = 0; i < matches.length; i++) {
       matches[i].removeAttribute("disabled");
+    }
+  },
+
+  /**
+   * Add all imported stylesheets to chrome UI, recursively
+   *
+   * @param CSSStyleSheet aSheet
+   *        A stylesheet we're going to browse to look for all imported sheets.
+   */
+  _showImportedStyleSheets: function SEC__showImportedStyleSheets(aSheet)
+  {
+    let document = this.contentDocument;
+    for (let j = 0; j < aSheet.cssRules.length; j++) {
+      let rule = aSheet.cssRules.item(j);
+      if (rule.type == Ci.nsIDOMCSSRule.IMPORT_RULE) {
+        // Associated styleSheet may be null if it has already been seen due to
+        // duplicate @imports for the same URL.
+        if (!rule.styleSheet) {
+          continue;
+        }
+
+        this._createStyleEditor(document, rule.styleSheet);
+
+        this._showImportedStyleSheets(rule.styleSheet);
+      } else if (rule.type != Ci.nsIDOMCSSRule.CHARSET_RULE) {
+        // @import rules must precede all others except @charset
+        return;
+      }
     }
   },
 
@@ -305,15 +360,13 @@ StyleEditorChrome.prototype = {
     this._document.title = _("chromeWindowTitle",
       document.title || document.location.href);
 
-    for (let i = 0; i < document.styleSheets.length; ++i) {
+    for (let i = 0; i < document.styleSheets.length; i++) {
       let styleSheet = document.styleSheets[i];
 
-      let editor = new StyleEditor(document, styleSheet);
-      editor.addActionListener(this);
-      this._editors.push(editor);
-    }
+      this._createStyleEditor(document, styleSheet);
 
-    this._triggerChromeListeners("ContentAttach");
+      this._showImportedStyleSheets(styleSheet);
+    }
 
     // Queue editors loading so that ContentAttach is consistently triggered
     // right after all editor instances are available (this.editors) but are
@@ -353,41 +406,36 @@ StyleEditorChrome.prototype = {
 
     let select = function DEC_select(aEditor) {
       let sheet = this._styleSheetToSelect.sheet;
-      let line = this._styleSheetToSelect.line;
-      let col = this._styleSheetToSelect.col;
-      let summary = sheet ? this.getSummaryElementForEditor(aEditor)
-                          : this._view.getSummaryElementByOrdinal(0);
+      let line = this._styleSheetToSelect.line || 1;
+      let col = this._styleSheetToSelect.col || 1;
 
-      if (line) {
-        col = col || 1;
-
-        if (!aEditor.sourceEditor) {
-          // If a line or column was specified we move the caret appropriately.
-          let self = this;
-          aEditor.addActionListener({
-            onAttach: function SEC_selectSheet_onAttach()
-            {
-              aEditor.removeActionListener(this);
-              self.selectedStyleSheetIndex = aEditor.styleSheetIndex;
-              aEditor.sourceEditor.setCaretPosition(line - 1, col - 1);
-
-              let newSheet = self._styleSheetToSelect.sheet;
-              let newLine = self._styleSheetToSelect.line;
-              let newCol = self._styleSheetToSelect.col;
-              self._styleSheetToSelect = null;
-              if (newSheet != sheet) {
-                self._window.setTimeout(self.selectStyleSheet.bind(self, newSheet, newLine, newCol), 0);
-              }
-            }
-          });
-        } else {
-          // If a line or column was specified we move the caret appropriately.
+      if (!aEditor.sourceEditor) {
+        let onAttach = function SEC_selectSheet_onAttach() {
+          aEditor.removeActionListener(this);
+          this.selectedStyleSheetIndex = aEditor.styleSheetIndex;
           aEditor.sourceEditor.setCaretPosition(line - 1, col - 1);
-          self._styleSheetToSelect = null;
-        }
+
+          let newSheet = this._styleSheetToSelect.sheet;
+          let newLine = this._styleSheetToSelect.line;
+          let newCol = this._styleSheetToSelect.col;
+          this._styleSheetToSelect = null;
+          if (newSheet != sheet) {
+              this.selectStyleSheet.bind(this, newSheet, newLine, newCol);
+          }
+        }.bind(this);
+
+        aEditor.addActionListener({
+          onAttach: onAttach
+        });
+      } else {
+        // If a line or column was specified we move the caret appropriately.
+        aEditor.sourceEditor.setCaretPosition(line - 1, col - 1);
+        this._styleSheetToSelect = null;
       }
 
-      this._view.activeSummary = summary;
+        let summary = sheet ? this.getSummaryElementForEditor(aEditor)
+                            : this._view.getSummaryElementByOrdinal(0);
+        this._view.activeSummary = summary;
       this.selectedStyleSheetIndex = aEditor.styleSheetIndex;
     }.bind(this);
 
@@ -400,8 +448,9 @@ StyleEditorChrome.prototype = {
         onEditorAdded: function SEC_selectSheet_onEditorAdded(aChrome, aEditor) {
           let sheet = self._styleSheetToSelect.sheet;
           if ((sheet && aEditor.styleSheet == sheet) ||
-              aEditor.styleSheetIndex == 0) {
+              (aEditor.styleSheetIndex == 0 && sheet == null)) {
             aChrome.removeChromeListener(this);
+            aEditor.addActionListener(self);
             select(aEditor);
           }
         }
@@ -428,7 +477,7 @@ StyleEditorChrome.prototype = {
   _disableChrome: function SEC__disableChrome()
   {
     let matches = this._root.querySelectorAll("button,toolbarbutton,textbox");
-    for (let i = 0; i < matches.length; ++i) {
+    for (let i = 0; i < matches.length; i++) {
       matches[i].setAttribute("disabled", "disabled");
     }
 

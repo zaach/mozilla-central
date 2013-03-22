@@ -241,14 +241,14 @@ class gcstats::StatisticsSerializer
  * larger-numbered reasons to pile up in the last telemetry bucket, or switch
  * to GC_REASON_3 and bump the max value.
  */
-JS_STATIC_ASSERT(gcreason::NUM_TELEMETRY_REASONS >= gcreason::NUM_REASONS);
+JS_STATIC_ASSERT(JS::gcreason::NUM_TELEMETRY_REASONS >= JS::gcreason::NUM_REASONS);
 
 static const char *
-ExplainReason(gcreason::Reason reason)
+ExplainReason(JS::gcreason::Reason reason)
 {
     switch (reason) {
 #define SWITCH_REASON(name)                     \
-        case gcreason::name:                    \
+        case JS::gcreason::name:                    \
           return #name;
         GCREASONS(SWITCH_REASON)
 
@@ -367,6 +367,7 @@ Statistics::formatData(StatisticsSerializer &ss, uint64_t timestamp)
     ss.appendDecimal("Total Time", "ms", t(total));
     ss.appendNumber("Compartments Collected", "%d", "", collectedCount);
     ss.appendNumber("Total Compartments", "%d", "", compartmentCount);
+    ss.appendNumber("Total Zones", "%d", "", zoneCount);
     ss.appendNumber("MMU (20ms)", "%d", "%", int(mmu20 * 100));
     ss.appendNumber("MMU (50ms)", "%d", "%", int(mmu50 * 100));
     ss.appendDecimal("SCC Sweep Total", "ms", t(sccTotal));
@@ -447,6 +448,7 @@ Statistics::Statistics(JSRuntime *rt)
     fullFormat(false),
     gcDepth(0),
     collectedCount(0),
+    zoneCount(0),
     compartmentCount(0),
     nonincrementalReason(NULL),
     preBytes(0),
@@ -547,7 +549,7 @@ Statistics::endGC()
         int64_t sccTotal, sccLongest;
         sccDurations(&sccTotal, &sccLongest);
 
-        (*cb)(JS_TELEMETRY_GC_IS_COMPARTMENTAL, collectedCount == compartmentCount ? 0 : 1);
+        (*cb)(JS_TELEMETRY_GC_IS_COMPARTMENTAL, collectedCount == zoneCount ? 0 : 1);
         (*cb)(JS_TELEMETRY_GC_MS, t(total));
         (*cb)(JS_TELEMETRY_GC_MAX_PAUSE_MS, t(longest));
         (*cb)(JS_TELEMETRY_GC_MARK_MS, t(phaseTimes[PHASE_MARK]));
@@ -568,9 +570,11 @@ Statistics::endGC()
 }
 
 void
-Statistics::beginSlice(int collectedCount, int compartmentCount, gcreason::Reason reason)
+Statistics::beginSlice(int collectedCount, int zoneCount, int compartmentCount,
+                       JS::gcreason::Reason reason)
 {
     this->collectedCount = collectedCount;
+    this->zoneCount = zoneCount;
     this->compartmentCount = compartmentCount;
 
     bool first = runtime->gcIncrementalState == gc::NO_INCREMENTAL;
@@ -585,9 +589,10 @@ Statistics::beginSlice(int collectedCount, int compartmentCount, gcreason::Reaso
 
     // Slice callbacks should only fire for the outermost level
     if (++gcDepth == 1) {
-        bool wasFullGC = collectedCount == compartmentCount;
-        if (GCSliceCallback cb = runtime->gcSliceCallback)
-            (*cb)(runtime, first ? GC_CYCLE_BEGIN : GC_SLICE_BEGIN, GCDescription(!wasFullGC));
+        bool wasFullGC = collectedCount == zoneCount;
+        if (JS::GCSliceCallback cb = runtime->gcSliceCallback)
+            (*cb)(runtime, first ? JS::GC_CYCLE_BEGIN : JS::GC_SLICE_BEGIN,
+                  JS::GCDescription(!wasFullGC));
     }
 }
 
@@ -608,9 +613,10 @@ Statistics::endSlice()
 
     // Slice callbacks should only fire for the outermost level
     if (--gcDepth == 0) {
-        bool wasFullGC = collectedCount == compartmentCount;
-        if (GCSliceCallback cb = runtime->gcSliceCallback)
-            (*cb)(runtime, last ? GC_CYCLE_END : GC_SLICE_END, GCDescription(!wasFullGC));
+        bool wasFullGC = collectedCount == zoneCount;
+        if (JS::GCSliceCallback cb = runtime->gcSliceCallback)
+            (*cb)(runtime, last ? JS::GC_CYCLE_END : JS::GC_SLICE_END,
+                  JS::GCDescription(!wasFullGC));
     }
 
     /* Do this after the slice callback since it uses these values. */

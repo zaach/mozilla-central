@@ -285,10 +285,10 @@ var SyntheticGestures = (function() {
   // x and y are the relative to the viewport.
   // If not specified then the center of the target is used. t is the
   // optional amount of time between touchstart and touchend event.
-  function tap(target, then, x, y, t) {
-    if (!SyntheticGestures.touchSupported) {
+  function tap(target, then, x, y, t, sendAll) {
+    if (!SyntheticGestures.touchSupported || !target.ownerDocument.createTouch) {
       console.warn('tap: touch events not supported; using mouse instead');
-      return mousetap(target, then, x, y, t);
+      return mousetap(target, then, x, y, t, true);
     }
 
     if (x == null)
@@ -298,14 +298,21 @@ var SyntheticGestures = (function() {
 
     var c = coordinates(target, x, y);
 
-    touch(target, t || 50, [c.x0, c.x0], [c.y0, c.y0], then);
+    if (sendAll) {
+      touch(target, t || 50, [c.x0, c.x0], [c.y0, c.y0],  function() {
+        mousetap(target, then, x, y, t, true);
+      });
+    }
+    else {
+      touch(target, t || 50, [c.x0, c.x0], [c.y0, c.y0], then);
+    }
   }
 
   // Dispatch a dbltap gesture. The arguments are like those to tap()
   // except that interval is the time between taps rather than the time between
   // touchstart and touchend
   function dbltap(target, then, x, y, interval) {
-    if (!SyntheticGestures.touchSupported) {
+    if (!SyntheticGestures.touchSupported || !target.ownerDocument.createTouch) {
       console.warn('dbltap: touch events not supported; using mouse instead');
       return mousedbltap(target, then, x, y, interval);
     }
@@ -340,7 +347,7 @@ var SyntheticGestures = (function() {
   // Begin a touch at x1,y1 and hold it for holdtime ms,
   // then move smoothly to x2,y2 over movetime ms, and then invoke then().
   function hold(target, holdtime, x1, y1, x2, y2, movetime, then) {
-    if (!SyntheticGestures.touchSupported) {
+    if (!SyntheticGestures.touchSupported || !target.ownerDocument.createTouch) {
       console.warn('hold: touch events not supported; using mouse instead');
       return mousehold(target, holdtime, x1, y1, x2, y2, movetime, then);
     }
@@ -431,7 +438,7 @@ var SyntheticGestures = (function() {
   // This is a low-level function that the higher-level mouse gesture
   // utilities are built on. Most testing code will not need to call it.
   //
-  function drag(doc, duration, xt, yt, then, detail, button) {
+  function drag(doc, duration, xt, yt, then, detail, button, sendClick) {
     var win = doc.defaultView;
     detail = detail || 1;
     button = button || 0;
@@ -506,8 +513,12 @@ var SyntheticGestures = (function() {
       // Otherwise, schedule the next move event
       if (last) {
         mouseEvent('mouseup', lastX, lastY);
-        if (then)
+        if (sendClick) {
+          mouseEvent('click', clientX, clientY);
+        }
+        if (then) {
           setTimeout(then, 0);
+        }
       }
       else {
         setTimeout(nextEvent, EVENT_INTERVAL);
@@ -517,14 +528,14 @@ var SyntheticGestures = (function() {
 
   // Send a mousedown/mouseup pair
   // XXX: will the browser automatically follow this with a click event?
-  function mousetap(target, then, x, y, t) {
+  function mousetap(target, then, x, y, t, sendClick) {
     if (x == null)
       x = '50%';
     if (y == null)
       y = '50%';
     var c = coordinates(target, x, y);
 
-    drag(target.ownerDocument, t || 50, [c.x0, c.x0], [c.y0, c.y0], then);
+    drag(target.ownerDocument, t || 50, [c.x0, c.x0], [c.y0, c.y0], then, null, null, sendClick);
   }
 
   // Dispatch a dbltap gesture. The arguments are like those to tap()
@@ -580,7 +591,7 @@ var SyntheticGestures = (function() {
   }
 
   return {
-    touchSupported: false,
+    touchSupported: true,
     tap: tap,
     mousetap: mousetap,
     dbltap: dbltap,

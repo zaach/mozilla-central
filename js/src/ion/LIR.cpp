@@ -212,6 +212,7 @@ PrintDefinition(FILE *fp, const LDefinition &def)
     fprintf(fp, "]");
 }
 
+#ifdef DEBUG
 static void
 PrintUse(char *buf, size_t size, const LUse *use)
 {
@@ -231,7 +232,6 @@ PrintUse(char *buf, size_t size, const LUse *use)
     }
 }
 
-#ifdef DEBUG
 const char *
 LAllocation::toString() const
 {
@@ -254,7 +254,10 @@ LAllocation::toString() const
       case LAllocation::DOUBLE_SLOT:
         JS_snprintf(buf, sizeof(buf), "stack:d%d", toStackSlot()->slot());
         return buf;
-      case LAllocation::ARGUMENT:
+      case LAllocation::INT_ARGUMENT:
+        JS_snprintf(buf, sizeof(buf), "arg:%d", toArgument()->index());
+        return buf;
+      case LAllocation::DOUBLE_ARGUMENT:
         JS_snprintf(buf, sizeof(buf), "arg:%d", toArgument()->index());
         return buf;
       case LAllocation::USE:
@@ -297,15 +300,16 @@ LInstruction::assignSnapshot(LSnapshot *snapshot)
 void
 LInstruction::print(FILE *fp)
 {
-    printName(fp);
-
-    fprintf(fp, " (");
+    fprintf(fp, "{");
     for (size_t i = 0; i < numDefs(); i++) {
         PrintDefinition(fp, *getDef(i));
         if (i != numDefs() - 1)
             fprintf(fp, ", ");
     }
-    fprintf(fp, ")");
+    fprintf(fp, "} <- ");
+
+    printName(fp);
+
 
     printInfo(fp);
 

@@ -66,7 +66,7 @@ NS_MEMORY_REPORTER_IMPLEMENT(StartupCacheMapping,
     "Memory used to hold the mapping of the startup cache from file.  This "
     "memory is likely to be swapped out shortly after start-up.")
 
-NS_MEMORY_REPORTER_MALLOC_SIZEOF_FUN(StartupCacheDataMallocSizeOf, "startup-cache/data")
+NS_MEMORY_REPORTER_MALLOC_SIZEOF_FUN(StartupCacheDataMallocSizeOf)
 
 static int64_t
 GetStartupCacheDataSize()
@@ -179,6 +179,20 @@ StartupCache::Init()
     if (NS_FAILED(rv)) {
       // return silently, this will fail in mochitests's xpcshell process.
       return rv;
+    }
+
+    nsCOMPtr<nsIFile> profDir;
+    NS_GetSpecialDirectory("ProfDS", getter_AddRefs(profDir));
+    if (profDir) {
+      bool same;
+      if (NS_SUCCEEDED(profDir->Equals(file, &same)) && !same) {
+        // We no longer store the startup cache in the main profile
+        // directory, so we should cleanup the old one.
+        if (NS_SUCCEEDED(
+              profDir->AppendNative(NS_LITERAL_CSTRING("startupCache")))) {
+          profDir->Remove(true);
+        }
+      }
     }
 
     rv = file->AppendNative(NS_LITERAL_CSTRING("startupCache"));

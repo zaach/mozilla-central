@@ -25,6 +25,7 @@
 #include "nsRect.h"
 #include "nsStyleStruct.h"
 #include "mozilla/Constants.h"
+#include <algorithm>
 
 class gfxASurface;
 class gfxContext;
@@ -93,10 +94,6 @@ class Element;
 #define SVG_HIT_TEST_STROKE      0x02
 #define SVG_HIT_TEST_CHECK_MRECT 0x04
 
-/*
- * Checks the smil enabled preference.
- */
-bool NS_SMILEnabled();
 
 bool NS_SVGDisplayListHitTestingEnabled();
 bool NS_SVGDisplayListPaintingEnabled();
@@ -232,6 +229,30 @@ public:
   static void ConvertImageDataFromLinearRGB(uint8_t *data, 
                                             int32_t stride, 
                                             const nsIntRect &rect);
+
+  /*
+   * Converts image data from sRGB to luminance
+   */
+  static void ComputesRGBLuminanceMask(uint8_t *aData,
+                                       int32_t aStride,
+                                       const nsIntRect &aRect,
+                                       float aOpacity);
+
+  /*
+   * Converts image data from sRGB to luminance assuming
+   * Linear RGB Interpolation
+   */
+  static void ComputeLinearRGBLuminanceMask(uint8_t *aData,
+                                            int32_t aStride,
+                                            const nsIntRect &aRect,
+                                            float aOpacity);
+  /*
+   * Converts image data to luminance using the value of alpha as luminance
+   */
+  static void ComputeAlphaMask(uint8_t *aData,
+                               int32_t aStride,
+                               const nsIntRect &aRect,
+                               float aOpacity);
 
   /*
    * Converts a nsStyleCoord into a userspace value.  Handles units
@@ -557,8 +578,8 @@ public:
    */
   static int32_t ClampToInt(double aVal)
   {
-    return NS_lround(NS_MAX(double(INT32_MIN),
-                            NS_MIN(double(INT32_MAX), aVal)));
+    return NS_lround(std::max(double(INT32_MIN),
+                            std::min(double(INT32_MAX), aVal)));
   }
 
   static nscolor GetFallbackOrPaintColor(gfxContext *aContext,
@@ -648,6 +669,16 @@ public:
   static bool GetSVGGlyphExtents(Element* aElement,
                                  const gfxMatrix& aSVGToAppSpace,
                                  gfxRect* aResult);
+
+  /**
+   * Returns the app unit canvas bounds of a userspace rect.
+   *
+   * @param aToCanvas Transform from userspace to canvas device space.
+   */
+  static nsRect
+  ToCanvasBounds(const gfxRect &aUserspaceRect,
+                 const gfxMatrix &aToCanvas,
+                 const nsPresContext *presContext);
 };
 
 #endif

@@ -4,21 +4,24 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "nsIURI.h"
-#include "nsIRequest.h"
+#ifndef MOZILLA_IMAGELIB_IMAGEFACTORY_H_
+#define MOZILLA_IMAGELIB_IMAGEFACTORY_H_
 
-#include "imgIContainer.h"
-#include "imgStatusTracker.h"
+#include "nsCOMPtr.h"
 
-#include "Image.h"
+class nsCString;
+class nsIRequest;
+class nsIURI;
+class imgStatusTracker;
 
 namespace mozilla {
 namespace image {
 
-extern const char* SVG_MIMETYPE;
+class Image;
 
-struct ImageFactory
+class ImageFactory
 {
+public:
   /**
    * Creates a new image with the given properties.
    *
@@ -43,20 +46,27 @@ struct ImageFactory
    */
   static already_AddRefed<Image> CreateAnonymousImage(const nsCString& aMimeType);
 
+  /**
+   * Creates a version of an existing image which does not animate and is frozen
+   * at the first frame.
+   *
+   * @param aImage         The existing image.
+   */
+  static already_AddRefed<Image> Freeze(Image* aImage);
 
 private:
   // Factory functions that create specific types of image containers.
   static already_AddRefed<Image> CreateRasterImage(nsIRequest* aRequest,
                                                    imgStatusTracker* aStatusTracker,
                                                    const nsCString& aMimeType,
-                                                   const nsCString& aURIString,
+                                                   nsIURI* aURI,
                                                    uint32_t aImageFlags,
                                                    uint32_t aInnerWindowId);
 
   static already_AddRefed<Image> CreateVectorImage(nsIRequest* aRequest,
                                                    imgStatusTracker* aStatusTracker,
                                                    const nsCString& aMimeType,
-                                                   const nsCString& aURIString,
+                                                   nsIURI* aURI,
                                                    uint32_t aImageFlags,
                                                    uint32_t aInnerWindowId);
 
@@ -66,3 +76,5 @@ private:
 
 } // namespace image
 } // namespace mozilla
+
+#endif // MOZILLA_IMAGELIB_IMAGEFACTORY_H_

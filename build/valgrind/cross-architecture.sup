@@ -67,7 +67,7 @@
    Memcheck:Leak
    fun:malloc
    fun:moz_xmalloc
-   fun:_ZN3xpc18CreateGlobalObjectEP9JSContextP7JSClassP12nsIPrincipal
+   fun:_ZN3xpc18CreateGlobalObjectEP9JSContextP7JSClassP12nsIPrincipalm
    ...
 }
 {
@@ -203,6 +203,14 @@
    ...
 }
 {
+   Bug 794372
+   Memcheck:Leak
+   fun:malloc
+   fun:moz_xmalloc
+   fun:_ZN22nsComponentManagerImpl22RegisterCIDEntryLockedEPKN7mozilla6Module8CIDEntryEPNS_11KnownModuleE
+   ...
+}
+{
    Bug 794374
    Memcheck:Leak
    fun:malloc
@@ -255,6 +263,14 @@
    ...
 }
 {
+   Bug 812423
+   Memcheck:Leak
+   fun:malloc
+   fun:_ZN2js15ArgumentsObject6createI13CopyFrameArgsEEPS0_P9JSContextN2JS6HandleIP8JSScriptEENS7_IP10JSFunctionEEjRT_
+   fun:_ZN2js15ArgumentsObject14createExpectedEP9JSContextNS_16AbstractFramePtrE
+   ...
+}
+{
    Bug 823782
    Memcheck:Leak
    fun:malloc
@@ -275,5 +291,13 @@
    fun:malloc
    ...
    fun:_ZN2js6ctypes10StructTypeL6CreateEP9JSContextjPN2JS5ValueE
+   ...
+}
+{
+   Bug 824323
+   Memcheck:Leak
+   fun:malloc
+   ...
+   fun:_ZN7mozilla3dom7workers13WorkerPrivate9DoRunLoopEP9JSContext
    ...
 }

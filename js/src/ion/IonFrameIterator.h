@@ -12,8 +12,8 @@
 #include "IonCode.h"
 #include "SnapshotReader.h"
 
-struct JSFunction;
-struct JSScript;
+class JSFunction;
+class JSScript;
 
 namespace js {
 namespace ion {
@@ -32,13 +32,14 @@ enum FrameType
     // mismatches in calls.
     IonFrame_Rectifier,
 
-    // A bailed JS frame is a JS frame signalling that its callee has been
-    // bailed out.
-    IonFrame_Bailed_JS,
+    // An unwound JS frame is a JS frame signalling that its callee frame has been
+    // turned into an exit frame (see EnsureExitFrame). Used by Ion bailouts and
+    // Baseline exception unwinding.
+    IonFrame_Unwound_OptimizedJS,
 
-    // A bailed rectifier frame is a rectifier frame signalling that its callee
-    // has been bailed out.
-    IonFrame_Bailed_Rectifier,
+    // An unwound rectifier frame is a rectifier frame signalling that its callee
+    // frame has been turned into an exit frame (see EnsureExitFrame).
+    IonFrame_Unwound_Rectifier,
 
     // An exit frame is necessary for transitioning from a JS frame into C++.
     // From within C++, an exit frame is always the last frame in any
@@ -129,7 +130,7 @@ class IonFrameIterator
     JSFunction *callee() const;
     JSFunction *maybeCallee() const;
     unsigned numActualArgs() const;
-    UnrootedScript script() const;
+    RawScript script() const;
     Value *nativeVp() const;
     Value *actualArgs() const;
 
@@ -238,7 +239,7 @@ class SnapshotIterator : public SnapshotReader
     }
 
     template <class Op>
-    inline void readFrameArgs(Op op, const Value *argv, Value *scopeChain, Value *thisv,
+    inline void readFrameArgs(Op &op, const Value *argv, Value *scopeChain, Value *thisv,
                               unsigned start, unsigned formalEnd, unsigned iterEnd);
 
     Value maybeReadSlotByIndex(size_t index) {
@@ -258,14 +259,15 @@ class SnapshotIterator : public SnapshotReader
 
 // Reads frame information in callstack order (that is, innermost frame to
 // outermost frame).
-class InlineFrameIterator
+template <AllowGC allowGC=CanGC>
+class InlineFrameIteratorMaybeGC
 {
     const IonFrameIterator *frame_;
     SnapshotIterator start_;
     SnapshotIterator si_;
     unsigned framesRead_;
-    HeapPtr<JSFunction> callee_;
-    HeapPtr<JSScript> script_;
+    typename MaybeRooted<JSFunction*, allowGC>::RootType callee_;
+    typename MaybeRooted<JSScript*, allowGC>::RootType script_;
     jsbytecode *pc_;
     uint32_t numActualArgs_;
 
@@ -273,8 +275,9 @@ class InlineFrameIterator
     void findNextFrame();
 
   public:
-    InlineFrameIterator(const IonFrameIterator *iter);
-    InlineFrameIterator(const IonBailoutIterator *iter);
+    inline InlineFrameIteratorMaybeGC(JSContext *cx, const IonFrameIterator *iter);
+    inline InlineFrameIteratorMaybeGC(JSContext *cx, const IonBailoutIterator *iter);
+    inline InlineFrameIteratorMaybeGC(JSContext *cx, const InlineFrameIteratorMaybeGC *iter);
 
     bool more() const {
         return frame_ && framesRead_ < start_.frameCount();
@@ -286,13 +289,13 @@ class InlineFrameIterator
     JSFunction *maybeCallee() const {
         return callee_;
     }
-    unsigned numActualArgs() const;
+    inline unsigned numActualArgs() const;
 
     template <class Op>
-    inline void forEachCanonicalActualArg(Op op, unsigned start, unsigned count) const;
+    inline void forEachCanonicalActualArg(JSContext *cx, Op op, unsigned start, unsigned count) const;
 
-    UnrootedScript script() const {
-        return script_.get();
+    RawScript script() const {
+        return script_;
     }
     jsbytecode *pc() const {
         return pc_;
@@ -302,12 +305,20 @@ class InlineFrameIterator
     }
     bool isFunctionFrame() const;
     bool isConstructing() const;
-    JSObject *scopeChain() const;
-    JSObject *thisObject() const;
-    InlineFrameIterator operator++();
+    inline JSObject *scopeChain() const;
+    inline JSObject *thisObject() const;
+    inline InlineFrameIteratorMaybeGC &operator++();
 
     void dump() const;
+
+    void resetOn(const IonFrameIterator *iter);
+
+  private:
+    InlineFrameIteratorMaybeGC() MOZ_DELETE;
+    InlineFrameIteratorMaybeGC(const InlineFrameIteratorMaybeGC &iter) MOZ_DELETE;
 };
+typedef InlineFrameIteratorMaybeGC<CanGC> InlineFrameIterator;
+typedef InlineFrameIteratorMaybeGC<NoGC> InlineFrameIteratorNoGC;
 
 } // namespace ion
 } // namespace js

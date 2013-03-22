@@ -18,6 +18,7 @@ this.EXPORTED_SYMBOLS = ["MarkupView"];
 
 Cu.import("resource:///modules/devtools/LayoutHelpers.jsm");
 Cu.import("resource:///modules/devtools/CssRuleView.jsm");
+Cu.import("resource:///modules/devtools/InplaceEditor.jsm");
 Cu.import("resource:///modules/devtools/Templater.jsm");
 Cu.import("resource:///modules/devtools/Undo.jsm");
 Cu.import("resource://gre/modules/Services.jsm");
@@ -121,8 +122,7 @@ MarkupView.prototype = {
           return Ci.nsIDOMNodeFilter.FILTER_ACCEPT;
         }
         return Ci.nsIDOMNodeFilter.FILTER_SKIP;
-      },
-      false
+      }
     );
     walker.currentNode = this._selectedContainer.elt;
     return walker;
@@ -150,10 +150,24 @@ MarkupView.prototype = {
         this.navigate(this._containers.get(this._rootNode.firstChild));
         break;
       case Ci.nsIDOMKeyEvent.DOM_VK_LEFT:
-        this.collapseNode(this._selectedContainer.node);
+        if (this._selectedContainer.expanded) {
+          this.collapseNode(this._selectedContainer.node);
+        } else {
+          let parent = this._selectionWalker().parentNode();
+          if (parent) {
+            this.navigate(parent.container);
+          }
+        }
         break;
       case Ci.nsIDOMKeyEvent.DOM_VK_RIGHT:
-        this.expandNode(this._selectedContainer.node);
+        if (!this._selectedContainer.expanded) {
+          this.expandNode(this._selectedContainer.node);
+        } else {
+          let next = this._selectionWalker().nextNode();
+          if (next) {
+            this.navigate(next.container);
+          }
+        }
         break;
       case Ci.nsIDOMKeyEvent.DOM_VK_UP:
         let prev = this._selectionWalker().previousNode();
@@ -631,7 +645,7 @@ MarkupView.prototype = {
     delete this._boundFocus;
 
     this._frame.contentWindow.removeEventListener("scroll", this._boundUpdatePreview, true);
-    this._frame.contentWindow.removeEventListener("resize", this._boundUpdatePreview, true);
+    this._frame.contentWindow.removeEventListener("resize", this._boundResizePreview, true);
     this._frame.contentWindow.removeEventListener("overflow", this._boundResizePreview, true);
     this._frame.contentWindow.removeEventListener("underflow", this._boundResizePreview, true);
     delete this._boundUpdatePreview;
@@ -783,7 +797,18 @@ function MarkupContainer(aMarkupView, aNode)
     this.markup.navigate(this);
   }.bind(this), false);
 
+  if (this.editor.summaryElt) {
+    this.editor.summaryElt.addEventListener("click", function(evt) {
+      this.markup.navigate(this);
+      this.markup.expandNode(this.node);
+    }.bind(this), false);
+    this.codeBox.appendChild(this.editor.summaryElt);
+  }
+
   if (this.editor.closeElt) {
+    this.editor.closeElt.addEventListener("mousedown", function(evt) {
+      this.markup.navigate(this);
+    }.bind(this), false);
     this.codeBox.appendChild(this.editor.closeElt);
   }
 
@@ -820,9 +845,15 @@ MarkupContainer.prototype = {
     if (aValue) {
       this.expander.setAttribute("expanded", "");
       this.children.setAttribute("expanded", "");
+      if (this.editor.summaryElt) {
+        this.editor.summaryElt.setAttribute("expanded", "");
+      }
     } else {
       this.expander.removeAttribute("expanded");
       this.children.removeAttribute("expanded");
+      if (this.editor.summaryElt) {
+        this.editor.summaryElt.removeAttribute("expanded");
+      }
     }
   },
 
@@ -932,7 +963,7 @@ function TextEditor(aContainer, aNode, aTemplate)
 
   aContainer.markup.template(aTemplate, this);
 
-  _editableField({
+  editableField({
     element: this.value,
     stopOnReturn: true,
     trigger: "dblclick",
@@ -984,10 +1015,16 @@ function ElementEditor(aContainer, aNode)
   this.tag = null;
   this.attrList = null;
   this.newAttr = null;
+  this.summaryElt = null;
   this.closeElt = null;
 
   // Create the main editor
   this.template("element", this);
+
+  if (this.node.firstChild || this.node.textContent.length > 0) {
+    // Create the summary placeholder
+    this.template("elementContentSummary", this);
+  }
 
   // Create the closing tag
   this.template("elementClose", this);
@@ -995,7 +1032,7 @@ function ElementEditor(aContainer, aNode)
   // Make the tag name editable (unless this is a document element)
   if (aNode != aNode.ownerDocument.documentElement) {
     this.tag.setAttribute("tabindex", "0");
-    _editableField({
+    editableField({
       element: this.tag,
       trigger: "dblclick",
       stopOnReturn: true,
@@ -1004,7 +1041,7 @@ function ElementEditor(aContainer, aNode)
   }
 
   // Make the new attribute space editable.
-  _editableField({
+  editableField({
     element: this.newAttr,
     trigger: "dblclick",
     stopOnReturn: true,
@@ -1061,7 +1098,7 @@ ElementEditor.prototype = {
 
   _createAttribute: function EE_createAttribute(aAttr, aBefore)
   {
-    if (aAttr.name in this.attrs) {
+    if (this.attrs.indexOf(aAttr.name) !== -1) {
       var attr = this.attrs[aAttr.name];
       var name = attr.querySelector(".attrname");
       var val = attr.querySelector(".attrvalue");
@@ -1084,7 +1121,7 @@ ElementEditor.prototype = {
       this.attrList.insertBefore(attr, before);
 
       // Make the attribute editable.
-      _editableField({
+      editableField({
         element: inner,
         trigger: "dblclick",
         stopOnReturn: true,
@@ -1293,7 +1330,7 @@ RootContainer.prototype = {
 };
 
 function documentWalker(node) {
-  return new DocumentWalker(node, Ci.nsIDOMNodeFilter.SHOW_ALL, whitespaceTextFilter, false);
+  return new DocumentWalker(node, Ci.nsIDOMNodeFilter.SHOW_ALL, whitespaceTextFilter);
 }
 
 function nodeDocument(node) {
@@ -1306,11 +1343,10 @@ function nodeDocument(node) {
  *
  * See TreeWalker documentation for explanations of the methods.
  */
-function DocumentWalker(aNode, aShow, aFilter, aExpandEntityReferences)
+function DocumentWalker(aNode, aShow, aFilter)
 {
   let doc = nodeDocument(aNode);
-  this.walker = doc.createTreeWalker(nodeDocument(aNode),
-    aShow, aFilter, aExpandEntityReferences);
+  this.walker = doc.createTreeWalker(nodeDocument(aNode), aShow, aFilter);
   this.walker.currentNode = aNode;
   this.filter = aFilter;
 }

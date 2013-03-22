@@ -25,38 +25,37 @@ EXPORTS += \
 LOCAL_INCLUDES += \
   -I$(topsrcdir)/mozglue/linker \
   -I$(topsrcdir)/ipc/chromium/src \
+  -I$(topsrcdir)/toolkit/crashreporter/google-breakpad/src \
   $(NULL)
 
 ifneq (,$(filter armeabi,$(ANDROID_CPU_ARCH)))
 DEFINES += -DARCH_ARMV6
 endif
 
-MODULE          = profiler
 MODULE_NAME     = nsProfilerModule
 LIBRARY_NAME    = profiler
 EXPORT_LIBRARY  = 1
 LIBXUL_LIBRARY  = 1
 IS_COMPONENT    = 1
+ifndef _MSC_VER
+FAIL_ON_WARNINGS = 1
+endif # !_MSC_VER
 
 CPPSRCS		= \
   nsProfilerFactory.cpp \
   nsProfiler.cpp \
   TableTicker.cpp \
+  TableTicker2.cpp \
+  UnwinderThread2.cpp \
+  ProfileEntry2.cpp \
+  local_debug_info_symbolizer.cc \
   JSObjectBuilder.cpp \
   JSCustomObjectBuilder.cpp \
-  $(NULL)
-
-XPIDLSRCS = \
-  nsIProfiler.idl \
   $(NULL)
 
 EXTRA_JS_MODULES = \
   Profiler.jsm \
   $(NULL)
-
-ifdef MOZ_OLD_LINKER
-DEFINES += -DMOZ_OLD_LINKER
-endif
 
 ifneq (,$(filter Android Linux,$(OS_TARGET)))
 CPPSRCS += \
@@ -70,6 +69,8 @@ CPPSRCS += \
   shared-libraries-macos.cc \
   platform-macos.cc \
   $(NULL)
+CMMSRCS += \
+  shim_mac_dump_syms.mm
 endif
 
 ifeq ($(OS_TARGET),WINNT)

@@ -17,7 +17,9 @@
 
 #include "imgLoader.h"
 #include "imgRequestProxy.h"
+#include "imgStatusTracker.h"
 #include "ImageFactory.h"
+#include "Image.h"
 
 #include "imgILoader.h"
 
@@ -31,6 +33,7 @@
 #include "nsIHttpChannel.h"
 #include "nsIApplicationCache.h"
 #include "nsIApplicationCacheChannel.h"
+#include "nsMimeTypes.h"
 
 #include "nsIComponentManager.h"
 #include "nsIInterfaceRequestorUtils.h"
@@ -71,7 +74,7 @@ NS_IMPL_ISUPPORTS5(imgRequest,
 
 imgRequest::imgRequest(imgLoader* aLoader)
  : mLoader(aLoader)
- , mStatusTracker(new imgStatusTracker(nullptr, this))
+ , mStatusTracker(new imgStatusTracker(nullptr))
  , mValidator(nullptr)
  , mInnerWindowId(0)
  , mCORSMode(imgIRequest::CORS_NONE)
@@ -84,9 +87,6 @@ imgRequest::imgRequest(imgLoader* aLoader)
 
 imgRequest::~imgRequest()
 {
-  // The status tracker can outlive this request, and needs to know it's dying.
-  GetStatusTracker().ClearRequest();
-
   if (mURI) {
     nsAutoCString spec;
     mURI->GetSpec(spec);
@@ -530,8 +530,10 @@ NS_IMETHODIMP imgRequest::OnStartRequest(nsIRequest *aRequest, nsISupports *ctxt
 
   // Figure out if we're multipart
   nsCOMPtr<nsIMultiPartChannel> mpchan(do_QueryInterface(aRequest));
-  if (mpchan)
-      mIsMultiPartChannel = true;
+  if (mpchan) {
+    mIsMultiPartChannel = true;
+    GetStatusTracker().SetIsMultipart();
+  }
 
   // If we're not multipart, we shouldn't have an image yet
   NS_ABORT_IF_FALSE(mIsMultiPartChannel || !mImage,
@@ -602,11 +604,6 @@ NS_IMETHODIMP imgRequest::OnStopRequest(nsIRequest *aRequest, nsISupports *ctxt,
 {
   LOG_FUNC(GetImgLog(), "imgRequest::OnStopRequest");
 
-  bool lastPart = true;
-  nsCOMPtr<nsIMultiPartChannel> mpchan(do_QueryInterface(aRequest));
-  if (mpchan)
-    mpchan->GetIsLastPart(&lastPart);
-
   // XXXldb What if this is a non-last part of a multipart request?
   // xxx before we release our reference to mRequest, lets
   // save the last status that we saw so that the
@@ -622,11 +619,16 @@ NS_IMETHODIMP imgRequest::OnStopRequest(nsIRequest *aRequest, nsISupports *ctxt,
     mChannel = nullptr;
   }
 
+  bool lastPart = true;
+  nsCOMPtr<nsIMultiPartChannel> mpchan(do_QueryInterface(aRequest));
+  if (mpchan)
+    mpchan->GetIsLastPart(&lastPart);
+
   // Tell the image that it has all of the source data. Note that this can
   // trigger a failure, since the image might be waiting for more non-optional
   // data and this is the point where we break the news that it's not coming.
   if (mImage) {
-    nsresult rv = mImage->OnImageDataComplete(aRequest, ctxt, status);
+    nsresult rv = mImage->OnImageDataComplete(aRequest, ctxt, status, lastPart);
 
     // If we got an error in the OnImageDataComplete() call, we don't want to
     // proceed as if nothing bad happened. However, we also want to give
@@ -635,9 +637,6 @@ NS_IMETHODIMP imgRequest::OnStopRequest(nsIRequest *aRequest, nsISupports *ctxt,
     if (NS_FAILED(rv) && NS_SUCCEEDED(status))
       status = rv;
   }
-
-  imgStatusTracker& statusTracker = GetStatusTracker();
-  statusTracker.RecordStopRequest(lastPart, status);
 
   // If the request went through, update the cache entry size. Otherwise,
   // cancel the request, which removes us from the cache.
@@ -651,7 +650,12 @@ NS_IMETHODIMP imgRequest::OnStopRequest(nsIRequest *aRequest, nsISupports *ctxt,
     this->Cancel(status);
   }
 
-  GetStatusTracker().OnStopRequest(lastPart, status);
+  if (!mImage) {
+    // We have to fire imgStatusTracker::OnStopRequest ourselves because there's
+    // no image capable of doing so.
+    imgStatusTracker& statusTracker = GetStatusTracker();
+    statusTracker.OnStopRequest(lastPart, status);
+  }
 
   mTimedChannel = nullptr;
   return NS_OK;
@@ -727,7 +731,7 @@ imgRequest::OnDataAvailable(nsIRequest *aRequest, nsISupports *ctxt,
     // type and decoder.
     // We always reinitialize for SVGs, because they have no way of
     // reinitializing themselves.
-    if (mContentType != newType || newType.Equals(SVG_MIMETYPE)) {
+    if (mContentType != newType || newType.EqualsLiteral(IMAGE_SVG_XML)) {
       mContentType = newType;
 
       // If we've resniffed our MIME type and it changed, we need to create a
@@ -736,7 +740,7 @@ imgRequest::OnDataAvailable(nsIRequest *aRequest, nsISupports *ctxt,
       if (mResniffMimeType) {
         NS_ABORT_IF_FALSE(mIsMultiPartChannel, "Resniffing a non-multipart image");
 
-        imgStatusTracker* freshTracker = new imgStatusTracker(nullptr, this);
+        imgStatusTracker* freshTracker = new imgStatusTracker(nullptr);
         freshTracker->AdoptConsumers(&GetStatusTracker());
         mStatusTracker = freshTracker;
 
@@ -767,8 +771,12 @@ imgRequest::OnDataAvailable(nsIRequest *aRequest, nsISupports *ctxt,
 
       // Now we can create a new image to hold the data. If we don't have a decoder
       // for this mimetype we'll find out about it here.
-      mImage = ImageFactory::CreateImage(aRequest, mStatusTracker.forget(), mContentType,
-                                         mURI, mIsMultiPartChannel, mInnerWindowId);
+      mImage = ImageFactory::CreateImage(aRequest, mStatusTracker, mContentType,
+                                         mURI, mIsMultiPartChannel,
+                                         static_cast<uint32_t>(mInnerWindowId));
+
+      // Release our copy of the status tracker since the image owns it now.
+      mStatusTracker = nullptr;
 
       // Notify listeners that we have an image.
       // XXX(seth): The name of this notification method is pretty misleading.

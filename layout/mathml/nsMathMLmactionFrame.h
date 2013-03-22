@@ -24,10 +24,10 @@ public:
   NS_IMETHOD
   TransmitAutomaticData();
 
-  NS_IMETHOD
+  virtual void
   Init(nsIContent*      aContent,
        nsIFrame*        aParent,
-       nsIFrame*        aPrevInFlow);
+       nsIFrame*        aPrevInFlow) MOZ_OVERRIDE;
 
   NS_IMETHOD
   SetInitialChildList(ChildListID     aListID,
@@ -36,9 +36,9 @@ public:
   virtual nsresult
   ChildListChanged(int32_t aModType) MOZ_OVERRIDE;
 
-  NS_IMETHOD BuildDisplayList(nsDisplayListBuilder*   aBuilder,
-                              const nsRect&           aDirtyRect,
-                              const nsDisplayListSet& aLists) MOZ_OVERRIDE;
+  virtual void BuildDisplayList(nsDisplayListBuilder*   aBuilder,
+                                const nsRect&           aDirtyRect,
+                                const nsDisplayListSet& aLists) MOZ_OVERRIDE;
 
   virtual nsresult
   Place(nsRenderingContext& aRenderingContext,
@@ -75,8 +75,6 @@ protected:
   nsMathMLmactionFrame(nsStyleContext* aContext) : nsMathMLContainerFrame(aContext) {}
   virtual ~nsMathMLmactionFrame();
   
-  virtual int GetSkipSides() const { return 0; }
-
 private:
   int32_t         mActionType;
   int32_t         mChildCount;

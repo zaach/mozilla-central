@@ -7,6 +7,7 @@ package org.mozilla.gecko;
 
 import org.mozilla.gecko.background.announcements.AnnouncementsConstants;
 import org.mozilla.gecko.util.GeckoEventListener;
+import org.mozilla.gecko.util.ThreadUtils;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -43,7 +44,7 @@ import java.util.ArrayList;
 
 public class GeckoPreferences
     extends PreferenceActivity
-    implements OnPreferenceChangeListener, GeckoEventListener
+    implements OnPreferenceChangeListener, GeckoEventListener, GeckoActivityStatus
 {
     private static final String LOGTAG = "GeckoPreferences";
 
@@ -85,13 +86,33 @@ public class GeckoPreferences
         unregisterEventListener("Sanitize:Finished");
     }
 
+    @Override
+    public void onPause() {
+        super.onPause();
+
+        if (getApplication() instanceof GeckoApplication) {
+            ((GeckoApplication) getApplication()).onActivityPause(this);
+        }
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+
+        if (getApplication() instanceof GeckoApplication) {
+            ((GeckoApplication) getApplication()).onActivityResume(this);
+        }
+    }
+
+    @Override
     public void handleMessage(String event, JSONObject message) {
         try {
             if (event.equals("Sanitize:Finished")) {
                 boolean success = message.getBoolean("success");
                 final int stringRes = success ? R.string.private_data_success : R.string.private_data_fail;
                 final Context context = this;
-                GeckoAppShell.getMainHandler().post(new Runnable () {
+                ThreadUtils.postToUiThread(new Runnable () {
+                    @Override
                     public void run() {
                         Toast.makeText(context, stringRes, Toast.LENGTH_SHORT).show();
                     }
@@ -257,6 +278,7 @@ public class GeckoPreferences
             dialog = aDialog;
         }
 
+        @Override
         public void afterTextChanged(Editable s) {
             if (dialog == null)
                 return;
@@ -267,7 +289,9 @@ public class GeckoPreferences
             dialog.getButton(DialogInterface.BUTTON_POSITIVE).setEnabled(!disabled);
         }
 
+        @Override
         public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
+        @Override
         public void onTextChanged(CharSequence s, int start, int before, int count) { }
     }
 
@@ -280,6 +304,7 @@ public class GeckoPreferences
             dialog = aDialog;
         }
 
+        @Override
         public void afterTextChanged(Editable s) {
             if (dialog == null)
                 return;
@@ -289,10 +314,13 @@ public class GeckoPreferences
             dialog.getButton(DialogInterface.BUTTON_POSITIVE).setEnabled(!disabled);
         }
 
+        @Override
         public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
+        @Override
         public void onTextChanged(CharSequence s, int start, int before, int count) { }
     }
 
+    @Override
     protected Dialog onCreateDialog(int id) {
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         LinearLayout linearLayout = new LinearLayout(this);
@@ -308,6 +336,7 @@ public class GeckoPreferences
                 builder.setTitle(R.string.masterpassword_create_title)
                        .setView((View)linearLayout)
                        .setPositiveButton(R.string.button_ok, new DialogInterface.OnClickListener() {  
+                            @Override
                             public void onClick(DialogInterface dialog, int which) {
                                 JSONObject jsonPref = new JSONObject();
                                 try {
@@ -324,12 +353,14 @@ public class GeckoPreferences
                             }
                         })
                         .setNegativeButton(R.string.button_cancel, new DialogInterface.OnClickListener() {  
+                            @Override
                             public void onClick(DialogInterface dialog, int which) {
                                 return;
                             }
                         });
                         dialog = builder.create();
                         dialog.setOnShowListener(new DialogInterface.OnShowListener() {
+                            @Override
                             public void onShow(DialogInterface dialog) {
                                 input1.setText("");
                                 input2.setText("");
@@ -349,22 +380,26 @@ public class GeckoPreferences
                 builder.setTitle(R.string.masterpassword_remove_title)
                        .setView((View)linearLayout)
                        .setPositiveButton(R.string.button_ok, new DialogInterface.OnClickListener() {  
+                            @Override
                             public void onClick(DialogInterface dialog, int which) {
                                 PrefsHelper.setPref(PREFS_MP_ENABLED, input.getText().toString());
                             }
                         })
                         .setNegativeButton(R.string.button_cancel, new DialogInterface.OnClickListener() {  
+                            @Override
                             public void onClick(DialogInterface dialog, int which) {
                                 return;
                             }
                         });
                         dialog = builder.create();
                         dialog.setOnDismissListener(new DialogInterface.OnDismissListener() {
+                            @Override
                             public void onDismiss(DialogInterface dialog) {
                                 input.setText("");
                             }
                         });
                         dialog.setOnShowListener(new DialogInterface.OnShowListener() {
+                            @Override
                             public void onShow(DialogInterface dialog) {
                                 input.setText("");
                             }
@@ -389,7 +424,8 @@ public class GeckoPreferences
             @Override public void prefValue(String prefName, final boolean value) {
                 final Preference pref = getField(prefName);
                 if (pref instanceof CheckBoxPreference) {
-                    GeckoAppShell.getMainHandler().post(new Runnable() {
+                    ThreadUtils.postToUiThread(new Runnable() {
+                        @Override
                         public void run() {
                             if (((CheckBoxPreference)pref).isChecked() != value)
                                 ((CheckBoxPreference)pref).setChecked(value);
@@ -401,13 +437,15 @@ public class GeckoPreferences
             @Override public void prefValue(String prefName, final String value) {
                 final Preference pref = getField(prefName);
                 if (pref instanceof EditTextPreference) {
-                    GeckoAppShell.getMainHandler().post(new Runnable() {
+                    ThreadUtils.postToUiThread(new Runnable() {
+                        @Override
                         public void run() {
                             ((EditTextPreference)pref).setText(value);
                         }
                     });
                 } else if (pref instanceof ListPreference) {
-                    GeckoAppShell.getMainHandler().post(new Runnable() {
+                    ThreadUtils.postToUiThread(new Runnable() {
+                        @Override
                         public void run() {
                             ((ListPreference)pref).setValue(value);
                             // Set the summary string to the current entry
@@ -419,7 +457,8 @@ public class GeckoPreferences
                     final FontSizePreference fontSizePref = (FontSizePreference) pref;
                     fontSizePref.setSavedFontSize(value);
                     final String fontSizeName = fontSizePref.getSavedFontSizeName();
-                    GeckoAppShell.getMainHandler().post(new Runnable() {
+                    ThreadUtils.postToUiThread(new Runnable() {
+                        @Override
                         public void run() {
                             fontSizePref.setSummary(fontSizeName); // Ex: "Small".
                         }
@@ -429,7 +468,8 @@ public class GeckoPreferences
 
             @Override public void finish() {
                 // enable all preferences once we have them from gecko
-                GeckoAppShell.getMainHandler().post(new Runnable() {
+                ThreadUtils.postToUiThread(new Runnable() {
+                    @Override
                     public void run() {
                         mPreferenceScreen.setEnabled(true);
                     }
@@ -444,5 +484,10 @@ public class GeckoPreferences
 
     private void unregisterEventListener(String event) {
         GeckoAppShell.getEventDispatcher().unregisterEventListener(event, this);
+    }
+
+    @Override
+    public boolean isGeckoActivityOpened() {
+        return false;
     }
 }

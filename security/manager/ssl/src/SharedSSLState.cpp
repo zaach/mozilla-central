@@ -25,8 +25,8 @@ using mozilla::unused;
 
 namespace {
 
-static PRInt32 sCertOverrideSvcExists = 0;
-static PRInt32 sCertDBExists = 0;
+static int32_t sCertOverrideSvcExists = 0;
+static int32_t sCertDBExists = 0;
 
 class MainThreadClearer : public SyncRunnableBase
 {
@@ -187,13 +187,17 @@ SharedSSLState::GlobalCleanup()
 {
   MOZ_ASSERT(NS_IsMainThread(), "Not on main thread");
 
-  gPrivateState->Cleanup();
-  delete gPrivateState;
-  gPrivateState = nullptr;
+  if (gPrivateState) {
+    gPrivateState->Cleanup();
+    delete gPrivateState;
+    gPrivateState = nullptr;
+  }
 
-  gPublicState->Cleanup();
-  delete gPublicState;
-  gPublicState = nullptr;
+  if (gPublicState) {
+    gPublicState->Cleanup();
+    delete gPublicState;
+    gPublicState = nullptr;
+  }
 }
 
 /*static*/ void

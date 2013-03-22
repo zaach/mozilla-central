@@ -39,8 +39,9 @@ interface nsIFile;
 interface nsIDOMTouch;
 interface nsIDOMClientRect;
 interface nsIURI;
+interface nsIDOMEventTarget;
 
-[scriptable, uuid(C98B7275-93C4-4EAD-B7CF-573D872C1071)]
+[scriptable, uuid(ab9e9c45-1910-458c-a043-79cbbfc89f4d)]
 interface nsIDOMWindowUtils : nsISupports {
 
   /**
@@ -212,7 +213,8 @@ interface nsIDOMWindowUtils : nsISupports {
   const long MODIFIER_OS         = 0x0400;
 
   /** Synthesize a mouse event. The event types supported are:
-   *    mousedown, mouseup, mousemove, mouseover, mouseout, contextmenu
+   *    mousedown, mouseup, mousemove, mouseover, mouseout, contextmenu,
+   *    MozMouseHitTest
    *
    * Events are sent in coordinates offset by aX and aY from the window.
    *
@@ -243,16 +245,18 @@ interface nsIDOMWindowUtils : nsISupports {
    * @param aPressure touch input pressure: 0.0 -> 1.0
    * @param aInputSourceArg input source, see nsIDOMMouseEvent for values,
    *        defaults to mouse input.
+   *
+   * returns true if the page called prevent default on this event
    */
-  void sendMouseEvent(in AString aType,
-                      in float aX,
-                      in float aY,
-                      in long aButton,
-                      in long aClickCount,
-                      in long aModifiers,
-                      [optional] in boolean aIgnoreRootScrollFrame,
-                      [optional] in float aPressure,
-                      [optional] in unsigned short aInputSourceArg);
+  boolean sendMouseEvent(in AString aType,
+                         in float aX,
+                         in float aY,
+                         in long aButton,
+                         in long aClickCount,
+                         in long aModifiers,
+                         [optional] in boolean aIgnoreRootScrollFrame,
+                         [optional] in float aPressure,
+                         [optional] in unsigned short aInputSourceArg);
 
   /** Synthesize a touch event. The event types supported are:
    *    touchstart, touchend, touchmove, and touchcancel
@@ -644,6 +648,13 @@ interface nsIDOMWindowUtils : nsISupports {
   void getScrollXY(in boolean aFlushLayout, out long aScrollX, out long aScrollY);
 
   /**
+   * Returns the scrollbar width of the window's scroll frame.
+   *
+   * @param aFlushLayout flushes layout if true. Otherwise, no flush occurs.
+   */
+  void getScrollbarSize(in boolean aFlushLayout, out long aWidth, out long aHeight);
+
+  /**
    * Returns the bounds of the window's currently loaded document. This will
    * generally be (0, 0, pageWidth, pageHeight) but in some cases (e.g. RTL
    * documents) may have a negative left value.
@@ -719,6 +730,15 @@ interface nsIDOMWindowUtils : nsISupports {
   boolean dispatchDOMEventViaPresShell(in nsIDOMNode aTarget,
                                        in nsIDOMEvent aEvent,
                                        in boolean aTrusted);
+
+  /**
+   * Sets nsEvent::mFlags::mOnlyChromeDispatch to true to ensure that
+   * the event is propagated only to chrome.
+   * Event's .target property will be aTarget.
+   * Returns the same value as what EventTarget.dispatchEvent does.
+   */
+  boolean dispatchEventToChromeOnly(in nsIDOMEventTarget aTarget,
+                                    in nsIDOMEvent aEvent);
 
   /**
    * Returns the real classname (possibly of the mostly-transparent security
@@ -1043,9 +1063,33 @@ interface nsIDOMWindowUtils : nsISupports {
    */
   readonly attribute AString layerManagerType;
 
-  void startFrameTimeRecording();
-  void stopFrameTimeRecording([optional] out unsigned long frameCount,
-                              [retval, array, size_is(frameCount)] out float frameTime);
+  /**
+   * Record (and return) frame-intervals and paint-times for frames which were presented
+   *   between calling StartFrameTimeRecording and StopFrameTimeRecording.
+   *
+   * - Uses a cyclic buffer and serves concurrent consumers, so if Stop is called too late
+   *     (elements were overwritten since Start), result is considered invalid and hence empty.
+   * - Buffer is capable of holding 10 seconds @ 60fps (or more if frames were less frequent).
+   *     Can be changed (up to 1 hour) via pref: toolkit.framesRecording.bufferSize.
+   * - Note: the first frame-interval may be longer than expected because last frame
+   *     might have been presented some time before calling StartFrameTimeRecording.
+   */
+
+  /**
+   * Returns a handle which represents current recording start position.
+   */
+   void startFrameTimeRecording([retval] out unsigned long startIndex);
+
+  /**
+   * Returns number of recorded frames since startIndex was issued,
+   *   and allocates+populates 2 arraye with the recorded data.
+   * - Allocation is infallible. Should be released even if size is 0.
+   */
+   void stopFrameTimeRecording(in unsigned long startIndex,
+                              [optional, array, size_is(frameCount)] out float paintTimes,
+                              [optional] out unsigned long frameCount,
+                              [retval, array, size_is(frameCount)] out float frameIntervals);
+
   /**
    * Signals that we're begining to tab switch. This is used by painting code to
    * determine total tab switch time.
@@ -1092,6 +1136,12 @@ interface nsIDOMWindowUtils : nsISupports {
    * Undoes the effects of advanceTimeAndRefresh.
    */
   void restoreNormalRefresh();
+
+  /**
+   * Reports whether the current state is test-controlled refreshes
+   * (see advanceTimeAndRefresh and restoreNormalRefresh above).
+   */
+  readonly attribute bool isTestControllingRefreshes;
 
   /**
    * Method for testing nsStyleAnimation::ComputeDistance.
@@ -1245,6 +1295,19 @@ interface nsIDOMWindowUtils : nsISupports {
   void setScrollPositionClampingScrollPortSize(in float aWidth, in float aHeight);
 
   /**
+   * Set margins for the layout of fixed position elements in the content
+   * document. These are used on mobile, where the viewable area can be
+   * temporarily obscured by the browser chrome. In this situation, we're ok
+   * with scrollable page content being obscured, but fixed position content
+   * cannot be revealed without removing the obscuring chrome, so we use these
+   * margins so that it can remain visible.
+   *
+   * The caller of this method must have chrome privileges.
+   */
+  void setContentDocumentFixedPositionMargins(in float aTop, in float aRight,
+                                              in float aBottom, in float aLeft);
+
+  /**
    * Prevent this window (and any child windows) from displaying any further
    * dialogs (e.g. window.alert()).
    */
@@ -1285,4 +1348,16 @@ interface nsIDOMWindowUtils : nsISupports {
    * was created can be closed using scripts.
    */
    void allowScriptsToClose();
+
+   /**
+    * In certain cases the event handling of nodes, form controls in practice,
+    * may be disabled. Such cases are for example the existence of disabled
+    * attribute or -moz-user-input: none/disabled.
+    */
+   boolean isNodeDisabledForEvents(in nsIDOMNode aNode);
+
+   /**
+    * Setting paintFlashing to true will flash newly painted area.
+    */
+   attribute boolean paintFlashing;
 };

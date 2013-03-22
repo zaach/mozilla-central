@@ -5,6 +5,15 @@
 Cu.import("resource://gre/modules/Services.jsm");
 
 function run_test() {
+  createAppInfo("xpcshell@tests.mozilla.org", "XPCShell", "1", "1.9");
+  // prepare a blocklist file for the blocklist service
+  var blocklistFile = gProfD.clone();
+  blocklistFile.append("blocklist.xml");
+  if (blocklistFile.exists())
+    blocklistFile.remove(false);
+  var source = do_get_file("blocklist.xml");
+  source.copyTo(gProfD, "blocklist.xml");
+
   // NOTE: none of the manifests here can have a workerURL set, or we attempt
   // to create a FrameWorker and that fails under xpcshell...
   let manifests = [
@@ -21,6 +30,16 @@ function run_test() {
   manifests.forEach(function (manifest) {
     MANIFEST_PREFS.setCharPref(manifest.origin, JSON.stringify(manifest));
   });
+  // Set both providers active and flag the first one as "current"
+  let activeVal = Cc["@mozilla.org/supports-string;1"].
+             createInstance(Ci.nsISupportsString);
+  let active = {};
+  for (let m of manifests)
+    active[m.origin] = 1;
+  activeVal.data = JSON.stringify(active);
+  Services.prefs.setComplexValue("social.activeProviders",
+                                 Ci.nsISupportsString, activeVal);
+  Services.prefs.setCharPref("social.provider.current", manifests[0].origin);
 
   // Enable the service for this test
   Services.prefs.setBoolPref("social.enabled", true);
@@ -32,6 +51,8 @@ function run_test() {
   runner.appendIterator(testGetProviderList(manifests, next));
   runner.appendIterator(testEnabled(manifests, next));
   runner.appendIterator(testAddRemoveProvider(manifests, next));
+  runner.appendIterator(testIsSameOrigin(manifests, next));
+  runner.appendIterator(testResolveUri  (manifests, next));
   runner.next();
 }
 
@@ -81,22 +102,12 @@ function testEnabled(manifests, next) {
   // now disable the service and check that it disabled that provider (and all others for good measure)
   SocialService.enabled = false;
   do_check_true(notificationDisabledCorrect);
-  do_check_true(!Services.prefs.getBoolPref("social.enabled"));
   do_check_true(!SocialService.enabled);
   providers.forEach(function (provider) {
     do_check_false(provider.enabled);
   });
 
-  // Check that setting the pref directly updates things accordingly
-  let notificationEnabledCorrect = false;
-  Services.obs.addObserver(function obs2(subj, topic, data) {
-    Services.obs.removeObserver(obs2, "social:pref-changed");
-    notificationEnabledCorrect = data == "enabled";
-  }, "social:pref-changed", false);
-
-  Services.prefs.setBoolPref("social.enabled", true);
-
-  do_check_true(notificationEnabledCorrect);
+  SocialService.enabled = true;
   do_check_true(SocialService.enabled);
   // Enabling the service should not enable providers
   providers.forEach(function (provider) {
@@ -135,4 +146,32 @@ function testAddRemoveProvider(manifests, next) {
   do_check_eq(providersAfter.indexOf(newProvider), -1);
   newProvider = yield SocialService.getProvider(newProvider.origin, next);
   do_check_true(!newProvider);
+}
+
+function testIsSameOrigin(manifests, next) {
+  let providers = yield SocialService.getProviderList(next);
+  let provider = providers[0];
+  // provider.origin is a string.
+  do_check_true(provider.isSameOrigin(provider.origin));
+  do_check_true(provider.isSameOrigin(Services.io.newURI(provider.origin, null, null)));
+  do_check_true(provider.isSameOrigin(provider.origin + "/some-sub-page"));
+  do_check_true(provider.isSameOrigin(Services.io.newURI(provider.origin + "/some-sub-page", null, null)));
+  do_check_false(provider.isSameOrigin("http://something.com"));
+  do_check_false(provider.isSameOrigin(Services.io.newURI("http://something.com", null, null)));
+  do_check_false(provider.isSameOrigin("data:text/html,<p>hi"));
+  do_check_true(provider.isSameOrigin("data:text/html,<p>hi", true));
+  do_check_false(provider.isSameOrigin(Services.io.newURI("data:text/html,<p>hi", null, null)));
+  do_check_true(provider.isSameOrigin(Services.io.newURI("data:text/html,<p>hi", null, null), true));
+  // we explicitly handle null and return false
+  do_check_false(provider.isSameOrigin(null));
+}
+
+function testResolveUri(manifests, next) {
+  let providers = yield SocialService.getProviderList(next);
+  let provider = providers[0];
+  do_check_eq(provider.resolveUri(provider.origin).spec, provider.origin + "/");
+  do_check_eq(provider.resolveUri("foo.html").spec, provider.origin + "/foo.html");
+  do_check_eq(provider.resolveUri("/foo.html").spec, provider.origin + "/foo.html");
+  do_check_eq(provider.resolveUri("http://somewhereelse.com/foo.html").spec, "http://somewhereelse.com/foo.html");
+  do_check_eq(provider.resolveUri("data:text/html,<p>hi").spec, "data:text/html,<p>hi");
 }

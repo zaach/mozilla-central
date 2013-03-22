@@ -320,12 +320,13 @@ public:
   }
 
 private:
-  static bool gPropertyEnabled[eCSSProperty_COUNT];
+  static bool gPropertyEnabled[eCSSProperty_COUNT_with_aliases];
 
 public:
 
   static bool IsEnabled(nsCSSProperty aProperty) {
-    NS_ABORT_IF_FALSE(0 <= aProperty && aProperty < eCSSProperty_COUNT,
+    NS_ABORT_IF_FALSE(0 <= aProperty &&
+                      aProperty < eCSSProperty_COUNT_with_aliases,
                       "out of range");
     return gPropertyEnabled[aProperty];
   }
@@ -406,6 +407,7 @@ public:
   static const int32_t kLineHeightKTable[];
   static const int32_t kListStylePositionKTable[];
   static const int32_t kListStyleKTable[];
+  static const int32_t kMaskTypeKTable[];
   static const int32_t kObjectOpacityKTable[];
   static const int32_t kObjectPatternKTable[];
   static const int32_t kOrientKTable[];

@@ -36,6 +36,8 @@
 #include "nsSocketTransportService2.h"
 #include "nsAlgorithm.h"
 #include "ASpdySession.h"
+#include "mozIApplicationClearPrivateDataParams.h"
+#include "nsIRandomGenerator.h"
 
 #include "nsIXULAppInfo.h"
 
@@ -82,9 +84,9 @@ static NS_DEFINE_CID(kSocketProviderServiceCID, NS_SOCKETPROVIDERSERVICE_CID);
 
 #define HTTP_PREF_PREFIX        "network.http."
 #define INTL_ACCEPT_LANGUAGES   "intl.accept_languages"
-#define NETWORK_ENABLEIDN       "network.enableIDN"
 #define BROWSER_PREF_PREFIX     "browser.cache."
 #define DONOTTRACK_HEADER_ENABLED "privacy.donottrackheader.enabled"
+#define DONOTTRACK_HEADER_VALUE   "privacy.donottrackheader.value"
 #ifdef MOZ_TELEMETRY_ON_BY_DEFAULT
 #define TELEMETRY_ENABLED        "toolkit.telemetry.enabledPreRelease"
 #else
@@ -169,6 +171,7 @@ nsHttpHandler::nsHttpHandler()
     , mSendSecureXSiteReferrer(true)
     , mEnablePersistentHttpsCaching(false)
     , mDoNotTrackEnabled(false)
+    , mDoNotTrackValue(1)
     , mTelemetryEnabled(false)
     , mAllowExperiments(true)
     , mHandlerActive(false)
@@ -177,6 +180,7 @@ nsHttpHandler::nsHttpHandler()
     , mSpdyV3(true)
     , mCoalesceSpdy(true)
     , mUseAlternateProtocol(false)
+    , mSpdyPersistentSettings(false)
     , mSpdySendingChunkSize(ASpdySession::kSendingChunkSize)
     , mSpdySendBufferSize(ASpdySession::kTCPSendBufferSize)
     , mSpdyPingThreshold(PR_SecondsToInterval(58))
@@ -184,6 +188,10 @@ nsHttpHandler::nsHttpHandler()
     , mConnectTimeout(90000)
     , mParallelSpeculativeConnectLimit(6)
     , mCritialRequestPrioritization(true)
+    , mCacheEffectExperimentTelemetryID(kNullTelemetryID)
+    , mCacheEffectExperimentOnce(false)
+    , mCacheEffectExperimentSlowConn(0)
+    , mCacheEffectExperimentFastConn(0)
 {
 #if defined(PR_LOGGING)
     gHttpLog = PR_NewLogModule("nsHttp");
@@ -212,6 +220,10 @@ nsHttpHandler::~nsHttpHandler()
     if (mPipelineTestTimer) {
         mPipelineTestTimer->Cancel();
         mPipelineTestTimer = nullptr;
+    }
+    if (mCacheEffectExperimentTimer) {
+        mCacheEffectExperimentTimer->Cancel();
+        mCacheEffectExperimentTimer = nullptr;
     }
 
     gHttpHandler = nullptr;
@@ -245,9 +257,9 @@ nsHttpHandler::Init()
         prefBranch->AddObserver(HTTP_PREF_PREFIX, this, true);
         prefBranch->AddObserver(UA_PREF_PREFIX, this, true);
         prefBranch->AddObserver(INTL_ACCEPT_LANGUAGES, this, true);
-        prefBranch->AddObserver(NETWORK_ENABLEIDN, this, true);
         prefBranch->AddObserver(BROWSER_PREF("disk_cache_ssl"), this, true);
         prefBranch->AddObserver(DONOTTRACK_HEADER_ENABLED, this, true);
+        prefBranch->AddObserver(DONOTTRACK_HEADER_VALUE, this, true);
         prefBranch->AddObserver(TELEMETRY_ENABLED, this, true);
 
         PrefsChanged(prefBranch, nullptr);
@@ -325,6 +337,7 @@ nsHttpHandler::Init()
         mObserverService->AddObserver(this, "net:prune-dead-connections", true);
         mObserverService->AddObserver(this, "net:failed-to-process-uri-content", true);
         mObserverService->AddObserver(this, "last-pb-context-exited", true);
+        mObserverService->AddObserver(this, "webapps-clear-data", true);
     }
 
     return NS_OK;
@@ -379,7 +392,7 @@ nsHttpHandler::AddStandardRequestHeaders(nsHttpHeaderArray *request)
     // Add the "Do-Not-Track" header
     if (mDoNotTrackEnabled) {
       rv = request->SetHeader(nsHttp::DoNotTrack,
-                              NS_LITERAL_CSTRING("1"));
+                              nsPrintfCString("%d", mDoNotTrackValue));
       if (NS_FAILED(rv)) return rv;
     }
 
@@ -630,7 +643,7 @@ nsHttpHandler::InitUserAgentComponents()
     );
 #endif
 
-#if defined(ANDROID) || defined(MOZ_PLATFORM_MAEMO)
+#if defined(ANDROID) || defined(MOZ_PLATFORM_MAEMO) || defined(MOZ_B2G)
     nsCOMPtr<nsIPropertyBag2> infoService = do_GetService("@mozilla.org/system-info;1");
     NS_ASSERTION(infoService, "Could not find a system info service");
 
@@ -1097,6 +1110,13 @@ nsHttpHandler::PrefsChanged(nsIPrefBranch *prefs, const char *pref)
             mUseAlternateProtocol = cVar;
     }
 
+    if (PREF_CHANGED(HTTP_PREF("spdy.persistent-settings"))) {
+        rv = prefs->GetBoolPref(HTTP_PREF("spdy.persistent-settings"),
+                                &cVar);
+        if (NS_SUCCEEDED(rv))
+            mSpdyPersistentSettings = cVar;
+    }
+
     if (PREF_CHANGED(HTTP_PREF("spdy.timeout"))) {
         rv = prefs->GetIntPref(HTTP_PREF("spdy.timeout"), &val);
         if (NS_SUCCEEDED(rv))
@@ -1187,24 +1207,6 @@ nsHttpHandler::PrefsChanged(nsIPrefBranch *prefs, const char *pref)
     }
 
     //
-    // IDN options
-    //
-
-    if (PREF_CHANGED(NETWORK_ENABLEIDN)) {
-        bool enableIDN = false;
-        prefs->GetBoolPref(NETWORK_ENABLEIDN, &enableIDN);
-        // No locking is required here since this method runs in the main
-        // UI thread, and so do all the methods in nsHttpChannel.cpp
-        // (mIDNConverter is used by nsHttpChannel)
-        if (enableIDN && !mIDNConverter) {
-            mIDNConverter = do_GetService(NS_IDNSERVICE_CONTRACTID);
-            NS_ASSERTION(mIDNConverter, "idnSDK not installed");
-        }
-        else if (!enableIDN && mIDNConverter)
-            mIDNConverter = nullptr;
-    }
-
-    //
     // Tracking options
     //
 
@@ -1213,6 +1215,13 @@ nsHttpHandler::PrefsChanged(nsIPrefBranch *prefs, const char *pref)
         rv = prefs->GetBoolPref(DONOTTRACK_HEADER_ENABLED, &cVar);
         if (NS_SUCCEEDED(rv)) {
             mDoNotTrackEnabled = cVar;
+        }
+    }
+    if (PREF_CHANGED(DONOTTRACK_HEADER_VALUE)) {
+        val = 1;
+        rv = prefs->GetIntPref(DONOTTRACK_HEADER_VALUE, &val);
+        if (NS_SUCCEEDED(rv)) {
+            mDoNotTrackValue = val;
         }
     }
 
@@ -1237,6 +1246,23 @@ nsHttpHandler::PrefsChanged(nsIPrefBranch *prefs, const char *pref)
         rv = prefs->GetBoolPref(ALLOW_EXPERIMENTS, &cVar);
         if (NS_SUCCEEDED(rv)) {
             mAllowExperiments = cVar;
+        }
+
+        if (!mCacheEffectExperimentOnce) {
+            mCacheEffectExperimentOnce = true;
+
+            // Start the Cache Efficacy Experiment for testing channels
+#ifdef MOZ_TELEMETRY_ON_BY_DEFAULT            
+            if (mAllowExperiments) {
+                if (mCacheEffectExperimentTimer)
+                    mCacheEffectExperimentTimer->Cancel();
+                mCacheEffectExperimentTimer = do_CreateInstance("@mozilla.org/timer;1");
+                if (mCacheEffectExperimentTimer)
+                    mCacheEffectExperimentTimer->InitWithFuncCallback(
+                        StartCacheExperiment, this, kExperimentStartupDelay,
+                        nsITimer::TYPE_ONE_SHOT);
+            }
+#endif
         }
     }
 
@@ -1285,6 +1311,82 @@ nsHttpHandler::TimerCallback(nsITimer * aTimer, void * aClosure)
     nsRefPtr<nsHttpHandler> thisObject = static_cast<nsHttpHandler*>(aClosure);
     if (!thisObject->mPipeliningEnabled)
         thisObject->mCapabilities &= ~NS_HTTP_ALLOW_PIPELINING;
+}
+
+void
+nsHttpHandler::FinishCacheExperiment(nsITimer * aTimer, void * aClosure)
+{
+    nsRefPtr<nsHttpHandler> self = static_cast<nsHttpHandler*>(aClosure);
+    self->mCacheEffectExperimentTimer = nullptr;
+    
+    // The experiment is over.
+    self->mCacheEffectExperimentTelemetryID = kNullTelemetryID;
+    self->mUseCache = true;
+    LOG(("Cache Effect Experiment Complete\n"));
+}
+
+// The Cache Effect Experiment selects 1 of 16 sessions and divides them
+// into equal groups of cache enabled and cache disabled for a few minutes.
+// Sessions that already have their cache disabled are not selected.
+// During the time of the experiment we measure transaction times from the time
+// of channel::AsyncOpen() to the time OnStopRequest() is called. Results are
+// recorded for the matrix of {cacheEnabled, Fast/Slow-Connection}. We
+// intentionally don't record whether the cache was hit for a particular
+// transaction - just whether or not it was enabled in order to get a
+// feel for whether or not the cache helps overall performance.
+//
+void
+nsHttpHandler::StartCacheExperiment(nsITimer * aTimer, void * aClosure)
+{
+    nsRefPtr<nsHttpHandler> self = static_cast<nsHttpHandler*>(aClosure);
+
+    if (!self->AllowExperiments())
+        return;
+    if (!self->mUseCache)
+        return;
+    if (!(self->mCacheEffectExperimentFastConn + self->mCacheEffectExperimentSlowConn))
+        return;
+
+    bool selected = false;
+    bool disableCache = false;
+    uint8_t *buffer;
+
+    nsCOMPtr<nsIRandomGenerator> randomGenerator =
+        do_GetService("@mozilla.org/security/random-generator;1");
+
+    if (randomGenerator &&
+        NS_SUCCEEDED(randomGenerator->GenerateRandomBytes(1, &buffer))) {
+        if (!((*buffer) & 0x0f))
+            selected = true;
+        if (!((*buffer) & 0x10))
+            disableCache = true;
+        NS_Free(buffer);
+    }
+    if (!selected)
+        return;
+    if (disableCache)
+        self->mUseCache = false;
+
+    // consider this a fast connection if 1/3 of the connects are fast.
+    bool isFast = (self->mCacheEffectExperimentFastConn * 2) >= self->mCacheEffectExperimentSlowConn;
+    if (self->mUseCache) {
+        if (isFast)
+            self->mCacheEffectExperimentTelemetryID = Telemetry::HTTP_TRANSACTION_TIME_CONNFAST_CACHEON;
+        else
+            self->mCacheEffectExperimentTelemetryID = Telemetry::HTTP_TRANSACTION_TIME_CONNSLOW_CACHEON;
+    }
+    else {
+        if (isFast)
+            self->mCacheEffectExperimentTelemetryID = Telemetry::HTTP_TRANSACTION_TIME_CONNFAST_CACHEOFF;
+        else
+            self->mCacheEffectExperimentTelemetryID = Telemetry::HTTP_TRANSACTION_TIME_CONNSLOW_CACHEOFF;
+    }
+    
+    LOG(("Cache Effect Experiment Started ID=%X\n", self->mCacheEffectExperimentTelemetryID));
+
+    self->mCacheEffectExperimentTimer->InitWithFuncCallback(
+        FinishCacheExperiment, self, kExperimentStartupDuration,
+        nsITimer::TYPE_ONE_SHOT);
 }
 
 /**
@@ -1581,9 +1683,61 @@ nsHttpHandler::GetMisc(nsACString &value)
     return NS_OK;
 }
 
+/*static*/ void
+nsHttpHandler::GetCacheSessionNameForStoragePolicy(
+        nsCacheStoragePolicy storagePolicy,
+        bool isPrivate,
+        uint32_t appId,
+        bool inBrowser,
+        nsACString& sessionName)
+{
+    MOZ_ASSERT(!isPrivate || storagePolicy == nsICache::STORE_IN_MEMORY);
+
+    switch (storagePolicy) {
+        case nsICache::STORE_IN_MEMORY:
+            sessionName.AssignASCII(isPrivate ? "HTTP-memory-only-PB" : "HTTP-memory-only");
+            break;
+        case nsICache::STORE_OFFLINE:
+            sessionName.AssignLiteral("HTTP-offline");
+            break;
+        default:
+            sessionName.AssignLiteral("HTTP");
+            break;
+    }
+    if (appId != NECKO_NO_APP_ID || inBrowser) {
+        sessionName.Append('~');
+        sessionName.AppendInt(appId);
+        sessionName.Append('~');
+        sessionName.AppendInt(inBrowser);
+    }
+}
+
 //-----------------------------------------------------------------------------
 // nsHttpHandler::nsIObserver
 //-----------------------------------------------------------------------------
+
+static void
+EvictCacheSession(nsCacheStoragePolicy aPolicy,
+                  bool aPrivateBrowsing,
+                  uint32_t aAppId,
+                  bool aInBrowser)
+{
+    nsAutoCString clientId;
+    nsHttpHandler::GetCacheSessionNameForStoragePolicy(aPolicy,
+                                                       aPrivateBrowsing,
+                                                       aAppId, aInBrowser,
+                                                       clientId);
+    nsCOMPtr<nsICacheService> serv =
+        do_GetService(NS_CACHESERVICE_CONTRACTID);
+    nsCOMPtr<nsICacheSession> session;
+    nsresult rv = serv->CreateSession(clientId.get(),
+                                      nsICache::STORE_ANYWHERE,
+                                      nsICache::STREAM_BASED,
+                                      getter_AddRefs(session));
+    if (NS_SUCCEEDED(rv) && session) {
+        session->EvictEntries();
+    }
+}
 
 NS_IMETHODIMP
 nsHttpHandler::Observe(nsISupports *subject,
@@ -1634,6 +1788,45 @@ nsHttpHandler::Observe(nsISupports *subject,
     }
     else if (strcmp(topic, "last-pb-context-exited") == 0) {
         mPrivateAuthCache.ClearAll();
+    }
+    else if (strcmp(topic, "webapps-clear-data") == 0) {
+        nsCOMPtr<mozIApplicationClearPrivateDataParams> params =
+                do_QueryInterface(subject);
+        if (!params) {
+            NS_ERROR("'webapps-clear-data' notification's subject should be a mozIApplicationClearPrivateDataParams");
+            return NS_ERROR_UNEXPECTED;
+        }
+
+        uint32_t appId;
+        bool browserOnly;
+        nsresult rv = params->GetAppId(&appId);
+        NS_ENSURE_SUCCESS(rv, rv);
+        rv = params->GetBrowserOnly(&browserOnly);
+        NS_ENSURE_SUCCESS(rv, rv);
+
+        MOZ_ASSERT(appId != NECKO_UNKNOWN_APP_ID);
+
+        // Now we ensure that all unique session name combinations are cleared.
+        struct {
+            nsCacheStoragePolicy policy;
+            bool privateBrowsing;
+        } policies[] = { {nsICache::STORE_OFFLINE, false},
+                         {nsICache::STORE_IN_MEMORY, false},
+                         {nsICache::STORE_IN_MEMORY, true},
+                         {nsICache::STORE_ON_DISK, false} };
+
+        for (uint32_t i = 0; i < NS_ARRAY_LENGTH(policies); i++) {
+            EvictCacheSession(policies[i].policy,
+                              policies[i].privateBrowsing,
+                              appId, browserOnly);
+
+            if (!browserOnly) {
+                EvictCacheSession(policies[i].policy,
+                                  policies[i].privateBrowsing,
+                                  appId, true);
+            }
+        }
+
     }
 
     return NS_OK;

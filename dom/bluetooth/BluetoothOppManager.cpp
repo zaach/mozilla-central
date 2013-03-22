@@ -119,6 +119,31 @@ BluetoothOppManagerObserver::Observe(nsISupports* aSubject,
   return NS_ERROR_UNEXPECTED;
 }
 
+class SendSocketDataTask : public nsRunnable
+{
+public:
+  SendSocketDataTask(uint8_t* aStream, uint32_t aSize)
+    : mStream(aStream)
+    , mSize(aSize)
+  {
+    MOZ_ASSERT(!NS_IsMainThread());
+  }
+
+  NS_IMETHOD Run()
+  {
+    MOZ_ASSERT(NS_IsMainThread());
+
+    sInstance->SendPutRequest(mStream, mSize);
+    sSentFileLength += mSize;
+
+    return NS_OK;
+  }
+
+private:
+  nsAutoArrayPtr<uint8_t> mStream;
+  uint32_t mSize;
+};
+
 class ReadFileTask : public nsRunnable
 {
 public:
@@ -135,13 +160,13 @@ public:
     MOZ_ASSERT(!NS_IsMainThread());
 
     uint32_t numRead;
-    nsAutoArrayPtr<char> buf;
-    buf = new char[mAvailablePacketSize];
+    nsAutoArrayPtr<char> buf(new char[mAvailablePacketSize]);
 
     // function inputstream->Read() only works on non-main thread
-    nsresult rv = mInputStream->Read(buf.get(), mAvailablePacketSize, &numRead);
+    nsresult rv = mInputStream->Read(buf, mAvailablePacketSize, &numRead);
     if (NS_FAILED(rv)) {
       // Needs error handling here
+      NS_WARNING("Failed to read from input stream");
       return NS_ERROR_FAILURE;
     }
 
@@ -149,8 +174,13 @@ public:
       if (sSentFileLength + numRead >= sFileLength) {
         sWaitingToSendPutFinal = true;
       }
-      sInstance->SendPutRequest((uint8_t*)buf.get(), numRead);
-      sSentFileLength += numRead;
+
+      nsRefPtr<SendSocketDataTask> task =
+        new SendSocketDataTask((uint8_t*)buf.forget(), numRead);
+      if (NS_FAILED(NS_DispatchToMainThread(task))) {
+        NS_WARNING("Failed to dispatch to main thread!");
+        return NS_ERROR_FAILURE;
+      }
     }
 
     return NS_OK;
@@ -161,8 +191,24 @@ private:
   uint32_t mAvailablePacketSize;
 };
 
+class CloseSocketTask : public Task
+{
+public:
+  void Run() MOZ_OVERRIDE
+  {
+    if (!sInstance) {
+      NS_WARNING("BluetoothOppManager no longer exists, cannot close socket!");
+      return;
+    }
+
+    if (sInstance->GetConnectionStatus() ==
+          SocketConnectionStatus::SOCKET_CONNECTED) {
+      sInstance->CloseSocket();
+    }
+  }
+};
+
 BluetoothOppManager::BluetoothOppManager() : mConnected(false)
-                                           , mConnectionId(1)
                                            , mRemoteObexVersion(0)
                                            , mRemoteConnectionFlags(0)
                                            , mRemoteMaxPacketLength(0)
@@ -345,6 +391,7 @@ BluetoothOppManager::SendFile(BlobParent* aActor)
 
   SendConnectRequest();
   mTransferMode = false;
+  StartFileTransfer();
 
   return true;
 }
@@ -604,6 +651,28 @@ BluetoothOppManager::ExtractBlobHeaders()
   return true;
 }
 
+bool
+BluetoothOppManager::IsReservedChar(PRUnichar c)
+{
+  return (c < 0x0020 ||
+          c == PRUnichar('?') || c == PRUnichar('|') || c == PRUnichar('<') ||
+          c == PRUnichar('>') || c == PRUnichar('"') || c == PRUnichar(':') ||
+          c == PRUnichar('/') || c == PRUnichar('*') || c == PRUnichar('\\'));
+}
+
+void
+BluetoothOppManager::ValidateFileName()
+{
+  int length = sFileName.Length();
+
+  for (int i = 0; i < length; ++i) {
+    // Replace reserved char of fat file system with '_'
+    if (IsReservedChar(sFileName.CharAt(i))) {
+      sFileName.Replace(i, 1, PRUnichar('_'));
+    }
+  }
+}
+
 void
 BluetoothOppManager::ServerDataHandler(UnixSocketRawData* aMessage)
 {
@@ -690,6 +759,7 @@ BluetoothOppManager::ServerDataHandler(UnixSocketRawData* aMessage)
                  mReceivedDataBufferOffset,
                  &pktHeaders);
     ExtractPacketHeaders(pktHeaders);
+    ValidateFileName();
 
     mReceivedDataBufferOffset = 0;
 
@@ -758,24 +828,26 @@ BluetoothOppManager::ClientDataHandler(UnixSocketRawData* aMessage)
     packetLength = (((int)aMessage->mData[1]) << 8) | aMessage->mData[2];
   }
 
-  // Check response code
-  if (mLastCommand == ObexRequestCode::Put &&
-      opCode != ObexResponseCode::Continue) {
-    NS_WARNING("[OPP] Put(0x02) failed");
-    SendDisconnectRequest();
-    return;
-  } else if (mLastCommand == ObexRequestCode::Abort ||
-             mLastCommand == ObexRequestCode::Connect ||
-             mLastCommand == ObexRequestCode::Disconnect ||
-             mLastCommand == ObexRequestCode::PutFinal){
-    if (opCode != ObexResponseCode::Success) {
-      nsAutoCString str;
-      str += "[OPP] 0x";
-      str += mLastCommand;
-      str += " failed";
-      NS_WARNING(str.get());
-      return;
+  // Check response code and send out system message as finished if the reponse
+  // code is somehow incorrect.
+  uint8_t expectedOpCode = ObexResponseCode::Success;
+  if (mLastCommand == ObexRequestCode::Put) {
+    expectedOpCode = ObexResponseCode::Continue;
+  }
+
+  if (opCode != expectedOpCode) {
+    if (mLastCommand == ObexRequestCode::Put ||
+        mLastCommand == ObexRequestCode::Abort ||
+        mLastCommand == ObexRequestCode::PutFinal) {
+      SendDisconnectRequest();
     }
+    nsAutoCString str;
+    str += "[OPP] 0x";
+    str.AppendInt(mLastCommand, 16);
+    str += " failed";
+    NS_WARNING(str.get());
+    FileTransferComplete();
+    return;
   }
 
   if (mLastCommand == ObexRequestCode::PutFinal) {
@@ -788,8 +860,10 @@ BluetoothOppManager::ClientDataHandler(UnixSocketRawData* aMessage)
   } else if (mLastCommand == ObexRequestCode::Disconnect) {
     AfterOppDisconnected();
     // Most devices will directly terminate connection after receiving
-    // Disconnect request.
-    // CloseSocket();
+    // Disconnect request, so we make a delay here. If the socket hasn't been
+    // disconnected, we will close it.
+    MessageLoop::current()->
+      PostDelayedTask(FROM_HERE, new CloseSocketTask(), 1000);
   } else if (mLastCommand == ObexRequestCode::Connect) {
     MOZ_ASSERT(!sFileName.IsEmpty());
     MOZ_ASSERT(mBlob);
@@ -808,7 +882,6 @@ BluetoothOppManager::ClientDataHandler(UnixSocketRawData* aMessage)
      */
     if (ExtractBlobHeaders()) {
       sInstance->SendPutHeaderRequest(sFileName, sFileLength);
-      StartFileTransfer();
     }
   } else if (mLastCommand == ObexRequestCode::Put) {
 
@@ -852,7 +925,7 @@ BluetoothOppManager::ClientDataHandler(UnixSocketRawData* aMessage)
 
 // Virtual function of class SocketConsumer
 void
-BluetoothOppManager::ReceiveSocketData(UnixSocketRawData* aMessage)
+BluetoothOppManager::ReceiveSocketData(nsAutoPtr<UnixSocketRawData>& aMessage)
 {
   if (mLastCommand) {
     ClientDataHandler(aMessage);
@@ -878,7 +951,6 @@ BluetoothOppManager::SendConnectRequest()
   req[5] = BluetoothOppManager::MAX_PACKET_LENGTH >> 8;
   req[6] = (uint8_t)BluetoothOppManager::MAX_PACKET_LENGTH;
 
-  index += AppendHeaderConnectionId(&req[index], mConnectionId);
   SetObexPacketInfo(req, ObexRequestCode::Connect, index);
   mLastCommand = ObexRequestCode::Connect;
 
@@ -906,7 +978,6 @@ BluetoothOppManager::SendPutHeaderRequest(const nsAString& aFileName,
   fileName[len * 2 + 1] = 0x00;
 
   int index = 3;
-  index += AppendHeaderConnectionId(&req[index], mConnectionId);
   index += AppendHeaderName(&req[index], (char*)fileName, (len + 1) * 2);
   index += AppendHeaderLength(&req[index], aFileSize);
 
@@ -1008,6 +1079,12 @@ BluetoothOppManager::SendAbortRequest()
   UnixSocketRawData* s = new UnixSocketRawData(index);
   memcpy(s->mData, req, s->mSize);
   SendSocketData(s);
+}
+
+bool
+BluetoothOppManager::IsTransferring()
+{
+  return (mConnected && !mSendTransferCompleteFlag);
 }
 
 void
@@ -1279,7 +1356,7 @@ BluetoothOppManager::OnDisconnect()
 
         nsCOMPtr<nsIObserverService> obs = mozilla::services::GetObserverService();
         if (obs) {
-          obs->NotifyObservers(mDsFile, "file-watcher-update", data.get());
+          obs->NotifyObservers(mDsFile, "file-watcher-notify", data.get());
         }
       }
     }

@@ -64,18 +64,18 @@ public:
                     const nsHTMLReflowState& aReflowState,
                     nsReflowStatus&          aStatus) MOZ_OVERRIDE;
 
-  NS_IMETHOD Init(nsIContent*      aContent,
-                   nsIFrame*        aParent,
-                   nsIFrame*        aPrevInFlow);
+  virtual void Init(nsIContent*      aContent,
+                    nsIFrame*        aParent,
+                    nsIFrame*        aPrevInFlow) MOZ_OVERRIDE;
 
   NS_IMETHOD DidReflow(nsPresContext*           aPresContext, 
                        const nsHTMLReflowState*  aReflowState, 
                        nsDidReflowStatus         aStatus);
   virtual void DestroyFrom(nsIFrame* aDestructRoot) MOZ_OVERRIDE;
 
-  NS_IMETHOD BuildDisplayList(nsDisplayListBuilder*   aBuilder,
-                              const nsRect&           aDirtyRect,
-                              const nsDisplayListSet& aLists);
+  virtual void BuildDisplayList(nsDisplayListBuilder*   aBuilder,
+                                const nsRect&           aDirtyRect,
+                                const nsDisplayListSet& aLists) MOZ_OVERRIDE;
 
   virtual nsIFrame* GetContentInsertionFrame();
 
@@ -108,9 +108,6 @@ public:
 #ifdef ACCESSIBILITY
   virtual mozilla::a11y::AccType AccessibleType() MOZ_OVERRIDE;
 #endif
-
-    // nsContainerFrame
-  virtual int GetSkipSides() const MOZ_OVERRIDE;
 
     // nsIListControlFrame
   virtual void SetComboboxFrame(nsIFrame* aComboboxFrame);

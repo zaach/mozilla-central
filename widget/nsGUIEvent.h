@@ -6,6 +6,8 @@
 #ifndef nsGUIEvent_h__
 #define nsGUIEvent_h__
 
+#include "mozilla/MathAlgorithms.h"
+
 #include "nsCOMArray.h"
 #include "nsPoint.h"
 #include "nsRect.h"
@@ -28,8 +30,6 @@
 #include "nsIVariant.h"
 #include "nsStyleConsts.h"
 #include "nsAutoPtr.h"
-#include <cstdlib> // for std::abs(int/long)
-#include <cmath> // for std::abs(float/double)
 
 namespace mozilla {
 namespace dom {
@@ -87,9 +87,9 @@ enum nsEventStructType {
   NS_MUTATION_EVENT,                 // nsMutationEvent
   NS_FORM_EVENT,                     // nsFormEvent
   NS_FOCUS_EVENT,                    // nsFocusEvent
+  NS_CLIPBOARD_EVENT,                // nsClipboardEvent
 
   // SVG events
-  NS_SVG_EVENT,                      // nsEvent or nsGUIEvent
   NS_SVGZOOM_EVENT,                  // nsGUIEvent
   NS_SMIL_TIME_EVENT,                // nsUIEvent
 
@@ -452,6 +452,18 @@ enum nsEventStructType {
 #define NS_NETWORK_UPLOAD_EVENT      (NS_NETWORK_EVENT_START + 1)
 #define NS_NETWORK_DOWNLOAD_EVENT    (NS_NETWORK_EVENT_START + 2)
 
+#ifdef MOZ_GAMEPAD
+// Gamepad input events
+#define NS_GAMEPAD_START         6000
+#define NS_GAMEPAD_BUTTONDOWN    (NS_GAMEPAD_START)
+#define NS_GAMEPAD_BUTTONUP      (NS_GAMEPAD_START+1)
+#define NS_GAMEPAD_AXISMOVE      (NS_GAMEPAD_START+2)
+#define NS_GAMEPAD_CONNECTED     (NS_GAMEPAD_START+3)
+#define NS_GAMEPAD_DISCONNECTED  (NS_GAMEPAD_START+4)
+// Keep this defined to the same value as the event above
+#define NS_GAMEPAD_END           (NS_GAMEPAD_START+4)
+#endif
+
 /**
  * Return status for event processors, nsEventStatus, is defined in
  * nsEvent.h.
@@ -468,7 +480,12 @@ enum nsWindowZ {
 
 namespace mozilla {
 namespace widget {
-struct EventFlags
+
+// BaseEventFlags must be a POD struct for safe to use memcpy (including
+// in ParamTraits<BaseEventFlags>).  So don't make virtual methods, constructor,
+// destructor and operators.
+// This is necessary for VC which is NOT C++0x compiler.
+struct BaseEventFlags
 {
 public:
   // If mIsTrusted is true, the event is a trusted event.  Otherwise, it's
@@ -538,43 +555,49 @@ public:
   bool    mOnlyChromeDispatch : 1;
 
   // If the event is being handled in target phase, returns true.
-  bool InTargetPhase() const
+  inline bool InTargetPhase() const
   {
     return (mInBubblingPhase && mInCapturePhase);
   }
 
-  EventFlags()
-  {
-    Clear();
-  }
   inline void Clear()
   {
     SetRawFlags(0);
   }
-  inline EventFlags operator|(const EventFlags& aOther) const
+  // Get if either the instance's bit or the aOther's bit is true, the
+  // instance's bit becomes true.  In other words, this works like:
+  // eventFlags |= aOther;
+  inline void Union(const BaseEventFlags& aOther)
   {
-    EventFlags flags;
-    flags.SetRawFlags(GetRawFlags() | aOther.GetRawFlags());
-    return flags;
-  }
-  inline EventFlags& operator|=(const EventFlags& aOther)
-  {
-    SetRawFlags(GetRawFlags() | aOther.GetRawFlags());
-    return *this;
+    RawFlags rawFlags = GetRawFlags() | aOther.GetRawFlags();
+    SetRawFlags(rawFlags);
   }
 
 private:
-  inline void SetRawFlags(uint32_t aRawFlags)
+  typedef uint32_t RawFlags;
+
+  inline void SetRawFlags(RawFlags aRawFlags)
   {
-    memcpy(this, &aRawFlags, sizeof(EventFlags));
+    MOZ_STATIC_ASSERT(sizeof(BaseEventFlags) <= sizeof(RawFlags),
+      "mozilla::widget::EventFlags must not be bigger than the RawFlags");
+    memcpy(this, &aRawFlags, sizeof(BaseEventFlags));
   }
-  inline uint32_t GetRawFlags() const
+  inline RawFlags GetRawFlags() const
   {
-    uint32_t result = 0;
-    memcpy(&result, this, sizeof(EventFlags));
+    RawFlags result = 0;
+    memcpy(&result, this, sizeof(BaseEventFlags));
     return result;
   }
 };
+
+struct EventFlags : public BaseEventFlags
+{
+  EventFlags()
+  {
+    Clear();
+  }
+};
+
 } // namespace widget
 } // namespace mozilla
 
@@ -594,6 +617,7 @@ protected:
       userType(0)
   {
     MOZ_COUNT_CTOR(nsEvent);
+    mFlags.Clear();
     mFlags.mIsTrusted = isTrusted;
     mFlags.mCancelable = true;
     mFlags.mBubbles = true;
@@ -614,6 +638,7 @@ public:
       userType(0)
   {
     MOZ_COUNT_CTOR(nsEvent);
+    mFlags.Clear();
     mFlags.mIsTrusted = isTrusted;
     mFlags.mCancelable = true;
     mFlags.mBubbles = true;
@@ -642,8 +667,8 @@ public:
   // Elapsed time, in milliseconds, from a platform-specific zero time
   // to the time the message was created
   uint64_t    time;
-  // See EventFlags definition for the detail.
-  mozilla::widget::EventFlags mFlags;
+  // See BaseEventFlags definition for the detail.
+  mozilla::widget::BaseEventFlags mFlags;
 
   // Additional type info for user defined events
   nsCOMPtr<nsIAtom>     userType;
@@ -1168,6 +1193,8 @@ struct nsTextRange
   uint32_t mRangeType;
 
   nsTextRangeStyle mRangeStyle;
+
+  uint32_t Length() const { return mEndOffset - mStartOffset; }
 };
 
 typedef nsTextRange* nsTextRangeArray;
@@ -1329,7 +1356,7 @@ public:
         (lineOrPageDeltaX > 0 && lineOrPageDeltaY < 0)) {
       return 0; // We cannot guess the answer in this case.
     }
-    return (std::abs(lineOrPageDeltaX) > std::abs(lineOrPageDeltaY)) ?
+    return (Abs(lineOrPageDeltaX) > Abs(lineOrPageDeltaY)) ?
              lineOrPageDeltaX : lineOrPageDeltaY;
   }
 
@@ -1634,6 +1661,20 @@ public:
   }
 
   nsCOMPtr<nsIAtom> command;
+};
+
+/**
+ * Clipboard event
+ */
+class nsClipboardEvent : public nsEvent
+{
+public:
+  nsClipboardEvent(bool isTrusted, uint32_t msg)
+    : nsEvent(isTrusted, msg, NS_CLIPBOARD_EVENT)
+  {
+  }
+
+  nsCOMPtr<nsIDOMDataTransfer> clipboardData;
 };
 
 /**

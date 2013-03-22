@@ -10,10 +10,11 @@
 
 #include <stdio.h>
 
-#include "gc/Root.h"
 #include "jsscript.h"
 
-struct JSScript;
+#include "js/RootingAPI.h"
+
+class JSScript;
 
 namespace js {
 namespace ion {
@@ -60,7 +61,7 @@ class JSONSpewer
     ~JSONSpewer();
 
     bool init(const char *path);
-    void beginFunction(UnrootedScript script);
+    void beginFunction(RawScript script);
     void beginPass(const char * pass);
     void spewMDef(MDefinition *def);
     void spewMResumePoint(MResumePoint *rp);
