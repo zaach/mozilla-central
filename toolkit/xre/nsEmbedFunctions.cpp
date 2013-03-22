@@ -282,6 +282,9 @@ XRE_InitChildProcess(int aArgc,
 
   sChildProcessType = aProcess;
 
+  // Create a new process group.
+  setpgid(0, 0);
+
   // Complete 'task_t' exchange for Mac OS X. This structure has the same size
   // regardless of architecture so we don't have any cross-arch issues here.
 #ifdef XP_MACOSX
@@ -373,7 +376,7 @@ XRE_InitChildProcess(int aArgc,
   if (PR_GetEnv("MOZ_DEBUG_CHILD_PROCESS")) {
 #ifdef OS_POSIX
       char buf[1024];
-      sprintf(buf, "%s %s %d", PR_GetEnv("MOZ_DEBUG_CHILD_PROCESS_CMD"), gArgv[0], getpid());
+      sprintf(buf, "gnome-terminal -t \"Gecko Child Process\" -e \"gdb %s %d\"", gArgv[0], getpid());
       system(buf);
       sleep(5);
 #elif defined(OS_WIN)
