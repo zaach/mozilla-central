@@ -366,17 +366,24 @@ nsFrameMessageManager::Wrap(JS::Value const& val, JSContext* cx, unsigned int* r
   *retval = 0;
 
   ContentChild* cc = ContentChild::GetSingleton();
-  if (!cc)
+  if (!cc) {
     return NS_ERROR_ABORT;
+  }
 
   JavaScriptChild* js = cc->GetJavaScript();
-  if (!val.isObject())
+  if (val.isNull()) {
+    return NS_OK;
+  }
+
+  if (!val.isObject()) {
     return NS_ERROR_ILLEGAL_VALUE;
+  }
 
   JSObject *obj = &val.toObject();
   ObjectId objId = js->Send(cx, obj);
-  if (!objId)
+  if (!objId) {
     return NS_ERROR_ABORT;
+  }
 
   *retval = objId;
   return NS_OK;

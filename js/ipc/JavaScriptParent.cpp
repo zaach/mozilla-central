@@ -176,6 +176,7 @@ JSBool
 JavaScriptParent::addProperty(JSContext *cx, JSHandleObject obj, JSHandleId id)
 {
     uint32_t objId = IdOf(obj);
+    MOZ_ASSERT(objId);
 
     nsString idstr;
     if (!ToGecko(cx, id, &idstr))
@@ -192,6 +193,7 @@ JSBool
 JavaScriptParent::deleteProperty(JSContext *cx, JSHandleObject obj, JSHandleId id, JSMutableHandleValue vp)
 {
     uint32_t objId = IdOf(obj);
+    MOZ_ASSERT(objId);
 
     nsString idstr;
     if (!ToGecko(cx, id, &idstr))
@@ -211,6 +213,7 @@ JSBool
 JavaScriptParent::getProperty(JSContext *cx, JSHandleObject obj, JSHandleId id, JSMutableHandleValue vp)
 {
     uint32_t objId = IdOf(obj);
+    MOZ_ASSERT(objId);
 
     nsString idstr;
     if (!ToGecko(cx, id, &idstr))
@@ -230,6 +233,7 @@ JSBool
 JavaScriptParent::setProperty(JSContext *cx, JSHandleObject obj, JSHandleId id, JSBool strict, JSMutableHandleValue vp)
 {
     uint32_t objId = IdOf(obj);
+    MOZ_ASSERT(objId);
 
     nsString idstr;
     if (!ToGecko(cx, id, &idstr))
@@ -254,6 +258,7 @@ JSBool
 JavaScriptParent::resolve(JSContext *cx, JSHandleObject obj, JSHandleId id, unsigned flags, JSMutableHandleObject objp)
 {
     uint32_t objId = IdOf(obj);
+    MOZ_ASSERT(objId);
 
     nsString idstr;
     if (!ToGecko(cx, id, &idstr))
