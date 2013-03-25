@@ -25,16 +25,13 @@ class JavaScriptParent
     bool init();
 
   public:
-    static JSBool AddProperty(JSContext *cx, JSHandleObject obj, JSHandleId id, JSMutableHandleValue vp);
-    static JSBool DeleteProperty(JSContext *cx, JSHandleObject obj, JSHandleId id, JSMutableHandleValue vp);
-    static JSBool GetProperty(JSContext *cx, JSHandleObject obj, JSHandleId id, JSMutableHandleValue vp);
-    static JSBool SetProperty(JSContext *cx, JSHandleObject obj, JSHandleId id, JSBool strict, JSMutableHandleValue vp);
-    static JSBool NewEnumerate(JSContext *cx, JSHandleObject obj, JSIterateOp enum_op,
-                               JSMutableHandleValue statep, JSMutableHandleId idp);
-    static JSBool NewResolve(JSContext *cx, JSHandleObject obj, JSHandleId id,
-                             unsigned flags, JSMutableHandleObject objp);
-    static void Finalize(JSFreeOp *fop, JSObject *obj);
-    static JSBool Call(JSContext *cx, unsigned argc, jsval *vp);
+    bool has(JSContext *cx, JSObject *proxy, jsid id, bool *bp);
+    bool hasOwn(JSContext *cx, JSObject *proxy, jsid id, bool *bp);
+    bool get(JSContext *cx, JSObject *proxy, JSObject *receiver,
+             jsid id, JS::Value *vp);
+    bool set(JSContext *cx, JSObject *proxy, JSObject *receiver,
+             jsid id, bool strict, JS::Value *vp);
+    bool call(JSContext *cx, JSObject *proxy, unsigned argc, JS::Value *vp);
 
     JSObject *Unwrap(JSContext *cx, ObjectId objId) {
         JSAutoRequest request(cx);
@@ -46,16 +43,7 @@ class JavaScriptParent
     void IncRef();
     void DestroyFromContent();
 
-  private:
     void drop(JSObject *obj);
-    JSBool addProperty(JSContext *cx, JSHandleObject obj, JSHandleId id);
-    JSBool deleteProperty(JSContext *cx, JSHandleObject obj, JSHandleId id, JSMutableHandleValue vp);
-    JSBool getProperty(JSContext *cx, JSHandleObject obj, JSHandleId id, JSMutableHandleValue vp);
-    JSBool setProperty(JSContext *cx, JSHandleObject obj, JSHandleId id, JSBool strict, JSMutableHandleValue vp);
-    JSBool resolve(JSContext *cx, JSHandleObject obj, JSHandleId id, unsigned flags, JSMutableHandleObject objp);
-    JSBool enumerate(JSContext *cx, JSHandleObject obj, JSIterateOp enum_op,
-                     JSMutableHandleValue statep, JSMutableHandleId idp);
-    JSBool call(JSContext *cx, JSObject *callee, unsigned argc, jsval *vp);
 
   protected:
     JSObject *unwrap(JSContext *cx, ObjectId objId);

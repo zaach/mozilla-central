@@ -25,12 +25,20 @@ class JavaScriptChild
     void trace(JSTracer *trc);
 
     bool RecvDropObject(const ObjectId &objId);
-    bool AnswerAddProperty(const ObjectId &objId, const nsString &id, ReturnStatus *rs);
-    bool AnswerGetProperty(const ObjectId &objId, const nsString &id, ReturnStatus *rs, JSVariant *result);
-    bool AnswerSetProperty(const ObjectId &objId, const nsString &id, const JSVariant &value, ReturnStatus *rs, JSVariant *result);
-    bool AnswerDeleteProperty(const ObjectId &objId, const nsString &id, ReturnStatus *rs, JSVariant *result);
-    bool AnswerNewResolve(const ObjectId &objId, const nsString &id, const uint32_t &flags, ReturnStatus *rs, ObjectId *obj2);
-    bool AnswerCall(const InfallibleTArray<JSVariant> &argv, ReturnStatus *rs, JSVariant *result);
+
+    bool AnswerHasHook(const ObjectId &objId, const nsString &id,
+                       ReturnStatus *rs, bool *bp);
+    bool AnswerHasOwnHook(const ObjectId &objId, const nsString &id,
+                          ReturnStatus *rs, bool *bp);
+    bool AnswerGetHook(const ObjectId &objId, const ObjectId &receiverId,
+                       const nsString &id,
+                       ReturnStatus *rs, JSVariant *result);
+    bool AnswerSetHook(const ObjectId &objId, const ObjectId &receiverId,
+                       const nsString &id, const bool &strict,
+                       ReturnStatus *rs, JSVariant *result);
+    bool AnswerCallHook(const ObjectId &objId,
+                        const InfallibleTArray<JSVariant> &argv,
+                        ReturnStatus *rs, JSVariant *result);
 
     ObjectId Send(JSContext *cx, JSObject *obj);
 

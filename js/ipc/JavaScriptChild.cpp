@@ -149,7 +149,8 @@ JavaScriptChild::ok(ReturnStatus *rs)
 }
 
 bool
-JavaScriptChild::AnswerAddProperty(const ObjectId &objId, const nsString &id, ReturnStatus *rs)
+JavaScriptChild::AnswerHasHook(const ObjectId &objId, const nsString &id,
+                               ReturnStatus *rs, bool *bp)
 {
     SafeAutoJSContext cx;
     JSAutoRequest request(cx);
@@ -164,17 +165,17 @@ JavaScriptChild::AnswerAddProperty(const ObjectId &objId, const nsString &id, Re
     if (!ToId(cx, id, &internedId))
         return fail(cx, rs);
 
-    if (!JS_DefinePropertyById(cx, obj, internedId, JSVAL_VOID, NULL, NULL, 0))
+    JSBool found;
+    if (!JS_HasPropertyById(cx, obj, internedId, &found))
         return fail(cx, rs);
+    *bp = !!found;
 
     return ok(rs);
 }
 
 bool
-JavaScriptChild::AnswerGetProperty(const ObjectId &objId,
-                                    const nsString &id,
-                                    ReturnStatus *rs,
-                                    JSVariant *result)
+JavaScriptChild::AnswerHasOwnHook(const ObjectId &objId, const nsString &id,
+                                  ReturnStatus *rs, bool *bp)
 {
     SafeAutoJSContext cx;
     JSAutoRequest request(cx);
@@ -185,14 +186,42 @@ JavaScriptChild::AnswerGetProperty(const ObjectId &objId,
 
     JSAutoCompartment comp(cx, obj);
 
-    *result = JSVariant(void_t());
+    jsid internedId;
+    if (!ToId(cx, id, &internedId))
+        return fail(cx, rs);
+
+    JSPropertyDescriptor desc;
+    if (!JS_GetPropertyDescriptorById(cx, obj, internedId, 0, &desc))
+        return fail(cx, rs);
+    *bp = (desc.obj == obj);
+
+    return ok(rs);
+}
+
+bool
+JavaScriptChild::AnswerGetHook(const ObjectId &objId, const ObjectId &receiverId,
+                               const nsString &id,
+                               ReturnStatus *rs, JSVariant *result)
+{
+    SafeAutoJSContext cx;
+    JSAutoRequest request(cx);
+
+    JSObject *obj = objects_.find(objId);
+    if (!obj)
+        return false;
+
+    JSObject *receiver = objects_.find(receiverId);
+    if (!receiver)
+        return false;
+
+    JSAutoCompartment comp(cx, obj);
 
     jsid internedId;
     if (!ToId(cx, id, &internedId))
         return fail(cx, rs);
 
-    jsval val;
-    if (!JS_GetPropertyById(cx, obj, internedId, &val))
+    JS::Value val;
+    if (!JS_ForwardGetPropertyTo(cx, obj, internedId, receiver, &val))
         return fail(cx, rs);
 
     if (!toVariant(cx, val, result))
@@ -202,11 +231,9 @@ JavaScriptChild::AnswerGetProperty(const ObjectId &objId,
 }
 
 bool
-JavaScriptChild::AnswerSetProperty(const ObjectId &objId,
-                                    const nsString &id,
-                                    const JSVariant &value,
-                                    ReturnStatus *rs,
-                                    JSVariant *result)
+JavaScriptChild::AnswerSetHook(const ObjectId &objId, const ObjectId &receiverId,
+                               const nsString &id, const bool &strict,
+                               ReturnStatus *rs, JSVariant *result)
 {
     SafeAutoJSContext cx;
     JSAutoRequest request(cx);
@@ -215,18 +242,19 @@ JavaScriptChild::AnswerSetProperty(const ObjectId &objId,
     if (!obj)
         return false;
 
-    JSAutoCompartment comp(cx, obj);
+    JSObject *receiver = objects_.find(receiverId);
+    if (!receiver)
+        return false;
 
-    *result = JSVariant(void_t());
+    JSAutoCompartment comp(cx, obj);
 
     jsid internedId;
     if (!ToId(cx, id, &internedId))
         return fail(cx, rs);
 
-    jsval val;
-    if (!toValue(cx, value, &val))
-        return fail(cx, rs);
+    MOZ_ASSERT(obj == receiver);
 
+    JS::Value val;
     if (!JS_SetPropertyById(cx, obj, internedId, &val))
         return fail(cx, rs);
 
@@ -237,10 +265,9 @@ JavaScriptChild::AnswerSetProperty(const ObjectId &objId,
 }
 
 bool
-JavaScriptChild::AnswerDeleteProperty(const ObjectId &objId,
-                                       const nsString &id,
-                                       ReturnStatus *rs,
-                                       JSVariant *result)
+JavaScriptChild::AnswerCallHook(const ObjectId &objId,
+                                const InfallibleTArray<JSVariant> &argv,
+                                ReturnStatus *rs, JSVariant *result)
 {
     SafeAutoJSContext cx;
     JSAutoRequest request(cx);
@@ -248,62 +275,6 @@ JavaScriptChild::AnswerDeleteProperty(const ObjectId &objId,
     JSObject *obj = objects_.find(objId);
     if (!obj)
         return false;
-
-    JSAutoCompartment comp(cx, obj);
-
-    *result = JSVariant(void_t());
-
-    jsid internedId;
-    if (!ToId(cx, id, &internedId))
-        return fail(cx, rs);
-
-    jsval val;
-    if (!JS_DeletePropertyById2(cx, obj, internedId, &val))
-        return fail(cx, rs);
-
-    if (!toVariant(cx, val, result))
-        return fail(cx, rs);
-
-    return ok(rs);
-}
-
-bool
-JavaScriptChild::AnswerNewResolve(const ObjectId &objId,
-                                   const nsString &id,
-                                   const uint32_t &flags,
-                                   ReturnStatus *rs,
-                                   ObjectId *obj2)
-{
-    SafeAutoJSContext cx;
-    JSAutoRequest request(cx);
-
-    JSObject *obj = objects_.find(objId);
-    if (!obj)
-        return false;
-
-    JSAutoCompartment comp(cx, obj);
-
-    *obj2 = 0;
-
-    jsid internedId;
-    if (!ToId(cx, id, &internedId))
-        return fail(cx, rs);
-
-    JSPropertyDescriptor desc;
-    if (!JS_GetPropertyDescriptorById(cx, obj, internedId, flags, &desc))
-        return fail(cx, rs);
-
-    if (desc.obj && !makeId(cx, desc.obj, obj2))
-        return fail(cx, rs);
-
-    return ok(rs);
-}
-
-bool
-JavaScriptChild::AnswerCall(const InfallibleTArray<JSVariant> &argv, ReturnStatus *rs, JSVariant *result)
-{
-    SafeAutoJSContext cx;
-    JSAutoRequest request(cx);
 
     MOZ_ASSERT(argv.Length() >= 2);
 
@@ -333,4 +304,3 @@ JavaScriptChild::AnswerCall(const InfallibleTArray<JSVariant> &argv, ReturnStatu
 
     return ok(rs);
 }
-
