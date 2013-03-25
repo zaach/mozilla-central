@@ -43,7 +43,7 @@ class JavaScriptChild
     ObjectId Send(JSContext *cx, JSObject *obj);
 
   protected:
-    JSObject *unwrap(JSContext *cx, ObjectId id);
+    JSObject *unwrap(JSContext *cx, ObjectId id, bool callable = false);
 
   private:
     bool makeId(JSContext *cx, JSObject *obj, ObjectId *idp);

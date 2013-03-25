@@ -106,14 +106,19 @@ JavaScriptShared::init()
 bool
 JavaScriptShared::toVariant(JSContext *cx, jsval from, JSVariant *to)
 {
-    switch (JS_TypeOfValue(cx, from)) {
+    switch (JSType t = JS_TypeOfValue(cx, from)) {
       case JSTYPE_VOID:
         *to = void_t();
         return true;
 
       case JSTYPE_NULL:
-        *to = ObjectId(0);
+      {
+        ObjectRepr repr;
+        repr.id() = ObjectId(0);
+        repr.callable() = false;
+        *to = repr;
         return true;
+      }
 
       case JSTYPE_OBJECT:
       case JSTYPE_FUNCTION:
@@ -121,7 +126,10 @@ JavaScriptShared::toVariant(JSContext *cx, jsval from, JSVariant *to)
         JSObject *obj = JSVAL_TO_OBJECT(from);
         if (!obj) {
             JS_ASSERT(from == JSVAL_NULL);
-            *to = ObjectId(0);
+            ObjectRepr repr;
+            repr.id() = ObjectId(0);
+            repr.callable() = false;
+            *to = repr;
             return true;
         }
 
@@ -143,10 +151,13 @@ JavaScriptShared::toVariant(JSContext *cx, jsval from, JSVariant *to)
             return true;
         }
 
+        ObjectRepr repr;
         ObjectId id;
         if (!makeId(cx, obj, &id))
             return false;
-        *to = id;
+        repr.id() = id;
+        repr.callable() = t == JSTYPE_FUNCTION;
+        *to = repr;
         return true;
       }
 
@@ -183,9 +194,11 @@ JavaScriptShared::toValue(JSContext *cx, const JSVariant &from, jsval *to)
           *to = JSVAL_VOID;
           return true;
 
-        case JSVariant::Tuint32_t:
-          if (from.get_uint32_t()) {
-              JSObject *obj = unwrap(cx, from.get_uint32_t());
+        case JSVariant::TObjectRepr:
+        {
+          const ObjectRepr &repr = from.get_ObjectRepr();
+          if (repr.id()) {
+              JSObject *obj = unwrap(cx, repr.id(), repr.callable());
               if (!obj)
                   return false;
               *to = OBJECT_TO_JSVAL(obj);
@@ -193,6 +206,7 @@ JavaScriptShared::toValue(JSContext *cx, const JSVariant &from, jsval *to)
               *to = JSVAL_NULL;
           }
           return true;
+        }
 
         case JSVariant::Tdouble:
           *to = JS_NumberValue(from.get_double());
