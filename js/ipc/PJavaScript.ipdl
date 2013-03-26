@@ -27,16 +27,10 @@ struct JSIID {
     uint8_t m3_7;
 };
 
-struct ObjectRepr
-{
-    uint32_t id; /* 0 for null, >0 for object ID */
-    bool callable;
-};
-
 union JSVariant {
     void_t;     /* |undefined| */
     nsString;   /* StringValue(x) */
-    ObjectRepr; /* JSObject */
+    uint32_t;   /* JSObject */
     double;     /* NumberValue(x) */
     bool;       /* BooleanValue(x) */
     JSIID;      /* XPC nsIID */

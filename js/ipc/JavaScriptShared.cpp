@@ -106,17 +106,14 @@ JavaScriptShared::init()
 bool
 JavaScriptShared::toVariant(JSContext *cx, jsval from, JSVariant *to)
 {
-    switch (JSType t = JS_TypeOfValue(cx, from)) {
+    switch (JS_TypeOfValue(cx, from)) {
       case JSTYPE_VOID:
         *to = void_t();
         return true;
 
       case JSTYPE_NULL:
       {
-        ObjectRepr repr;
-        repr.id() = ObjectId(0);
-        repr.callable() = false;
-        *to = repr;
+        *to = uint32_t(0);
         return true;
       }
 
@@ -126,10 +123,7 @@ JavaScriptShared::toVariant(JSContext *cx, jsval from, JSVariant *to)
         JSObject *obj = JSVAL_TO_OBJECT(from);
         if (!obj) {
             JS_ASSERT(from == JSVAL_NULL);
-            ObjectRepr repr;
-            repr.id() = ObjectId(0);
-            repr.callable() = false;
-            *to = repr;
+            *to = uint32_t(0);
             return true;
         }
 
@@ -151,13 +145,10 @@ JavaScriptShared::toVariant(JSContext *cx, jsval from, JSVariant *to)
             return true;
         }
 
-        ObjectRepr repr;
         ObjectId id;
         if (!makeId(cx, obj, &id))
             return false;
-        repr.id() = id;
-        repr.callable() = t == JSTYPE_FUNCTION;
-        *to = repr;
+        *to = uint32_t(id);
         return true;
       }
 
@@ -194,11 +185,11 @@ JavaScriptShared::toValue(JSContext *cx, const JSVariant &from, jsval *to)
           *to = JSVAL_VOID;
           return true;
 
-        case JSVariant::TObjectRepr:
+        case JSVariant::Tuint32_t:
         {
-          const ObjectRepr &repr = from.get_ObjectRepr();
-          if (repr.id()) {
-              JSObject *obj = unwrap(cx, repr.id(), repr.callable());
+          uint32_t id = from.get_uint32_t();
+          if (id) {
+              JSObject *obj = unwrap(cx, id);
               if (!obj)
                   return false;
               *to = OBJECT_TO_JSVAL(obj);

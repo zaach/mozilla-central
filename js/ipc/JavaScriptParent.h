@@ -46,7 +46,7 @@ class JavaScriptParent
     void drop(JSObject *obj);
 
   protected:
-    JSObject *unwrap(JSContext *cx, ObjectId objId, bool callable = false);
+    JSObject *unwrap(JSContext *cx, ObjectId objId);
 
   private:
     bool makeId(JSContext *cx, JSObject *obj, ObjectId *idp);

@@ -92,8 +92,12 @@ JavaScriptChild::makeId(JSContext *cx, JSObject *obj, ObjectId *idp)
     }
 
     id = ++lastId_;
-    if (id > unsigned(JSVAL_INT_MAX))
+    if (id > (unsigned(JSVAL_INT_MAX) >> OBJECT_EXTRA_BITS))
         return false;
+
+    id <<= OBJECT_EXTRA_BITS;
+    if (JS_ObjectIsCallable(cx, obj))
+        id |= OBJECT_IS_CALLABLE;
 
     if (!objects_.add(id, obj))
         return false;
@@ -105,7 +109,7 @@ JavaScriptChild::makeId(JSContext *cx, JSObject *obj, ObjectId *idp)
 }
 
 JSObject *
-JavaScriptChild::unwrap(JSContext *cx, ObjectId id, bool callable)
+JavaScriptChild::unwrap(JSContext *cx, ObjectId id)
 {
     JSObject *obj = objects_.find(id);
     if (!obj) {

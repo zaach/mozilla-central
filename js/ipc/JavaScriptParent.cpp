@@ -359,17 +359,22 @@ JavaScriptParent::makeId(JSContext *cx, JSObject *obj, ObjectId *idp)
 }
 
 JSObject *
-JavaScriptParent::unwrap(JSContext *cx, ObjectId objId, bool callable)
+JavaScriptParent::unwrap(JSContext *cx, ObjectId objId)
 {
     if (JSObject *obj = objects_.find(objId)) {
         JS_ASSERT(GetObjectCompartment(obj) == GetContextCompartment(cx));
         return obj;
     }
 
+    bool callable = !!(objId & OBJECT_IS_CALLABLE);
     JSObject *someObj = JS_GetGlobalForCompartmentOrNull(cx, GetContextCompartment(cx));
-
     BaseProxyHandler *handler = &CPOWProxyHandler::singleton;
-    JSObject *obj = NewProxyObject(cx, handler, UndefinedValue(), NULL, NULL,
+
+    JSObject *obj = NewProxyObject(cx,
+                                   handler,
+                                   UndefinedValue(),
+                                   NULL,
+                                   NULL,
                                    callable ? someObj : NULL);
     if (!obj)
         return NULL;

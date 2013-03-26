@@ -74,12 +74,15 @@ class JavaScriptShared
   public:
     bool init();
 
+    static const uint32_t OBJECT_EXTRA_BITS  = 1;
+    static const uint32_t OBJECT_IS_CALLABLE = (1 << 0);
+
   protected:
     bool toVariant(JSContext *cx, jsval from, JSVariant *to);
     bool toValue(JSContext *cx, const JSVariant &from, jsval *to);
 
     virtual bool makeId(JSContext *cx, JSObject *obj, ObjectId *idp) = 0;
-    virtual JSObject *unwrap(JSContext *cx, ObjectId id, bool callable = false) = 0;
+    virtual JSObject *unwrap(JSContext *cx, ObjectId id) = 0;
 
   protected:
     ObjectStore objects_;
