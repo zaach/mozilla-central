@@ -8,6 +8,7 @@
 #include "JavaScriptChild.h"
 #include "mozilla/dom/ContentChild.h"
 #include "nsContentUtils.h"
+#include "xpcprivate.h"
 
 using namespace mozilla;
 using namespace mozilla::jsipc;
@@ -270,8 +271,10 @@ JavaScriptChild::AnswerSetHook(const ObjectId &objId, const ObjectId &receiverId
 
 bool
 JavaScriptChild::AnswerCallHook(const ObjectId &objId,
-                                const InfallibleTArray<JSVariant> &argv,
-                                ReturnStatus *rs, JSVariant *result)
+                                const nsTArray<JSParam> &argv,
+                                ReturnStatus *rs,
+                                JSVariant *result,
+                                nsTArray<JSParam> *outparams)
 {
     SafeAutoJSContext cx;
     JSAutoRequest request(cx);
@@ -291,12 +294,26 @@ JavaScriptChild::AnswerCallHook(const ObjectId &objId,
     *result = JSVariant(void_t());
 
     JS::AutoValueVector vals(cx);
+    JS::AutoValueVector outobjects(cx);
     for (size_t i = 0; i < argv.Length(); i++) {
-        jsval v;
-        if (!toValue(cx, argv[i], &v))
-            return fail(cx, rs);
-        if (!vals.append(v))
-            return fail(cx, rs);
+        if (argv[i].type() == JSParam::Tvoid_t) {
+            // This is an outparam.
+            JSCompartment *compartment = js::GetContextCompartment(cx);
+            JSObject *global = JS_GetGlobalForCompartmentOrNull(cx, compartment); 
+            JSObject *obj = xpc_NewOutObject(cx, global);
+            if (!obj)
+                return fail(cx, rs);
+            if (!outobjects.append(OBJECT_TO_JSVAL(obj)))
+                return fail(cx, rs);
+            if (!vals.append(OBJECT_TO_JSVAL(obj)))
+                return fail(cx, rs);
+        } else {
+            jsval v;
+            if (!toValue(cx, argv[i].get_JSVariant(), &v))
+                return fail(cx, rs);
+            if (!vals.append(v))
+                return fail(cx, rs);
+        }
     }
 
     jsval rval;
@@ -306,5 +323,41 @@ JavaScriptChild::AnswerCallHook(const ObjectId &objId,
     if (!toVariant(cx, rval, result))
         return fail(cx, rs);
 
+    // Prefill everything with a dummy jsval.
+    for (size_t i = 0; i < outobjects.length(); i++)
+        outparams->AppendElement(JSParam(JSVariant(false)));
+
+    // Go through each argument that was an outparam, retrieve the "value"
+    // field, and add it to a temporary list. We need to do this separately
+    // because the outparams vector is not rooted.
+    vals.clear();
+    for (size_t i = 0; i < outobjects.length(); i++) {
+        JSObject *obj = JSVAL_TO_OBJECT(outobjects[i]);
+
+        jsval v;
+        JSBool found;
+        if (JS_HasProperty(cx, obj, "value", &found)) {
+            if (!JS_GetProperty(cx, obj, "value", &v))
+                return fail(cx, rs);
+        } else {
+            v = JSVAL_VOID;
+            outparams->ReplaceElementAt(i, JSParam(void_t()));
+        }
+        if (!vals.append(v))
+            return fail(cx, rs);
+    }
+
+    // Copy the outparams. If any outparam is already set to a void_t, we
+    // treat this as the outparam never having been set.
+    for (size_t i = 0; i < vals.length(); i++) {
+        if (outparams->ElementAt(i).type() == JSParam::Tvoid_t)
+            continue;
+        JSVariant variant;
+        if (!toVariant(cx, vals[i], &variant))
+            return fail(cx, rs);
+        outparams->ReplaceElementAt(i, JSParam(variant));
+    }
+
     return ok(rs);
 }
+

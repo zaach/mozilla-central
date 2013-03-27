@@ -10,6 +10,7 @@
 #include "nsJSUtils.h"
 #include "jsfriendapi.h"
 #include "HeapAPI.h"
+#include "xpcprivate.h"
 
 using namespace js;
 using namespace mozilla;
@@ -301,25 +302,55 @@ JavaScriptParent::call(JSContext *cx, JSObject *proxy, unsigned argc, Value *vp)
     uint32_t objId = IdOf(proxy);
     MOZ_ASSERT(objId);
 
-    InfallibleTArray<JSVariant> vals;
+    InfallibleTArray<JSParam> vals;
+    JS::AutoValueVector outobjects(cx);
 
     for (size_t i = 0; i < argc + 2; i++) {
+        if (vp[i].isObject()) {
+            JSObject *obj = JSVAL_TO_OBJECT(vp[i]);
+            if (xpc_IsOutObject(cx, obj)) {
+                vals.AppendElement(JSParam(void_t()));
+                if (!outobjects.append(ObjectValue(*obj)))
+                    return false;
+                continue;
+            }
+        }
         JSVariant val;
         if (!toVariant(cx, vp[i], &val))
-            return JS_FALSE;
-        vals.AppendElement(val);
+            return false;
+        vals.AppendElement(JSParam(val));
     }
 
     JSVariant result;
     ReturnStatus status;
-    if (!CallCallHook(objId, vals, &status, &result))
+    InfallibleTArray<JSParam> outparams;
+    if (!CallCallHook(objId, vals, &status, &result, &outparams))
         return ipcfail(cx);
     if (!ok(cx, status))
-        return JS_FALSE;
+        return false;
+
+    if (outparams.Length() != outobjects.length())
+        return ipcfail(cx);
+
+    for (size_t i = 0; i < outparams.Length(); i++) {
+        // Don't bother doing anything for outparams that weren't set.
+        if (outparams[i].type() == JSParam::Tvoid_t)
+            continue;
+
+        // Take the value the child process returned, and set it on the XPC
+        // object.
+        jsval v;
+        if (!toValue(cx, outparams[i], &v))
+            return false;
+
+        JSObject *obj = JSVAL_TO_OBJECT(outobjects[i]);
+        if (!JS_SetProperty(cx, obj, "value", &v))
+            return false;
+    }
 
     jsval rval;
     if (!toValue(cx, result, &rval))
-        return JS_FALSE;
+        return false;
 
     JS_SET_RVAL(cx, vp, rval);
     return JS_TRUE;

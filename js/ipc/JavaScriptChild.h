@@ -37,8 +37,10 @@ class JavaScriptChild
                        const nsString &id, const bool &strict,
                        ReturnStatus *rs, JSVariant *result);
     bool AnswerCallHook(const ObjectId &objId,
-                        const InfallibleTArray<JSVariant> &argv,
-                        ReturnStatus *rs, JSVariant *result);
+                        const nsTArray<JSParam> &argv,
+                        ReturnStatus *rs,
+                        JSVariant *result,
+                        nsTArray<JSParam> *outparams);
 
     ObjectId Send(JSContext *cx, JSObject *obj);
 

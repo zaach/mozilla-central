@@ -41,6 +41,11 @@ struct ReturnStatus {
     JSVariant exn;  /* Exception, if |ok| is false. */
 };
 
+union JSParam {
+    void_t;     /* value is strictly an xpc out param */
+    JSVariant;  /* actual value to pass through */
+};
+
 rpc protocol PJavaScript
 {
     manager PContent;
@@ -54,7 +59,7 @@ child:
     urgent HasOwnHook(uint32_t objId, nsString id) returns (ReturnStatus rs, bool has);
     urgent GetHook(uint32_t objId, uint32_t receiverId, nsString id) returns (ReturnStatus rs, JSVariant result);
     urgent SetHook(uint32_t objId, uint32_t receiverId, nsString id, bool strict) returns (ReturnStatus rs, JSVariant result);
-    urgent CallHook(uint32_t objId, JSVariant[] argv) returns (ReturnStatus rs, JSVariant result);
+    urgent CallHook(uint32_t objId, JSParam[] argv) returns (ReturnStatus rs, JSVariant result, JSParam[] outparams);
 
 parent:
     async __delete__();

@@ -16,6 +16,7 @@
 #include "mozilla/Attributes.h"
 
 #include "jsapi.h"
+#include "jsfriendapi.h"
 
 using namespace xpc;
 NS_IMPL_THREADSAFE_ISUPPORTS1(nsXPCWrappedJSClass, nsIXPCWrappedJSClass)
@@ -1346,7 +1347,7 @@ nsXPCWrappedJSClass::CallMethod(nsXPCWrappedJS* wrapper, uint16_t methodIndex,
 
         if (param.IsOut() || param.IsDipper()) {
             // create an 'out' object
-            JSObject* out_obj = NewOutObject(cx, obj);
+            JSObject* out_obj = xpc_NewOutObject(cx, obj);
             if (!out_obj) {
                 retval = NS_ERROR_OUT_OF_MEMORY;
                 goto pre_call_clean_up;
@@ -1647,8 +1648,43 @@ nsXPCWrappedJSClass::GetInterfaceName()
     return mName;
 }
 
+static void
+FinalizeStub(JSFreeOp *fop, JSObject *obj)
+{
+}
+
+static JSClass XPCOutParamClass = {
+    "XPCOutParam",
+    0,
+    JS_PropertyStub,
+    JS_PropertyStub,
+    JS_PropertyStub,
+    JS_StrictPropertyStub,
+    JS_EnumerateStub,
+    JS_ResolveStub,
+    JS_ConvertStub,
+    FinalizeStub,
+    NULL,   /* checkAccess */
+    NULL,   /* call */
+    NULL,   /* hasInstance */
+    NULL,   /* construct */
+    NULL    /* trace */
+};
+
+bool
+xpc_IsOutObject(JSContext* cx, JSObject* obj)
+{
+    return js::GetObjectJSClass(obj) == &XPCOutParamClass;
+}
+
+JSObject *
+xpc_NewOutObject(JSContext* cx, JSObject* scope)
+{
+    return JS_NewObject(cx, &XPCOutParamClass, nullptr, JS_GetGlobalForObject(cx, scope));
+}
+
 JSObject*
-nsXPCWrappedJSClass::NewOutObject(JSContext* cx, JSObject* scope)
+nsXPCWrappedJSClass::NewInOutObject(JSContext* cx, JSObject* scope)
 {
     return JS_NewObject(cx, nullptr, nullptr, JS_GetGlobalForObject(cx, scope));
 }
