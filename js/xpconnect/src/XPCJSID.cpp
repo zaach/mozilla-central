@@ -480,8 +480,9 @@ xpc_HasInstance(JSContext *cx, JSObject *obj, const nsID *iid, bool *bp)
         }
     }
 
-    if (mozilla::jsipc::JavaScriptParent::IsCPOW(obj))
-        return mozilla::jsipc::JavaScriptParent::InstanceOf(obj, iid, bp);
+    JSObject *unwrapped = js::UnwrapObject(obj);
+    if (mozilla::jsipc::JavaScriptParent::IsCPOW(unwrapped))
+        return mozilla::jsipc::JavaScriptParent::InstanceOf(unwrapped, iid, bp);
 
     XPCWrappedNative* other_wrapper =
         XPCWrappedNative::GetWrappedNativeOfJSObject(cx, obj);
