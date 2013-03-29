@@ -130,6 +130,8 @@ public:
   virtual JSContext* GetJSContextForEventHandlers();
   virtual nsIPrincipal* GetPrincipal();
 
+  virtual nsresult PreHandleEvent(nsEventChainPreVisitor& aVisitor);
+
   nsCOMPtr<nsIContentFrameMessageManager> mMessageManager;
   TabChild* mTabChild;
 };

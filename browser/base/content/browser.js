@@ -1151,6 +1151,10 @@ var gBrowserInit = {
     messageManager.addMessageListener("Addon:Observe", function() {
         dump('--------------------------------- Observe ---\n');
     });
+    messageManager.addMessageListener("Content:Click", function(m) {
+      let href = m.json.href;
+      openLinkIn(href, "tab", {});
+    });
     messageManager.addMessageListener("Addon:ShouldLoad", function(m) {
         dump('--------------------------------- HOOK ShouldLoad ---\n');
         var js = m.target.jsParentUtils;

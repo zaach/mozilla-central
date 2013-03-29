@@ -1,4 +1,3 @@
-// -*- Mode: js2; tab-width: 2; indent-tabs-mode: nil; js2-basic-offset: 2; js2-skip-preprocessor-directives: t; -*-
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -806,6 +805,30 @@ IndexedDB.init();
 let Content = {
   init: function init() {
     docShell.QueryInterface(Ci.nsIDocShellHistory).useGlobalHistory = true;
+
+    addEventListener("click", this.contentAreaClick, false);
+  },
+
+  contentAreaClick: function(event) {
+    if (event.button != 1)
+      return;
+
+    function isHTMLLink(aNode)
+    {
+      // Be consistent with what nsContextMenu.js does.
+      return ((aNode instanceof content.HTMLAnchorElement && aNode.href) ||
+              (aNode instanceof content.HTMLAreaElement && aNode.href) ||
+              aNode instanceof content.HTMLLinkElement);
+    }
+    let node = event.target;
+    while (node && !isHTMLLink(node)) {
+      node = node.parentNode;
+    }
+
+    if (!node)
+      return;
+
+    sendAsyncMessage("Content:Click", { href: node.href });
   }
 };
 

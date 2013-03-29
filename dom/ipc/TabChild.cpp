@@ -31,6 +31,7 @@
 #include "nsContentUtils.h"
 #include "nsEmbedCID.h"
 #include "nsEventListenerManager.h"
+#include "nsEventDispatcher.h"
 #include <algorithm>
 #ifdef MOZ_CRASHREPORTER
 #include "nsExceptionHandler.h"
@@ -2361,3 +2362,12 @@ TabChildGlobal::GetPrincipal()
   return mTabChild->GetPrincipal();
 }
 
+nsresult
+TabChildGlobal::PreHandleEvent(nsEventChainPreVisitor& aVisitor)
+{
+   // FIXME! This is a hack to make middle mouse paste working also in Editor.
+   // Bug 329119
+  aVisitor.mForceContentDispatch = true;
+
+  return nsDOMEventTargetHelper::PreHandleEvent(aVisitor);
+}
