@@ -1166,7 +1166,7 @@ var gBrowserInit = {
         //dump("requestOriginID: " + m.json.requestOriginId + "\n");
         //dump("requestOrigin.spec: " + requestOrigin.spec + "\n");
         //
-        
+
         var catMan = Cc["@mozilla.org/categorymanager;1"].getService(Ci.nsICategoryManager);
         var list = catMan.enumerateCategory("content-policy");
         while (list.hasMoreElements()) {
@@ -1231,7 +1231,9 @@ var gBrowserInit = {
 
     // enable global history
     try {
-      gBrowser.docShell.QueryInterface(Ci.nsIDocShellHistory).useGlobalHistory = true;
+      if (gBrowser.docShell) {
+        gBrowser.docShell.QueryInterface(Ci.nsIDocShellHistory).useGlobalHistory = true;
+      }
     } catch(ex) {
       Cu.reportError("Places database may be locked: " + ex);
     }
@@ -4455,7 +4457,9 @@ var XULBrowserWindow = {
     }
     UpdateBackForwardCommands(gBrowser.webNavigation);
 
+#if 0
     gGestureSupport.restoreRotationState();
+#endif
 
     // See bug 358202, when tabs are switched during a drag operation,
     // timers don't fire on windows (bug 203573)

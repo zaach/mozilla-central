@@ -707,6 +707,9 @@
       <property name="securityUI">
         <getter>
           <![CDATA[
+            if (!this.docShell)
+	      return null;
+
             if (!this.docShell.securityUI) {
               const SECUREBROWSERUI_CONTRACTID = "@mozilla.org/secure_browser_ui;1";
               if (!this.hasAttribute("disablesecurity") &&
