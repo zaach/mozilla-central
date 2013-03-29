@@ -3754,6 +3754,9 @@ xpc_JSObjectToID(JSContext *cx, JSObject* obj);
 extern JSBool
 xpc_JSObjectIsID(JSContext *cx, JSObject* obj);
 
+extern nsresult
+xpc_HasInstance(JSContext *cx, JSObject *obj, const nsID *iid, bool *bp);
+
 /***************************************************************************/
 // in XPCDebug.cpp
 

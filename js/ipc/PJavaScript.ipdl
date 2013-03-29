@@ -61,6 +61,8 @@ child:
     urgent SetHook(uint32_t objId, uint32_t receiverId, nsString id, bool strict) returns (ReturnStatus rs, JSVariant result);
     urgent CallHook(uint32_t objId, JSParam[] argv) returns (ReturnStatus rs, JSVariant result, JSParam[] outparams);
 
+    urgent InstanceOf(uint32_t objId, JSIID iid) returns (ReturnStatus rs, bool instanceof);
+
 parent:
     async __delete__();
 };

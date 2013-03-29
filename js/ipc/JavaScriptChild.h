@@ -42,6 +42,11 @@ class JavaScriptChild
                         JSVariant *result,
                         nsTArray<JSParam> *outparams);
 
+    bool AnswerInstanceOf(const ObjectId &objId,
+                          const JSIID &iid,
+                          ReturnStatus *rs,
+                          bool *instanceof);
+
     ObjectId Send(JSContext *cx, JSObject *obj);
 
   protected:

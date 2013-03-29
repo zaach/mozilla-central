@@ -489,3 +489,33 @@ JavaScriptParent::DestroyFromContent()
     DecRef();
 }
 
+/* static */ bool
+JavaScriptParent::IsCPOW(JSObject *obj)
+{
+    return IsProxy(obj) && GetProxyHandler(obj) == &CPOWProxyHandler::singleton;
+}
+
+/* static */ nsresult
+JavaScriptParent::InstanceOf(JSObject *obj, const nsID *id, bool *bp)
+{
+    return ParentOf(obj)->instanceOf(obj, id, bp);
+}
+
+nsresult
+JavaScriptParent::instanceOf(JSObject *obj, const nsID *id, bool *bp)
+{
+    uint32_t objId = IdOf(obj);
+    MOZ_ASSERT(objId);
+
+    JSIID iid;
+    ConvertID(*id, &iid);
+
+    ReturnStatus status;
+    if (!CallInstanceOf(objId, iid, &status, bp))
+        return NS_ERROR_UNEXPECTED;
+
+    if (!status.ok())
+        return NS_ERROR_UNEXPECTED;
+
+    return NS_OK;
+}

@@ -84,6 +84,9 @@ class JavaScriptShared
     virtual bool makeId(JSContext *cx, JSObject *obj, ObjectId *idp) = 0;
     virtual JSObject *unwrap(JSContext *cx, ObjectId id) = 0;
 
+    static void ConvertID(const nsID &from, JSIID *to);
+    static void ConvertID(const JSIID &from, nsID *to);
+
   protected:
     ObjectStore objects_;
 };

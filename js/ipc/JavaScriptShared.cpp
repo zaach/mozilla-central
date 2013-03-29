@@ -130,17 +130,7 @@ JavaScriptShared::toVariant(JSContext *cx, jsval from, JSVariant *to)
         if (xpc_JSObjectIsID(cx, obj)) {
             JSIID iid;
             const nsID *id = xpc_JSObjectToID(cx, obj);
-            iid.m0() = id->m0;
-            iid.m1() = id->m1;
-            iid.m2() = id->m2;
-            iid.m3_0() = id->m3[0];
-            iid.m3_1() = id->m3[1];
-            iid.m3_2() = id->m3[2];
-            iid.m3_3() = id->m3[3];
-            iid.m3_4() = id->m3[4];
-            iid.m3_5() = id->m3[5];
-            iid.m3_6() = id->m3[6];
-            iid.m3_7() = id->m3[7];
+            ConvertID(*id, &iid);
             *to = iid;
             return true;
         }
@@ -221,18 +211,7 @@ JavaScriptShared::toValue(JSContext *cx, const JSVariant &from, jsval *to)
         {
           nsID iid;
           const JSIID &id = from.get_JSIID();
-
-          iid.m0 = id.m0();
-          iid.m1 = id.m1();
-          iid.m2 = id.m2();
-          iid.m3[0] = id.m3_0();
-          iid.m3[1] = id.m3_1();
-          iid.m3[2] = id.m3_2();
-          iid.m3[3] = id.m3_3();
-          iid.m3[4] = id.m3_4();
-          iid.m3[5] = id.m3_5();
-          iid.m3[6] = id.m3_6();
-          iid.m3[7] = id.m3_7();
+          ConvertID(id, &iid);
 
           JSCompartment *compartment = GetContextCompartment(cx);
           JSObject *global = JS_GetGlobalForCompartmentOrNull(cx, compartment);
@@ -248,3 +227,34 @@ JavaScriptShared::toValue(JSContext *cx, const JSVariant &from, jsval *to)
     }
 }
 
+/* static */ void
+JavaScriptShared::ConvertID(const nsID &from, JSIID *to)
+{
+    to->m0() = from.m0;
+    to->m1() = from.m1;
+    to->m2() = from.m2;
+    to->m3_0() = from.m3[0];
+    to->m3_1() = from.m3[1];
+    to->m3_2() = from.m3[2];
+    to->m3_3() = from.m3[3];
+    to->m3_4() = from.m3[4];
+    to->m3_5() = from.m3[5];
+    to->m3_6() = from.m3[6];
+    to->m3_7() = from.m3[7];
+}
+
+/* static */ void
+JavaScriptShared::ConvertID(const JSIID &from, nsID *to)
+{
+    to->m0 = from.m0();
+    to->m1 = from.m1();
+    to->m2 = from.m2();
+    to->m3[0] = from.m3_0();
+    to->m3[1] = from.m3_1();
+    to->m3[2] = from.m3_2();
+    to->m3[3] = from.m3_3();
+    to->m3[4] = from.m3_4();
+    to->m3[5] = from.m3_5();
+    to->m3[6] = from.m3_6();
+    to->m3[7] = from.m3_7();
+}

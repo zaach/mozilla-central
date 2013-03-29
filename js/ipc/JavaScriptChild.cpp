@@ -361,3 +361,27 @@ JavaScriptChild::AnswerCallHook(const ObjectId &objId,
     return ok(rs);
 }
 
+bool
+JavaScriptChild::AnswerInstanceOf(const ObjectId &objId,
+                                  const JSIID &iid,
+                                  ReturnStatus *rs,
+                                  bool *instanceof)
+{
+    SafeAutoJSContext cx;
+    JSAutoRequest request(cx);
+
+    JSObject *obj = objects_.find(objId);
+    if (!obj)
+        return false;
+
+    JSAutoCompartment comp(cx, obj);
+
+    nsID nsiid;
+    ConvertID(iid, &nsiid);
+
+    nsresult rv = xpc_HasInstance(cx, obj, &nsiid, instanceof);
+    if (rv != NS_OK)
+        return fail(cx, rs);
+
+    return ok(rs);
+}
