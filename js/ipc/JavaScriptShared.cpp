@@ -163,6 +163,7 @@ JavaScriptShared::toVariant(JSContext *cx, jsval from, JSVariant *to)
         return true;
 
       default:
+        MOZ_ASSERT(false);
         return false;
     }
 }

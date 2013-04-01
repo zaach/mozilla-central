@@ -243,6 +243,10 @@ JavaScriptChild::AnswerSetHook(const ObjectId &objId, const ObjectId &receiverId
     SafeAutoJSContext cx;
     JSAutoRequest request(cx);
 
+    // The outparam will be written to the buffer, so it must be set even if
+    // the parent won't read it.
+    *result = void_t();
+
     JSObject *obj = objects_.find(objId);
     if (!obj)
         return false;
@@ -278,6 +282,10 @@ JavaScriptChild::AnswerCallHook(const ObjectId &objId,
 {
     SafeAutoJSContext cx;
     JSAutoRequest request(cx);
+
+    // The outparam will be written to the buffer, so it must be set even if
+    // the parent won't read it.
+    *result = void_t();
 
     JSObject *obj = objects_.find(objId);
     if (!obj)
