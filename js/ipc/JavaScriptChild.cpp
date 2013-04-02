@@ -329,8 +329,15 @@ JavaScriptChild::AnswerCallHook(const ObjectId &objId,
         }
     }
 
+    uint32_t oldOpts =
+        JS_SetOptions(cx, JS_GetOptions(cx) | JSOPTION_DONT_REPORT_UNCAUGHT);
+
     jsval rval;
-    if (!JS::Call(cx, vals[1], vals[0], vals.length() - 2, vals.begin() + 2, &rval))
+    bool success = JS::Call(cx, vals[1], vals[0], vals.length() - 2, vals.begin() + 2, &rval);
+
+    JS_SetOptions(cx, oldOpts);
+
+    if (!success)
         return fail(cx, rs);
 
     if (!toVariant(cx, rval, result))
