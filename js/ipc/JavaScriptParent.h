@@ -49,6 +49,8 @@ class JavaScriptParent
     static nsresult InstanceOf(JSObject *obj, const nsID *id, bool *bp);
 
     nsresult instanceOf(JSObject *obj, const nsID *id, bool *bp);
+    bool getPropertyDescriptor(JSContext *cx, JSObject *proxy, jsid id,
+                               JSPropertyDescriptor *desc, unsigned flags);
 
   protected:
     JSObject *unwrap(JSContext *cx, ObjectId objId);

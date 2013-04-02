@@ -86,6 +86,11 @@ JavaScriptChild::Send(JSContext *cx, JSObject *obj)
 bool
 JavaScriptChild::makeId(JSContext *cx, JSObject *obj, ObjectId *idp)
 {
+    if (!obj) {
+        *idp = 0;
+        return true;
+    }
+
     ObjectId id = ids_.find(obj);
     if (id) {
         *idp = id;
@@ -393,3 +398,34 @@ JavaScriptChild::AnswerInstanceOf(const ObjectId &objId,
 
     return ok(rs);
 }
+
+bool
+JavaScriptChild::AnswerGetPropertyDescriptor(const uint32_t &objId,
+                                             const nsString &id,
+                                             const uint32_t &flags,
+                                             ReturnStatus *rs,
+                                             PPropertyDescriptor *out)
+{
+    SafeAutoJSContext cx;
+    JSAutoRequest request(cx);
+
+    JSObject *obj = objects_.find(objId);
+    if (!obj)
+        return false;
+
+    JSAutoCompartment comp(cx, obj);
+
+    jsid internedId;
+    if (!ToId(cx, id, &internedId))
+        return fail(cx, rs);
+
+    JSPropertyDescriptor desc;
+    if (!JS_GetPropertyDescriptorById(cx, obj, internedId, flags, &desc))
+        return fail(cx, rs);
+
+    if (!fromDesc(cx, desc, out))
+        return fail(cx, rs);
+
+    return ok(rs);
+}
+

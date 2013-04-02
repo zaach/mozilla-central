@@ -46,6 +46,25 @@ union JSParam {
     JSVariant;  /* actual value to pass through */
 };
 
+struct PPropertyDescriptor
+{
+    uint32_t    objId;
+    uint32_t    attrs;
+    uint32_t    shortid;
+    JSVariant   value;
+
+    // How to interpret these values depends on whether JSPROP_GETTER/SETTER
+    // are set. If set, the corresponding value is a CPOW or 0 for NULL.
+    // Otherwise, the following table is used:
+    //
+    //  0 - NULL
+    //  1 - Default getter or setter.
+    //  2 - js_GetterOnlyPropertyStub (setter only)
+    //  3 - Unknown
+    uint32_t    getter;
+    uint32_t    setter;
+};
+
 rpc protocol PJavaScript
 {
     manager PContent;
@@ -62,6 +81,7 @@ child:
     urgent CallHook(uint32_t objId, JSParam[] argv) returns (ReturnStatus rs, JSVariant result, JSParam[] outparams);
 
     urgent InstanceOf(uint32_t objId, JSIID iid) returns (ReturnStatus rs, bool instanceof);
+    urgent GetPropertyDescriptor(uint32_t objId, nsString id, uint32_t flags) returns (ReturnStatus rs, PPropertyDescriptor result);
 
 parent:
     async __delete__();

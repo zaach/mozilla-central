@@ -259,3 +259,108 @@ JavaScriptShared::ConvertID(const JSIID &from, nsID *to)
     to->m3[6] = from.m3_6();
     to->m3[7] = from.m3_7();
 }
+
+static const uint32_t DefaultPropertyOp = 1;
+static const uint32_t GetterOnlyPropertyStub = 2;
+static const uint32_t UnknownPropertyOp = 3;
+
+bool
+JavaScriptShared::fromDesc(JSContext *cx, const JSPropertyDescriptor &desc, PPropertyDescriptor *out)
+{
+    out->attrs() = desc.attrs;
+    out->shortid() = desc.shortid;
+    if (!toVariant(cx, desc.value, &out->value()))
+        return false;
+
+    // rooting.
+    if (!makeId(cx, desc.obj, &out->objId()))
+        return false;
+
+    if (!desc.getter) {
+        out->getter() = 0;
+    } else if (desc.attrs & JSPROP_GETTER) {
+        JSObject *getter = JS_FUNC_TO_DATA_PTR(JSObject *, desc.getter);
+        if (!makeId(cx, getter, &out->getter()))
+            return false;
+    } else {
+        if (desc.getter == JS_PropertyStub)
+            out->getter() = DefaultPropertyOp;
+        else
+            out->getter() = UnknownPropertyOp;
+    }
+
+    if (!desc.setter) {
+        out->setter() = 0;
+    } else if (desc.attrs & JSPROP_SETTER) {
+        JSObject *setter = JS_FUNC_TO_DATA_PTR(JSObject  *, desc.setter);
+        if (!makeId(cx, setter, &out->setter()))
+            return false;
+    } else {
+        if (desc.setter == JS_StrictPropertyStub)
+            out->setter() = DefaultPropertyOp;
+        else if (desc.setter == js_GetterOnlyPropertyStub)
+            out->setter() = GetterOnlyPropertyStub;
+        else
+            out->setter() = UnknownPropertyOp;
+    }
+
+    return true;
+}
+
+JSBool
+UnknownPropertyStub(JSContext *cx, JSHandleObject obj, JSHandleId id, JSMutableHandleValue vp)
+{
+    JS_ReportError(cx, "getter could not be wrapped via CPOWs");
+    return JS_FALSE;
+}
+
+JSBool
+UnknownStrictPropertyStub(JSContext *cx, JSHandleObject obj, JSHandleId id, JSBool strict, JSMutableHandleValue vp)
+{
+    JS_ReportError(cx, "setter could not be wrapped via CPOWs");
+    return JS_FALSE;
+}
+
+bool
+JavaScriptShared::toDesc(JSContext *cx, const PPropertyDescriptor &in, JSPropertyDescriptor *out)
+{
+    out->attrs = in.attrs();
+    out->shortid = in.shortid();
+    if (!toValue(cx, in.value(), &out->value))
+        return false;
+    if (!unwrap(cx, in.objId(), &out->obj))
+        return false;
+
+    if (!in.getter()) {
+        out->getter = NULL;
+    } else if (in.attrs() & JSPROP_GETTER) {
+        JSObject *getter;
+        if (!unwrap(cx, in.getter(), &getter))
+            return false;
+        out->getter = JS_DATA_TO_FUNC_PTR(JSPropertyOp, getter);
+    } else {
+        if (in.getter() == DefaultPropertyOp)
+            out->getter = JS_PropertyStub;
+        else
+            out->getter = UnknownPropertyStub;
+    }
+
+    if (!in.setter()) {
+        out->setter = NULL;
+    } else if (in.attrs() & JSPROP_SETTER) {
+        JSObject *setter;
+        if (!unwrap(cx, in.setter(), &setter))
+            return false;
+        out->setter = JS_DATA_TO_FUNC_PTR(JSStrictPropertyOp, setter);
+    } else {
+        if (in.setter() == DefaultPropertyOp)
+            out->setter = JS_StrictPropertyStub;
+        else if (in.setter() == GetterOnlyPropertyStub)
+            out->setter = js_GetterOnlyPropertyStub;
+        else
+            out->setter = UnknownStrictPropertyStub;
+    }
+
+    return true;
+}
+

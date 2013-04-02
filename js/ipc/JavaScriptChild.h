@@ -46,6 +46,11 @@ class JavaScriptChild
                           const JSIID &iid,
                           ReturnStatus *rs,
                           bool *instanceof);
+    bool AnswerGetPropertyDescriptor(const uint32_t &objId,
+                                     const nsString &id,
+                                     const uint32_t &flags,
+                                     ReturnStatus *rs,
+                                     PPropertyDescriptor *out);
 
     ObjectId Send(JSContext *cx, JSObject *obj);
 

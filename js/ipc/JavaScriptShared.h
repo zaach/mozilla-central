@@ -80,9 +80,21 @@ class JavaScriptShared
   protected:
     bool toVariant(JSContext *cx, jsval from, JSVariant *to);
     bool toValue(JSContext *cx, const JSVariant &from, jsval *to);
+    bool fromDesc(JSContext *cx, const JSPropertyDescriptor &desc, PPropertyDescriptor *out);
+    bool toDesc(JSContext *cx, const PPropertyDescriptor &in, JSPropertyDescriptor *out);
 
     virtual bool makeId(JSContext *cx, JSObject *obj, ObjectId *idp) = 0;
     virtual JSObject *unwrap(JSContext *cx, ObjectId id) = 0;
+
+    bool unwrap(JSContext *cx, ObjectId id, JSObject **objp) {
+        if (!id) {
+            *objp = NULL;
+            return true;
+        }
+
+        *objp = unwrap(cx, id);
+        return !!*objp;
+    }
 
     static void ConvertID(const nsID &from, JSIID *to);
     static void ConvertID(const JSIID &from, nsID *to);

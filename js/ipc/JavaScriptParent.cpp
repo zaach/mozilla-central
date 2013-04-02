@@ -136,7 +136,7 @@ bool
 CPOWProxyHandler::getPropertyDescriptor(JSContext *cx, JSObject *proxy, jsid id,
                                         PropertyDescriptor *desc, unsigned flags)
 {
-    MOZ_NOT_REACHED("unimplemented");
+    return ParentOf(proxy)->getPropertyDescriptor(cx, proxy, id, desc, flags);
 }
 
 bool
@@ -187,7 +187,7 @@ JavaScriptParent::has(JSContext *cx, JSObject *proxy, jsid id, bool *bp)
     if (!CallHasHook(objId, idstr, &status, bp))
         return ipcfail(cx);
 
-    return !!ok(cx, status);
+    return ok(cx, status);
 }
 
 bool
@@ -519,3 +519,25 @@ JavaScriptParent::instanceOf(JSObject *obj, const nsID *id, bool *bp)
 
     return NS_OK;
 }
+
+bool
+JavaScriptParent::getPropertyDescriptor(JSContext *cx, JSObject *proxy, jsid id,
+                                        PropertyDescriptor *desc, unsigned flags)
+{
+    uint32_t objId = IdOf(proxy);
+    MOZ_ASSERT(objId);
+
+    nsString idstr;
+    if (!ToGecko(cx, id, &idstr))
+        return JS_FALSE;
+
+    ReturnStatus status;
+    PPropertyDescriptor result;
+    if (!CallGetPropertyDescriptor(objId, idstr, flags, &status, &result))
+        return ipcfail(cx);
+    if (!ok(cx, status))
+        return false;
+
+    return toDesc(cx, result, desc);
+}
+
