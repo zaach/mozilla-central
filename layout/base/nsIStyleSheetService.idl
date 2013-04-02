@@ -8,6 +8,7 @@
 #include "nsISupports.idl"
 
 interface nsIURI;
+interface nsISimpleEnumerator;
 
 /*
  * nsIStyleSheetService allows extensions or embeddors to add to the
@@ -20,6 +21,8 @@ interface nsIStyleSheetService : nsISupports
   const unsigned long AGENT_SHEET = 0;
   const unsigned long USER_SHEET = 1;
   const unsigned long AUTHOR_SHEET = 2;
+
+  nsISimpleEnumerator enumerateStyleSheets(in unsigned long type);
 
   /**
    * Synchronously loads a style sheet from |sheetURI| and adds it to the list

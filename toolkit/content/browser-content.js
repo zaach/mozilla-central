@@ -807,6 +807,19 @@ let Content = {
     docShell.QueryInterface(Ci.nsIDocShellHistory).useGlobalHistory = true;
 
     addEventListener("click", this.contentAreaClick, false);
+    addMessageListener("StyleSheet:Load", this);
+  },
+
+  receiveMessage: function(aMessage) {
+    let json = aMessage.json;
+    switch (aMessage.name) {
+    case "StyleSheet:Load":
+      let uri = Services.io.newURI(json.href, null, null);
+      let styleSheets = Cc["@mozilla.org/content/style-sheet-service;1"].getService(Ci.nsIStyleSheetService);
+      if (!styleSheets.sheetRegistered(uri, Ci.nsIStyleSheetService.USER_SHEET))
+	styleSheets.loadAndRegisterSheet(uri, Ci.nsIStyleSheetService.USER_SHEET);
+      break;
+    }
   },
 
   contentAreaClick: function(event) {

@@ -20,6 +20,7 @@
 #include "nsIObserverService.h"
 #include "nsLayoutStatics.h"
 #include "nsIMemoryReporter.h"
+#include "nsArrayEnumerator.h"
 
 NS_MEMORY_REPORTER_MALLOC_SIZEOF_FUN(LayoutStyleSheetServiceMallocSizeOf)
 
@@ -132,6 +133,18 @@ nsStyleSheetService::Init()
   RegisterFromEnumerator(catMan, "author-style-sheets", sheets, AUTHOR_SHEET);
 
   return NS_OK;
+}
+
+NS_IMETHODIMP
+nsStyleSheetService::EnumerateStyleSheets(uint32_t aSheetType, nsISimpleEnumerator **aResult)
+{
+  if (aSheetType != AGENT_SHEET &&
+      aSheetType != USER_SHEET &&
+      aSheetType != AUTHOR_SHEET) {
+    return NS_ERROR_INVALID_ARG;
+  }
+
+  return NS_NewArrayEnumerator(aResult, mSheets[aSheetType]);
 }
 
 NS_IMETHODIMP

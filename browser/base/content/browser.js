@@ -1192,6 +1192,17 @@ var gBrowserInit = {
         return Ci.nsIContentPolicy.ACCEPT;
     });
 
+    var styleSheets = Cc["@mozilla.org/content/style-sheet-service;1"].getService(Ci.nsIStyleSheetService);
+    var list = styleSheets.enumerateStyleSheets(1);
+    while (list.hasMoreElements()) {
+      var item = list.getNext();
+      messageManager.broadcastAsyncMessage("StyleSheet:Load", {"href":item.href});
+    }
+
+    Services.obs.addObserver(function(sheet, topic, data) {
+      messageManager.broadcastAsyncMessage("StyleSheet:Load", {"href":sheet.href});
+    }, "user-sheet-added", false);
+
     // initialize observers and listeners
     // and give C++ access to gBrowser
     gBrowser.init();
