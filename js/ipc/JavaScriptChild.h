@@ -51,6 +51,9 @@ class JavaScriptChild
                                      const uint32_t &flags,
                                      ReturnStatus *rs,
                                      PPropertyDescriptor *out);
+    bool AnswerObjectClassIs(const uint32_t &objId,
+                             const uint32_t &classValue,
+                             bool *result);
 
     ObjectId Send(JSContext *cx, JSObject *obj);
 

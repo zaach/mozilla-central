@@ -9,6 +9,7 @@
 #include "mozilla/dom/ContentChild.h"
 #include "nsContentUtils.h"
 #include "xpcprivate.h"
+#include "jsfriendapi.h"
 
 using namespace mozilla;
 using namespace mozilla::jsipc;
@@ -434,5 +435,24 @@ JavaScriptChild::AnswerGetPropertyDescriptor(const uint32_t &objId,
         return fail(cx, rs);
 
     return ok(rs);
+}
+
+bool
+JavaScriptChild::AnswerObjectClassIs(const uint32_t &objId,
+                                     const uint32_t &classValue,
+                                     bool *result)
+{
+    SafeAutoJSContext cx;
+    JSAutoRequest request(cx);
+
+    JS::RootedObject obj(cx, objects_.find(objId));
+    if (!obj)
+        return false;
+
+    JSAutoCompartment comp(cx, obj);
+
+    *result = js_ObjectClassIs(cx, obj, (js::ESClassValue)classValue);
+
+    return true;
 }
 

@@ -126,6 +126,7 @@ class CPOWProxyHandler : public BaseProxyHandler
 
     virtual bool call(JSContext *cx, JSObject *proxy, unsigned argc, Value *vp);
     virtual void finalize(JSFreeOp *fop, JSObject *proxy);
+    virtual bool objectClassIs(JSObject *obj, js::ESClassValue classValue, JSContext *cx);
 
     static CPOWProxyHandler singleton;
 };
@@ -366,6 +367,27 @@ void
 CPOWProxyHandler::finalize(JSFreeOp *fop, JSObject *proxy)
 {
     ParentOf(proxy)->drop(proxy);
+}
+
+bool
+JavaScriptParent::objectClassIs(JSContext *cx, JSObject *proxy, js::ESClassValue classValue)
+{
+    uint32_t objId = IdOf(proxy);
+    MOZ_ASSERT(objId);
+
+    // This function is assumed infallible, so we just return false of the IPC
+    // channel fails.
+    bool result;
+    if (!CallObjectClassIs(objId, classValue, &result))
+        return false;
+
+    return result;
+}
+
+bool
+CPOWProxyHandler::objectClassIs(JSObject *proxy, ESClassValue classValue, JSContext *cx)
+{
+    return ParentOf(proxy)->objectClassIs(cx, proxy, classValue);
 }
 
 bool

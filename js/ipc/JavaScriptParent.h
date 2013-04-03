@@ -11,6 +11,7 @@
 #include "mozilla/jsipc/PJavaScriptParent.h"
 #include "nsIJavaScriptParent.h"
 #include "JavaScriptShared.h"
+#include "jsclass.h"
 
 namespace mozilla {
 namespace jsipc {
@@ -51,6 +52,7 @@ class JavaScriptParent
     nsresult instanceOf(JSObject *obj, const nsID *id, bool *bp);
     bool getPropertyDescriptor(JSContext *cx, JSObject *proxy, jsid id,
                                JSPropertyDescriptor *desc, unsigned flags);
+    bool objectClassIs(JSContext *cx, JSObject *obj, js::ESClassValue classValue);
 
   protected:
     JSObject *unwrap(JSContext *cx, ObjectId objId);

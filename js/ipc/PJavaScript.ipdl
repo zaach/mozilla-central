@@ -82,6 +82,7 @@ child:
 
     urgent InstanceOf(uint32_t objId, JSIID iid) returns (ReturnStatus rs, bool instanceof);
     urgent GetPropertyDescriptor(uint32_t objId, nsString id, uint32_t flags) returns (ReturnStatus rs, PPropertyDescriptor result);
+    urgent ObjectClassIs(uint32_t objId, uint32_t classValue) returns (bool result);
 
 parent:
     async __delete__();
