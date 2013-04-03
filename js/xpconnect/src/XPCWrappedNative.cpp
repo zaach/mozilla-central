@@ -2853,44 +2853,27 @@ CallMethodHelper::ConvertIndependentParam(uint8_t i)
         return false;
     }
 
-    if (mIsNativeMethod && src.isObject() &&
-        (type_tag == nsXPTType::T_INTERFACE || type_tag == nsXPTType::T_INTERFACE_IS))
-    {
-        JSObject *srcobj = &src.toObject();
-        srcobj = js::UnwrapObject(srcobj);
-        if (mozilla::jsipc::JavaScriptParent::IsCPOW(srcobj)) {
-            ThrowBadParam(NS_ERROR_XPC_CANT_PASS_CPOW_TO_NATIVE, i, mCallContext);
-            return false;
-        }
-
-        nsISupports *supports = nullptr;
-        if (IS_WRAPPER_CLASS(js::GetObjectClass(srcobj))) {
-            XPCWrappedNative* wrappedNative =
-                XPCWrappedNative::GetWrappedNativeOfJSObject(mCallContext, srcobj);
-            if (wrappedNative) {
-                supports = wrappedNative->GetIdentityObject();
-            } else {
-                if (!XPCConvert::GetISupportsFromJSObject(srcobj, &supports))
-                    supports = nullptr;
-            }
-            if (supports && nsXPCWrappedJSClass::IsWrappedJS(supports)) {
-                nsCOMPtr<nsIXPConnectWrappedJS> wrappedjs(do_QueryInterface(supports));
-                JSObject *wrappedobj;
-                wrappedjs->GetJSObject(&wrappedobj);
-                wrappedobj = js::UnwrapObject(wrappedobj);
-                if (mozilla::jsipc::JavaScriptParent::IsCPOW(srcobj)) {
-                    ThrowBadParam(NS_ERROR_XPC_CANT_PASS_CPOW_TO_NATIVE, i, mCallContext);
-                    return false;
-                }
-            }
-        }
-    }
-
     nsresult err;
     if (!XPCConvert::JSData2Native(mCallContext, &dp->val, src, type,
                                    true, &param_iid, &err)) {
         ThrowBadParam(err, i, mCallContext);
         return false;
+    }
+
+    if (mIsNativeMethod && src.isObject() &&
+        (type_tag == nsXPTType::T_INTERFACE || type_tag == nsXPTType::T_INTERFACE_IS))
+    {
+        nsISupports *supports = static_cast<nsISupports *>(dp->val.p);
+        if (nsXPCWrappedJSClass::IsWrappedJS(supports)) {
+            nsCOMPtr<nsIXPConnectWrappedJS> wrappedjs(do_QueryInterface(supports));
+            JSObject *wrappedobj;
+            wrappedjs->GetJSObject(&wrappedobj);
+            wrappedobj = js::UnwrapObject(wrappedobj);
+            if (mozilla::jsipc::JavaScriptParent::IsCPOW(wrappedobj)) {
+                ThrowBadParam(NS_ERROR_XPC_CANT_PASS_CPOW_TO_NATIVE, i, mCallContext);
+                return false;
+            }
+        }
     }
 
     return true;
