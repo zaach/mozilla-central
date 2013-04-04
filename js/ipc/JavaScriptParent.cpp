@@ -427,7 +427,7 @@ JavaScriptParent::unwrap(JSContext *cx, ObjectId objId)
                                    handler,
                                    UndefinedValue(),
                                    NULL,
-                                   NULL,
+                                   someObj,
                                    callable ? someObj : NULL);
     if (!obj)
         return NULL;
