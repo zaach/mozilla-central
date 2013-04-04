@@ -305,8 +305,8 @@ var PlacesCommandHook = {
 
     // dock the panel to the star icon when possible, otherwise dock
     // it to the content area
-#if 0
-    if (aBrowser.contentWindow == window.content) {
+    // E10S FIXME: When is this branch true?
+    if (!gMultiProcessBrowser && aBrowser.contentWindow == window.content) {
       var starIcon = aBrowser.ownerDocument.getElementById("star-button");
       if (starIcon && isElementVisible(starIcon)) {
         if (aShowEditUI)
@@ -314,7 +314,6 @@ var PlacesCommandHook = {
         return;
       }
     }
-#endif
 
     StarUI.showEditBookmarkPopup(itemId, aBrowser, "overlap");
   },

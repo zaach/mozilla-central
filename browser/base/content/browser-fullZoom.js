@@ -60,6 +60,10 @@ var FullZoom = {
   // Initialization & Destruction
 
   init: function FullZoom_init() {
+    // Currently nonfunctional in e10s
+    if (gMultiProcessBrowser)
+      return;
+
     // Listen for scrollwheel events so we can save scrollwheel-based changes.
     window.addEventListener("DOMMouseScroll", this, false);
 
@@ -76,6 +80,10 @@ var FullZoom = {
   },
 
   destroy: function FullZoom_destroy() {
+    // Currently nonfunctional in e10s
+    if (gMultiProcessBrowser)
+      return;
+
     gPrefService.removeObserver("browser.zoom.", this);
     getContentPrefs().removeObserver(this.name, this);
     window.removeEventListener("DOMMouseScroll", this, false);
@@ -139,8 +147,6 @@ var FullZoom = {
   // nsIObserver
 
   observe: function (aSubject, aTopic, aData) {
-    return;
-
     switch (aTopic) {
       case "nsPref:changed":
         switch (aData) {
@@ -160,7 +166,6 @@ var FullZoom = {
   // nsIContentPrefObserver
 
   onContentPrefSet: function FullZoom_onContentPrefSet(aGroup, aName, aValue) {
-    return;
     let contentPrefs = getContentPrefs(gBrowser.contentDocument.defaultView);
     if (aGroup == contentPrefs.grouper.group(gBrowser.currentURI))
       this._applyPrefToSetting(aValue);
@@ -176,7 +181,6 @@ var FullZoom = {
   },
 
   onContentPrefRemoved: function FullZoom_onContentPrefRemoved(aGroup, aName) {
-    return;
     let contentPrefs = getContentPrefs(gBrowser.contentDocument.defaultView);
     if (aGroup == contentPrefs.grouper.group(gBrowser.currentURI))
       this._applyPrefToSetting();
@@ -205,7 +209,9 @@ var FullZoom = {
    *        (optional) browser object displaying the document
    */
   onLocationChange: function FullZoom_onLocationChange(aURI, aIsTabSwitch, aBrowser) {
-    return;
+    // Currently nonfunctional in e10s
+    if (gMultiProcessBrowser)
+      return;
 
     if (!aURI || (aIsTabSwitch && !this.siteSpecific))
       return;
@@ -291,9 +297,6 @@ var FullZoom = {
    * one.
    **/
   _applyPrefToSetting: function FullZoom__applyPrefToSetting(aValue, aBrowser) {
-    // disabled in electrolysis
-    return;
-
     if ((!this.siteSpecific) || gInPrintPreviewMode)
       return;
 

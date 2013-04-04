@@ -19,6 +19,7 @@ var gLastValidURLStr = "";
 var gInPrintPreviewMode = false;
 var gContextMenu = null; // nsContextMenu instance
 var gContextMenuContext = null;
+var gMultiProcessBrowser = false;
 
 #ifndef XP_MACOSX
 var gEditUIVisible = true;
@@ -749,6 +750,10 @@ let gGestureSupport = {
    *        True to add/init listeners and false to remove/uninit
    */
   init: function GS_init(aAddListener) {
+    // broken in e10s
+    if (gMultiProcessBrowser)
+      return;
+
     const gestureEvents = ["SwipeGesture",
       "MagnifyGestureStart", "MagnifyGestureUpdate", "MagnifyGesture",
       "RotateGestureStart", "RotateGestureUpdate", "RotateGesture",
@@ -1077,6 +1082,10 @@ let gGestureSupport = {
    * image
    */
   restoreRotationState: function() {
+    // broken in e10s
+    if (gMultiProcessBrowser)
+      return;
+
     if (!(content.document instanceof ImageDocument))
       return;
 
@@ -1126,6 +1135,10 @@ var gBrowserInit = {
     //                 [4]: allowThirdPartyFixup (bool)
     if ("arguments" in window && window.arguments[0])
       var uriToLoad = window.arguments[0];
+
+    gMultiProcessBrowser =
+      Services.prefs.getPrefType("browser.tabs.remote") == Services.prefs.PREF_BOOL &&
+      Services.prefs.getBoolPref("browser.tabs.remote");
 
     var mustLoadSidebar = false;
 
@@ -1248,7 +1261,8 @@ var gBrowserInit = {
 
     // enable global history
     try {
-      if (gBrowser.docShell) {
+      // E10S FIXME: Can this run in a frame script?
+      if (!gMultiProcessBrowser) {
         gBrowser.docShell.QueryInterface(Ci.nsIDocShellHistory).useGlobalHistory = true;
       }
     } catch(ex) {
@@ -1513,9 +1527,11 @@ var gBrowserInit = {
     FullZoom.init();
 
     // Bug 666804 - NetworkPrioritizer support for e10s
-    //let NP = {};
-    //Cu.import("resource:///modules/NetworkPrioritizer.jsm", NP);
-    //NP.trackBrowserWindow(window);
+    if (!gMultiProcessBrowser) {
+      let NP = {};
+      Cu.import("resource:///modules/NetworkPrioritizer.jsm", NP);
+      NP.trackBrowserWindow(window);
+    }
 
     // initialize the session-restore service (in case it's not already running)
     let ss = Cc["@mozilla.org/browser/sessionstore;1"].getService(Ci.nsISessionStore);
@@ -1560,8 +1576,10 @@ var gBrowserInit = {
     gBrowser.mPanelContainer.addEventListener("ResetBrowserThemePreview", LightWeightThemeWebInstaller, false, true);
 
     // Bug 666808 - AeroPeek support for e10s
-    //if (Win7Features)
-    //  Win7Features.onOpenWindow();
+    if (!gMultiProcessBrowser) {
+      if (Win7Features)
+        Win7Features.onOpenWindow();
+    }
 
    // called when we go into full screen, even if initiated by a web page script
     window.addEventListener("fullscreen", onFullScreen, true);
@@ -4474,9 +4492,7 @@ var XULBrowserWindow = {
     }
     UpdateBackForwardCommands(gBrowser.webNavigation);
 
-#if 0
     gGestureSupport.restoreRotationState();
-#endif
 
     // See bug 358202, when tabs are switched during a drag operation,
     // timers don't fire on windows (bug 203573)

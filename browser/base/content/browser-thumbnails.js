@@ -31,6 +31,10 @@ let gBrowserThumbnails = {
   _tabEvents: ["TabClose", "TabSelect"],
 
   init: function Thumbnails_init() {
+    // This is broken in e10s
+    if (gMultiProcessBrowser)
+      return;
+
     try {
       if (Services.prefs.getBoolPref("browser.pagethumbnails.capturing_disabled"))
         return;
@@ -51,6 +55,10 @@ let gBrowserThumbnails = {
   },
 
   uninit: function Thumbnails_uninit() {
+    // This is broken in e10s
+    if (gMultiProcessBrowser)
+      return;
+
     PageThumbs.removeExpirationFilter(this);
     gBrowser.removeTabsProgressListener(this);
     Services.prefs.removeObserver(this.PREF_DISK_CACHE_SSL, this);
@@ -117,9 +125,6 @@ let gBrowserThumbnails = {
   },
 
   _shouldCapture: function Thumbnails_shouldCapture(aBrowser) {
-    // This is broken in e10s right now
-    return false;
-
     // Capture only if it's the currently selected tab.
     if (aBrowser != gBrowser.selectedBrowser)
       return false;
