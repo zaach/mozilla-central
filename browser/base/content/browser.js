@@ -153,6 +153,7 @@ let gInitialPages = [
 #include browser-fullZoom.js
 #include browser-places.js
 #include browser-plugins.js
+#include browser-parent.js
 #include browser-safebrowsing.js
 #include browser-social.js
 #include browser-tabPreviews.js
@@ -1160,66 +1161,8 @@ var gBrowserInit = {
 
     window.addEventListener("AppCommand", HandleAppCommandEvent, true);
 
-    messageManager.addMessageListener("Addon:Observe", function() {
-        dump('--------------------------------- Observe ---\n');
-    });
-    messageManager.addMessageListener("Content:Click", function(m) {
-      let href = m.json.href;
-      openLinkIn(href, "tab", {});
-    });
-    messageManager.addMessageListener("Addon:ShouldLoad", function(m) {
-        dump('--------------------------------- HOOK ShouldLoad ---\n');
-        var js = m.target.jsParentUtils;
-        var contentLocation = js.unwrap(m.json.contentLocationId);
-        var requestOrigin = js.unwrap(m.json.requestOriginId);
-        var node = js.unwrap(m.json.nodeId);
-        var contentType = m.json.contentType;
-        var mimeTypeGuess = m.json.mimeTypeGuess;
-        //dump("requestOriginID: " + m.json.requestOriginId + "\n");
-        //dump("requestOrigin.spec: " + requestOrigin.spec + "\n");
-        //
-
-        var catMan = Cc["@mozilla.org/categorymanager;1"].getService(Ci.nsICategoryManager);
-        var list = catMan.enumerateCategory("content-policy");
-        while (list.hasMoreElements()) {
-          var item = list.getNext();
-          var service = item.QueryInterface(Components.interfaces.nsISupportsCString).toString();
-          dump("!!! SERVICE: " + service + "\n");
-          if (!(service in Cc))
-            continue;
-          var policy = Cc[service].getService(Ci.nsIContentPolicy);
-          var r = Ci.nsIContentPolicy.ACCEPT;
-          try {
-            r = policy.shouldLoad(contentType,
-                                      contentLocation,
-                                      requestOrigin,
-                                      node,
-                                      mimeTypeGuess,
-                                      null);
-          } catch (e) {
-            if (e.name != 'NS_ERROR_XPC_CANT_PASS_CPOW_TO_NATIVE')
-              throw e;
-          }
-            if (r != Ci.nsIContentPolicy.ACCEPT && r != 0) {
-              dump("@@@@@@ service \"" + service + "\" rval: " + r + "\n");
-              return r;
-            }
-        }
-
-        dump('--------------------------------- ENDHOOK ShouldLoad ---\n');
-        return Ci.nsIContentPolicy.ACCEPT;
-    });
-
-    var styleSheets = Cc["@mozilla.org/content/style-sheet-service;1"].getService(Ci.nsIStyleSheetService);
-    var list = styleSheets.enumerateStyleSheets(1);
-    while (list.hasMoreElements()) {
-      var item = list.getNext();
-      messageManager.broadcastAsyncMessage("StyleSheet:Load", {"href":item.href});
-    }
-
-    Services.obs.addObserver(function(sheet, topic, data) {
-      messageManager.broadcastAsyncMessage("StyleSheet:Load", {"href":sheet.href});
-    }, "user-sheet-added", false);
+    if (gMultiProcessBrowser)
+      BrowserParent.init();
 
     // initialize observers and listeners
     // and give C++ access to gBrowser

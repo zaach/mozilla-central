@@ -10,8 +10,6 @@ Cu.import("resource://gre/modules/Services.jsm");
 Cu.import('resource://gre/modules/XPCOMUtils.jsm');
 
 let WebProgressListener = {
-  _lastLocation: null,
-
   init: function() {
     let flags = Ci.nsIWebProgress.NOTIFY_ALL;
 
@@ -55,10 +53,6 @@ let WebProgressListener = {
     sendAsyncMessage("Content:LocationChange", json);
 
     let self = this;
-
-    // Keep track of hash changes
-    this.hashChanged = (location == this._lastLocation);
-    this._lastLocation = location;
   },
 
   onStatusChange: function onStatusChange(aWebProgress, aRequest, aStatus, aMessage) {
@@ -72,11 +66,8 @@ let WebProgressListener = {
   },
 
   onSecurityChange: function onSecurityChange(aWebProgress, aRequest, aState) {
-    let serialization = SecurityUI.getSSLStatusAsString();
-
     let json = {
       contentWindowId: content.QueryInterface(Ci.nsIInterfaceRequestor).getInterface(Ci.nsIDOMWindowUtils).currentInnerWindowID,
-      SSLStatusAsString: serialization,
       state: aState,
       isTopLevel: (content == aWebProgress.DOMWindow)
     };
@@ -117,22 +108,6 @@ let DOMEvents = {
 };
 
 DOMEvents.init();
-
-let SecurityUI = {
-  getSSLStatusAsString: function() {
-    let status = docShell.securityUI.QueryInterface(Ci.nsISSLStatusProvider).SSLStatus;
-
-    if (status) {
-      let serhelper = Cc["@mozilla.org/network/serialization-helper;1"]
-                      .getService(Ci.nsISerializationHelper);
-
-      status.QueryInterface(Ci.nsISerializable);
-      return serhelper.serializeToString(status);
-    }
-
-    return null;
-  }
-};
 
 let WebNavigation =  {
   _webNavigation: docShell.QueryInterface(Ci.nsIWebNavigation),
@@ -248,82 +223,69 @@ let Content = {
 Content.init();
 
 let AddonListeners = {
-    classDescription: "Addon shim content policy",
-    classID: Components.ID("6e869130-635c-11e2-bcfd-0800200c9a66"),
-    contractID: "@mozilla.org/addonjunk/policy;1",
-    xpcom_categories: ["content-policy"],
+  classDescription: "Addon shim content policy",
+  classID: Components.ID("6e869130-635c-11e2-bcfd-0800200c9a66"),
+  contractID: "@mozilla.org/addonjunk/policy;1",
+  xpcom_categories: ["content-policy"],
 
-    init: function init() {
-        try {
-          wrap({});
-        } catch (e) {
-          return;
-        }
-        dump('HELLO\n\n');
-        Services.obs.addObserver(this, "content-document-global-created", false);
-
-        let registrar = Components.manager.QueryInterface(Ci.nsIComponentRegistrar);
-        registrar.registerFactory(this.classID, this.classDescription, this.contractID, this);
-
-        //let xpcom_categories = ["content-policy", "net-channel-event-sinks"];
-        let xpcom_categories = ["content-policy"];
-        var catMan = Cc["@mozilla.org/categorymanager;1"].getService(Ci.nsICategoryManager);
-        for each (let category in this.xpcom_categories)
-            catMan.addCategoryEntry(category, this.contractID, this.contractID, false, true);
-        dump('\n\nDone adding stuff\n\n');
-    },
- 
-    QueryInterface: XPCOMUtils.generateQI([Ci.nsIContentPolicy, Ci.nsIObserver,
-                                           Ci.nsIChannelEventSink, Ci.nsIFactory,
-                                          Ci.nsISupportsWeakReference]),
-
-    observe: function AddonListeners_observe(aSubject, aTopic, aData) {
-        dump('\n\nObserve ' + aTopic + '\n');
-        dump(aSubject + '\n');
-        sendSyncMessage("Addon:Observe", {
-            topic: aTopic,
-            data: aData
-        });
-        dump('End observe ' + aTopic + '\n');
-    },
-
-    shouldLoad: function(contentType, contentLocation, requestOrigin, node, mimeTypeGuess, extra)
-    {
-        dump('\n\nShouldLoad ' + contentLocation.spec + '\n');
-
-        try {
-          var contentLocationId = wrap(contentLocation);
-          var requestOriginId = wrap(requestOrigin);
-          var nodeId = wrap(node);
-        } catch (e) {
-          return Ci.nsIContentPolicy.ACCEPT;
-        }
-        var rval = sendSyncMessage("Addon:ShouldLoad", {
-          contentType: contentType,
-          contentLocationId: contentLocationId,
-          requestOriginId: requestOriginId,
-          nodeId: nodeId,
-          mimeTypeGuess: mimeTypeGuess
-        });
-        dump('End shouldLoad ' + contentLocation.spec + '\n');
-        dump('Got back rval: ' + rval + "\n");
-        if (rval == undefined)
-          return Ci.nsIContentPolicy.ACCEPT;
-        return rval;
-    },
-
-    shouldProcess: function(contentType, contentLocation, requestOrigin, insecNode, mimeType, extra)
-    {
-        dump('\n\nShouldProcess\n\n\n');
-        return Ci.nsIContentPolicy.ACCEPT;
-    },
-
-    createInstance: function(outer, iid)
-    {
-        if (outer)
-            throw Cr.NS_ERROR_NO_AGGREGATION;
-        return this.QueryInterface(iid);
+  init: function init() {
+    try {
+      wrap({});
+    } catch (e) {
+      return;
     }
+    Services.obs.addObserver(this, "content-document-global-created", false);
+
+    let registrar = Components.manager.QueryInterface(Ci.nsIComponentRegistrar);
+    registrar.registerFactory(this.classID, this.classDescription, this.contractID, this);
+
+    //let xpcom_categories = ["content-policy", "net-channel-event-sinks"];
+    let xpcom_categories = ["content-policy"];
+    var catMan = Cc["@mozilla.org/categorymanager;1"].getService(Ci.nsICategoryManager);
+    for each (let category in this.xpcom_categories)
+      catMan.addCategoryEntry(category, this.contractID, this.contractID, false, true);
+  },
+
+  QueryInterface: XPCOMUtils.generateQI([Ci.nsIContentPolicy, Ci.nsIObserver,
+                                         Ci.nsIChannelEventSink, Ci.nsIFactory,
+                                         Ci.nsISupportsWeakReference]),
+
+  observe: function AddonListeners_observe(aSubject, aTopic, aData) {
+    sendSyncMessage("Addon:Observe", {
+      topic: aTopic,
+      data: aData
+    });
+  },
+
+  shouldLoad: function(contentType, contentLocation, requestOrigin, node, mimeTypeGuess, extra) {
+    try {
+      var contentLocationId = wrap(contentLocation);
+      var requestOriginId = wrap(requestOrigin);
+      var nodeId = wrap(node);
+    } catch (e) {
+      return Ci.nsIContentPolicy.ACCEPT;
+    }
+    var rval = sendSyncMessage("Addon:ShouldLoad", {
+      contentType: contentType,
+      contentLocationId: contentLocationId,
+      requestOriginId: requestOriginId,
+      nodeId: nodeId,
+      mimeTypeGuess: mimeTypeGuess
+    });
+    if (rval == undefined)
+      return Ci.nsIContentPolicy.ACCEPT;
+    return rval;
+  },
+
+  shouldProcess: function(contentType, contentLocation, requestOrigin, insecNode, mimeType, extra) {
+    return Ci.nsIContentPolicy.ACCEPT;
+  },
+
+  createInstance: function(outer, iid) {
+    if (outer)
+      throw Cr.NS_ERROR_NO_AGGREGATION;
+    return this.QueryInterface(iid);
+  }
 };
 
 AddonListeners.init();
