@@ -97,6 +97,26 @@ let WebProgressListener = {
 
 WebProgressListener.init();
 
+let DOMEvents = {
+  init: function() {
+    addEventListener("DOMTitleChanged", this, false);
+  },
+
+  handleEvent: function (aEvent) {
+    let document = content.document;
+    switch (aEvent.type) {
+    case "DOMTitleChanged":
+      if (!aEvent.isTrusted ||
+          aEvent.target.defaultView != aEvent.target.defaultView.top)
+        return;
+
+      sendAsyncMessage("DOMTitleChanged", { title: document.title });
+      break;
+    }
+  }
+};
+
+DOMEvents.init();
 
 let SecurityUI = {
   getSSLStatusAsString: function() {

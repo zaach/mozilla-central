@@ -135,16 +135,9 @@
 
       <constructor>
         <![CDATA[
-          //if (this.messageManager) {
-            this.messageManager.loadFrameScript("chrome://browser/content/browser-child.js", true);
-
-            this.messageManager.addMessageListener("DOMTitleChanged", this._messageListener);
-            this.messageManager.addMessageListener("Content:StateChange", this._messageListener);
-            this.messageManager.addMessageListener("Content:LocationChange", this._messageListener);
-            this.messageManager.addMessageListener("Content:SecurityChange", this._messageListener);
-
-            this.webProgress._init();
-          //}
+          this.messageManager.loadFrameScript("chrome://browser/content/browser-child.js", true);
+          this.messageManager.addMessageListener("DOMTitleChanged", this._messageListener);
+          this.webProgress._init();
         ]]>
       </constructor>
 
@@ -156,12 +149,6 @@
             let json = aMessage.json;
 
             switch (aMessage.name) {
-              case "Content:StateChange":
-              case "Content:LocationChange":
-              case "Content:SecurityChange":
-                self.contentWindowId = json.contentWindowId;
-                break;
-
               case "DOMTitleChanged":
                 self._contentTitle = json.title;
                 break;
