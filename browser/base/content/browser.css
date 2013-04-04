@@ -13,6 +13,10 @@ tabbrowser {
   -moz-binding: url("chrome://browser/content/tabbrowser.xml#tabbrowser");
 }
 
+browser {
+  -moz-binding: url("chrome://browser/content/bindings/browser.xml#firefox-browser");
+}
+
 .tabbrowser-tabs {
   -moz-binding: url("chrome://browser/content/tabbrowser.xml#tabbrowser-tabs");
 }

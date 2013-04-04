@@ -1,0 +1,171 @@
+<?xml version="1.0"?>
+
+<!-- This Source Code Form is subject to the terms of the Mozilla Public
+   - License, v. 2.0. If a copy of the MPL was not distributed with this
+   - file, You can obtain one at http://mozilla.org/MPL/2.0/. -->
+
+<bindings id="firefoxBrowserBindings"
+          xmlns="http://www.mozilla.org/xbl"
+          xmlns:xul="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul">
+
+  <binding id="firefox-browser" extends="chrome://global/content/bindings/browser.xml#browser">
+
+    <implementation type="application/javascript" implements="nsIAccessibleProvider, nsIObserver, nsIDOMEventListener, nsIMessageListener">
+
+      <field name="_jsParentUtils">null</field>
+
+      <property name="jsParentUtils">
+        <getter>
+          <![CDATA[
+            if (this._jsParentUtils)
+              return this._jsParentUtils;
+
+            this._jsParentUtils = this.boxObject.QueryInterface(Components.interfaces.nsIContainerBoxObject).jsParent;
+            return this._jsParentUtils;
+          ]]>
+        </getter>
+      </property>
+
+      <property name="isRemoteBrowser"
+                onget="return (this.getAttribute('remote') == 'true');"
+                readonly="true"/>
+
+      <property name="webNavigation"
+                readonly="true">
+        <getter>
+        <![CDATA[
+          return this._remoteWebNavigation;
+        ]]>
+        </getter>
+      </property>
+
+      <field name="_remoteWebProgress"><![CDATA[
+        ({
+          _browser: this,
+          _isDocumentLoading: false,
+          _isTopLevel: false,
+
+          NOTIFY_STATE_REQUEST:  0x00000001,
+          NOTIFY_STATE_DOCUMENT: 0x00000002,
+          NOTIFY_STATE_NETWORK:  0x00000004,
+          NOTIFY_STATE_WINDOW:   0x00000008,
+          NOTIFY_STATE_ALL:      0x0000000f,
+          NOTIFY_PROGRESS:       0x00000010,
+          NOTIFY_STATUS:         0x00000020,
+          NOTIFY_SECURITY:       0x00000040,
+          NOTIFY_LOCATION:       0x00000080,
+          NOTIFY_REFRESH:        0x00000100,
+          NOTIFY_ALL:            0x000001ff,
+
+          get isLoadingDocument() { return this._isDocumentLoading },
+          get isTopLevel() { return this._isTopLevel; },
+
+          mProgressListeners: [],
+          addProgressListener: function WP_AddProgressListener (aListener) {
+            this.mProgressListeners.push(aListener.QueryInterface(Components.interfaces.nsIAsyncWebProgressListener));
+          },
+          removeProgressListener: function WP_RemoveProgressListener (aListener) { 
+            this.mProgressListeners =
+              this.mProgressListeners.filter(function (l) l != aListener);
+          },
+
+          _init: function WP_Init() {
+            this._browser.messageManager.addMessageListener("Content:StateChange", this);
+            this._browser.messageManager.addMessageListener("Content:LocationChange", this);
+            this._browser.messageManager.addMessageListener("Content:SecurityChange", this);
+            this._browser.messageManager.addMessageListener("Content:StatusChange", this);
+          },
+
+          receiveMessage: function WP_ReceiveMessage(aMessage) {
+//            dump("-> toolkit.receiveMessage: " + aMessage.name);
+
+            this._isTopLevel = aMessage.json.isTopLevel;
+
+            switch (aMessage.name) {
+             case "Content:StateChange":
+               for each (let p in this.mProgressListeners) {
+                 p.onStateChange(this, null, aMessage.json.stateFlags, aMessage.json.status);
+               }
+               break;
+
+             case "Content:LocationChange":
+               let loc = Components.classes["@mozilla.org/network/io-service;1"].getService(Components.interfaces.nsIIOService).newURI(aMessage.json.location, null, null);
+               this._browser.webNavigation._currentURI = loc;
+               this._browser.webNavigation.canGoBack = aMessage.json.canGoBack;
+               this._browser.webNavigation.canGoForward = aMessage.json.canGoForward;
+               for each (let p in this.mProgressListeners) {
+                 p.onLocationChange(this, null, loc);
+               }
+               break;
+
+             case "Content:SecurityChange":
+               for each (let p in this.mProgressListeners) {
+                 p.onSecurityChange(this, null, aMessage.json.state);
+               }
+               break;
+
+             case "Content:StatusChange":
+               for each (let p in this.mProgressListeners) {
+                 p.onStatusChange(this, null, aMessage.json.status, aMessage.json.message);
+               }
+               break;
+
+            }
+          }
+        })
+      ]]></field>
+
+      <property name="webProgress"
+                readonly="true"
+                onget="return this._remoteWebProgress;"/>
+
+      <field name="contentWindowId">null</field>
+
+      <field name="_contentTitle">null</field>
+
+      <property name="contentTitle"
+                onget="return this._contentTitle"
+                readonly="true"/>
+
+      <constructor>
+        <![CDATA[
+          if (this.messageManager) {
+            this.messageManager.loadFrameScript("chrome://browser/content/browser-child.js", true);
+
+            this.messageManager.addMessageListener("DOMTitleChanged", this._messageListener);
+            this.messageManager.addMessageListener("Content:StateChange", this._messageListener);
+            this.messageManager.addMessageListener("Content:LocationChange", this._messageListener);
+            this.messageManager.addMessageListener("Content:SecurityChange", this._messageListener);
+
+            this.webProgress._init();
+          }
+        ]]>
+      </constructor>
+
+      <field name="_messageListener"><![CDATA[
+        ({
+          self: this,
+          receiveMessage: function receiveMessage(aMessage) {
+            let self = this.self;
+            let json = aMessage.json;
+
+            switch (aMessage.name) {
+              case "Content:StateChange":
+              case "Content:LocationChange":
+              case "Content:SecurityChange":
+                self.contentWindowId = json.contentWindowId;
+                break;
+
+              case "DOMTitleChanged":
+                self._contentTitle = json.title;
+                break;
+            }
+          }
+        })
+      ]]></field>
+
+    </implementation>
+
+  </binding>
+
+</bindings>
