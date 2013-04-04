@@ -1160,7 +1160,6 @@ var gBrowserInit = {
 
     window.addEventListener("AppCommand", HandleAppCommandEvent, true);
 
-    messageManager.loadFrameScript("chrome://browser/content/content.js", true);
     messageManager.addMessageListener("Addon:Observe", function() {
         dump('--------------------------------- Observe ---\n');
     });

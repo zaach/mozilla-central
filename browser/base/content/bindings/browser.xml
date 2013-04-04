@@ -8,7 +8,7 @@
           xmlns="http://www.mozilla.org/xbl"
           xmlns:xul="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul">
 
-  <binding id="firefox-browser" extends="chrome://global/content/bindings/browser.xml#browser">
+  <binding id="remote-browser" extends="chrome://global/content/bindings/browser.xml#browser">
 
     <implementation type="application/javascript" implements="nsIAccessibleProvider, nsIObserver, nsIDOMEventListener, nsIMessageListener">
 
@@ -64,7 +64,7 @@
           addProgressListener: function WP_AddProgressListener (aListener) {
             this.mProgressListeners.push(aListener.QueryInterface(Components.interfaces.nsIAsyncWebProgressListener));
           },
-          removeProgressListener: function WP_RemoveProgressListener (aListener) { 
+          removeProgressListener: function WP_RemoveProgressListener (aListener) {
             this.mProgressListeners =
               this.mProgressListeners.filter(function (l) l != aListener);
           },
@@ -77,8 +77,6 @@
           },
 
           receiveMessage: function WP_ReceiveMessage(aMessage) {
-//            dump("-> toolkit.receiveMessage: " + aMessage.name);
-
             this._isTopLevel = aMessage.json.isTopLevel;
 
             switch (aMessage.name) {
@@ -116,8 +114,16 @@
       ]]></field>
 
       <property name="webProgress"
-                readonly="true"
-                onget="return this._remoteWebProgress;"/>
+                readonly="true">
+	<getter>
+	  <![CDATA[
+            if (this.isRemoteBrowser)
+              return this._remoteWebProgress;
+            else
+              return this.docShell.QueryInterface(Components.interfaces.nsIInterfaceRequestor).getInterface(Components.interfaces.nsIWebProgress);
+	  ]]>
+	</getter>
+      </property>
 
       <field name="contentWindowId">null</field>
 
@@ -129,7 +135,7 @@
 
       <constructor>
         <![CDATA[
-          if (this.messageManager) {
+          //if (this.messageManager) {
             this.messageManager.loadFrameScript("chrome://browser/content/browser-child.js", true);
 
             this.messageManager.addMessageListener("DOMTitleChanged", this._messageListener);
@@ -138,7 +144,7 @@
             this.messageManager.addMessageListener("Content:SecurityChange", this._messageListener);
 
             this.webProgress._init();
-          }
+          //}
         ]]>
       </constructor>
 
