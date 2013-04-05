@@ -12,9 +12,7 @@ XPIDL_SOURCES += [
     'nsIURILoader.idl',
     'nsIWebProgress.idl',
     'nsIWebProgressListener.idl',
-    'nsIWebProgressListener2.idl',
-    'nsIAsyncWebProgress.idl',
-    'nsIAsyncWebProgressListener.idl'
+    'nsIWebProgressListener2.idl'
 ]
 
 MODULE = 'uriloader'

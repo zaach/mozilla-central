@@ -104,7 +104,7 @@ function RemoteWebProgress(browser)
 {
   this._browser = browser;
   this._isDocumentLoading = false;
-  this._isTopLevel = false;
+  this._domWindowID = 0;
   this._progressListeners = [];
 }
 
@@ -129,12 +129,14 @@ RemoteWebProgress.prototype = {
   },
 
   get isLoadingDocument() { return this._isDocumentLoading },
-  get isTopLevel() { return this._isTopLevel; },
+  get DOMWindow() { return null; },
+  get DOMWindowID() { return this._domWindowID; },
 
   addProgressListener: function WP_AddProgressListener (aListener) {
-    let listener = aListener.QueryInterface(Ci.nsIAsyncWebProgressListener);
+    let listener = aListener.QueryInterface(Ci.nsIWebProgressListener);
     this._progressListeners.push(listener);
   },
+
   removeProgressListener: function WP_RemoveProgressListener (aListener) {
     this._progressListeners =
       this._progressListeners.filter(function (l) l != aListener);
@@ -147,7 +149,9 @@ RemoteWebProgress.prototype = {
   },
 
   receiveMessage: function WP_ReceiveMessage(aMessage) {
-    this._isTopLevel = aMessage.json.isTopLevel;
+    this._domWindowID = aMessage.json.domWindowId;
+    this._browser.outerContentWindowId = aMessage.json.outerWindowId;
+    this._browser.innerContentWindowId = aMessage.json.innerWindowId;
 
     switch (aMessage.name) {
     case "Content:StateChange":

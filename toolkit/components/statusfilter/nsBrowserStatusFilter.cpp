@@ -75,6 +75,13 @@ nsBrowserStatusFilter::GetDOMWindow(nsIDOMWindow **aResult)
 }
 
 NS_IMETHODIMP
+nsBrowserStatusFilter::GetDOMWindowID(uint64_t *aResult)
+{
+    NS_NOTREACHED("nsBrowserStatusFilter::GetDOMWindowID");
+    return NS_ERROR_NOT_IMPLEMENTED;
+}
+
+NS_IMETHODIMP
 nsBrowserStatusFilter::GetIsLoadingDocument(bool *aIsLoadingDocument)
 {
     NS_NOTREACHED("nsBrowserStatusFilter::GetIsLoadingDocument");

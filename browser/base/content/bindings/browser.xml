@@ -56,7 +56,8 @@
 	</getter>
       </property>
 
-      <field name="contentWindowId">null</field>
+      <field name="outerContentWindowId">null</field>
+      <field name="innerContentWindowId">null</field>
 
       <field name="_contentTitle">null</field>
 

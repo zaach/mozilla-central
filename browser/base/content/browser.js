@@ -4034,7 +4034,7 @@ function mimeTypeIsTextBased(aMimeType)
 function WPIsTopLevel(aWebProgress)
 {
   if (gMultiProcessBrowser)
-    return aWebProgress.isTopLevel;
+    return gBrowser.selectedTab.linkedBrowser.outerContentWindowId == aWebProgress.DOMWindowID;
   else
     return content == aWebProgress.DOMWindow;
 }

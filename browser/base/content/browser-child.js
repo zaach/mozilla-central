@@ -11,13 +11,9 @@ Cu.import('resource://gre/modules/XPCOMUtils.jsm');
 
 let WebProgressListener = {
   init: function() {
-    let flags = Ci.nsIWebProgress.NOTIFY_ALL;
-
-    //let filter = Components.classes["@mozilla.org/appshell/component/browser-status-filter;1"]
-    //                                 .createInstance(Components.interfaces.nsIWebProgress);
-    //filter.addProgressListener(this, flags);
-    let webProgress = docShell.QueryInterface(Ci.nsIInterfaceRequestor).getInterface(Ci.nsIWebProgress);
-    webProgress.addProgressListener(this, flags);
+    let webProgress = docShell.QueryInterface(Ci.nsIInterfaceRequestor)
+                              .getInterface(Ci.nsIWebProgress);
+    webProgress.addProgressListener(this, Ci.nsIWebProgress.NOTIFY_ALL);
   },
 
   _requestSpec: function (aRequest) {
@@ -28,14 +24,21 @@ let WebProgressListener = {
     return undefined;
   },
 
+  _setupJSON: function setupJSON(aWebProgress, aRequest) {
+    let utils = content.QueryInterface(Ci.nsIInterfaceRequestor)
+                       .getInterface(Ci.nsIDOMWindowUtils);
+
+    return { currentInnerWindowId: utils.currentInnerWindowID,
+	     currentInnerWindowId: utils.currentOuterWindowID,
+	     domWindowId: aWebProgress ? aWebProgress.DOMWindowID : null,
+	     requestURI: this._requestSpec(aRequest)
+	   };
+  },
+
   onStateChange: function onStateChange(aWebProgress, aRequest, aStateFlags, aStatus) {
-    let json = {
-      contentWindowId: content.QueryInterface(Ci.nsIInterfaceRequestor).getInterface(Ci.nsIDOMWindowUtils).currentInnerWindowID,
-      stateFlags: aStateFlags,
-      status: aStatus,
-      isTopLevel: (content == aWebProgress.DOMWindow),
-      requestURI: this._requestSpec(aRequest)
-    };
+    let json = this._setupJSON(aWebProgress, aRequest);
+    json.stateFlags = aStateFlags;
+    json.status = aStatus;
 
     sendAsyncMessage("Content:StateChange", json);
   },
@@ -49,16 +52,12 @@ let WebProgressListener = {
 
     let charset = content.document.characterSet;
 
-    let json = {
-      contentWindowId: content.QueryInterface(Ci.nsIInterfaceRequestor).getInterface(Ci.nsIDOMWindowUtils).currentInnerWindowID,
-      documentURI:     aWebProgress.DOMWindow.document.documentURIObject.spec,
-      location:        spec,
-      canGoBack:       docShell.canGoBack,
-      canGoForward:    docShell.canGoForward,
-      charset:         charset.toString(),
-      isTopLevel:      (content == aWebProgress.DOMWindow),
-      requestURI:      this._requestSpec(aRequest)
-    };
+    let json = this._setupJSON(aWebProgress, aRequest);
+    json.documentURI = aWebProgress.DOMWindow.document.documentURIObject.spec;
+    json.location = spec;
+    json.canGoBack = docShell.canGoBack;
+    json.canGoForward = docShell.canGoForward;
+    json.charset = charset.toString();
 
     sendAsyncMessage("Content:LocationChange", json);
 
@@ -66,23 +65,16 @@ let WebProgressListener = {
   },
 
   onStatusChange: function onStatusChange(aWebProgress, aRequest, aStatus, aMessage) {
-    let json = {
-      status: aStatus,
-      message: aMessage,
-      isTopLevel: (content == aWebProgress.DOMWindow),
-      requestURI: this._requestSpec(aRequest)
-    };
+    let json = this._setupJSON(aWebProgress, aRequest);
+    json.status = aStatus;
+    json.message = aMessage;
 
     sendAsyncMessage("Content:StatusChange", json);
   },
 
   onSecurityChange: function onSecurityChange(aWebProgress, aRequest, aState) {
-    let json = {
-      contentWindowId: content.QueryInterface(Ci.nsIInterfaceRequestor).getInterface(Ci.nsIDOMWindowUtils).currentInnerWindowID,
-      state: aState,
-      isTopLevel: (content == aWebProgress.DOMWindow),
-      requestURI: this._requestSpec(aRequest)
-    };
+    let json = this._setupJSON(aWebProgress, aRequest);
+    json.state = aState;
 
     sendAsyncMessage("Content:SecurityChange", json);
   },
