@@ -86,3 +86,78 @@ let BrowserParent = {
     }
   }
 };
+
+function RemoteWebProgress(browser)
+{
+  this._browser = browser;
+  this._isDocumentLoading = false;
+  this._isTopLevel = false;
+  this._progressListeners = [];
+}
+
+RemoteWebProgress.prototype = {
+  NOTIFY_STATE_REQUEST:  0x00000001,
+  NOTIFY_STATE_DOCUMENT: 0x00000002,
+  NOTIFY_STATE_NETWORK:  0x00000004,
+  NOTIFY_STATE_WINDOW:   0x00000008,
+  NOTIFY_STATE_ALL:      0x0000000f,
+  NOTIFY_PROGRESS:       0x00000010,
+  NOTIFY_STATUS:         0x00000020,
+  NOTIFY_SECURITY:       0x00000040,
+  NOTIFY_LOCATION:       0x00000080,
+  NOTIFY_REFRESH:        0x00000100,
+  NOTIFY_ALL:            0x000001ff,
+
+  _init: function WP_Init() {
+    this._browser.messageManager.addMessageListener("Content:StateChange", this);
+    this._browser.messageManager.addMessageListener("Content:LocationChange", this);
+    this._browser.messageManager.addMessageListener("Content:SecurityChange", this);
+    this._browser.messageManager.addMessageListener("Content:StatusChange", this);
+  },
+
+  get isLoadingDocument() { return this._isDocumentLoading },
+  get isTopLevel() { return this._isTopLevel; },
+
+  addProgressListener: function WP_AddProgressListener (aListener) {
+    let listener = aListener.QueryInterface(Ci.nsIAsyncWebProgressListener);
+    this._progressListeners.push(listener);
+  },
+  removeProgressListener: function WP_RemoveProgressListener (aListener) {
+    this._progressListeners =
+      this._progressListeners.filter(function (l) l != aListener);
+  },
+
+  receiveMessage: function WP_ReceiveMessage(aMessage) {
+    this._isTopLevel = aMessage.json.isTopLevel;
+
+    switch (aMessage.name) {
+    case "Content:StateChange":
+      for each (let p in this._progressListeners) {
+        p.onStateChange(this, null, aMessage.json.stateFlags, aMessage.json.status);
+      }
+      break;
+
+    case "Content:LocationChange":
+      let loc = Components.classes["@mozilla.org/network/io-service;1"].getService(Components.interfaces.nsIIOService).newURI(aMessage.json.location, null, null);
+      this._browser.webNavigation._currentURI = loc;
+      this._browser.webNavigation.canGoBack = aMessage.json.canGoBack;
+      this._browser.webNavigation.canGoForward = aMessage.json.canGoForward;
+      for each (let p in this._progressListeners) {
+        p.onLocationChange(this, null, loc);
+      }
+      break;
+
+    case "Content:SecurityChange":
+      for each (let p in this._progressListeners) {
+        p.onSecurityChange(this, null, aMessage.json.state);
+      }
+      break;
+
+    case "Content:StatusChange":
+      for each (let p in this._progressListeners) {
+        p.onStatusChange(this, null, aMessage.json.status, aMessage.json.message);
+      }
+      break;
+    }
+  }
+};

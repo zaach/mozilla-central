@@ -39,88 +39,19 @@
         </getter>
       </property>
 
-      <field name="_remoteWebProgress"><![CDATA[
-        ({
-          _browser: this,
-          _isDocumentLoading: false,
-          _isTopLevel: false,
-
-          NOTIFY_STATE_REQUEST:  0x00000001,
-          NOTIFY_STATE_DOCUMENT: 0x00000002,
-          NOTIFY_STATE_NETWORK:  0x00000004,
-          NOTIFY_STATE_WINDOW:   0x00000008,
-          NOTIFY_STATE_ALL:      0x0000000f,
-          NOTIFY_PROGRESS:       0x00000010,
-          NOTIFY_STATUS:         0x00000020,
-          NOTIFY_SECURITY:       0x00000040,
-          NOTIFY_LOCATION:       0x00000080,
-          NOTIFY_REFRESH:        0x00000100,
-          NOTIFY_ALL:            0x000001ff,
-
-          get isLoadingDocument() { return this._isDocumentLoading },
-          get isTopLevel() { return this._isTopLevel; },
-
-          mProgressListeners: [],
-          addProgressListener: function WP_AddProgressListener (aListener) {
-            this.mProgressListeners.push(aListener.QueryInterface(Components.interfaces.nsIAsyncWebProgressListener));
-          },
-          removeProgressListener: function WP_RemoveProgressListener (aListener) {
-            this.mProgressListeners =
-              this.mProgressListeners.filter(function (l) l != aListener);
-          },
-
-          _init: function WP_Init() {
-            this._browser.messageManager.addMessageListener("Content:StateChange", this);
-            this._browser.messageManager.addMessageListener("Content:LocationChange", this);
-            this._browser.messageManager.addMessageListener("Content:SecurityChange", this);
-            this._browser.messageManager.addMessageListener("Content:StatusChange", this);
-          },
-
-          receiveMessage: function WP_ReceiveMessage(aMessage) {
-            this._isTopLevel = aMessage.json.isTopLevel;
-
-            switch (aMessage.name) {
-             case "Content:StateChange":
-               for each (let p in this.mProgressListeners) {
-                 p.onStateChange(this, null, aMessage.json.stateFlags, aMessage.json.status);
-               }
-               break;
-
-             case "Content:LocationChange":
-               let loc = Components.classes["@mozilla.org/network/io-service;1"].getService(Components.interfaces.nsIIOService).newURI(aMessage.json.location, null, null);
-               this._browser.webNavigation._currentURI = loc;
-               this._browser.webNavigation.canGoBack = aMessage.json.canGoBack;
-               this._browser.webNavigation.canGoForward = aMessage.json.canGoForward;
-               for each (let p in this.mProgressListeners) {
-                 p.onLocationChange(this, null, loc);
-               }
-               break;
-
-             case "Content:SecurityChange":
-               for each (let p in this.mProgressListeners) {
-                 p.onSecurityChange(this, null, aMessage.json.state);
-               }
-               break;
-
-             case "Content:StatusChange":
-               for each (let p in this.mProgressListeners) {
-                 p.onStatusChange(this, null, aMessage.json.status, aMessage.json.message);
-               }
-               break;
-
-            }
-          }
-        })
-      ]]></field>
+      <field name="_remoteWebProgress">null</field>
 
       <property name="webProgress"
                 readonly="true">
 	<getter>
 	  <![CDATA[
-            if (this.isRemoteBrowser)
+            if (this.isRemoteBrowser) {
+              if (!this._remoteWebProgress)
+                this._remoteWebProgress = new RemoteWebProgress(this);
               return this._remoteWebProgress;
-            else
+            } else {
               return this.docShell.QueryInterface(Components.interfaces.nsIInterfaceRequestor).getInterface(Components.interfaces.nsIWebProgress);
+	    }
 	  ]]>
 	</getter>
       </property>
