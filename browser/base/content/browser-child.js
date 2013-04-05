@@ -20,12 +20,21 @@ let WebProgressListener = {
     webProgress.addProgressListener(this, flags);
   },
 
+  _requestSpec: function (aRequest) {
+    if (!aRequest)
+      return null;
+    if (aRequest instanceof Ci.nsIChannel)
+      return aRequest.QueryInterface(Ci.nsIChannel).URI.spec;
+    return undefined;
+  },
+
   onStateChange: function onStateChange(aWebProgress, aRequest, aStateFlags, aStatus) {
     let json = {
       contentWindowId: content.QueryInterface(Ci.nsIInterfaceRequestor).getInterface(Ci.nsIDOMWindowUtils).currentInnerWindowID,
       stateFlags: aStateFlags,
       status: aStatus,
-      isTopLevel: (content == aWebProgress.DOMWindow)
+      isTopLevel: (content == aWebProgress.DOMWindow),
+      requestURI: this._requestSpec(aRequest)
     };
 
     sendAsyncMessage("Content:StateChange", json);
@@ -47,7 +56,8 @@ let WebProgressListener = {
       canGoBack:       docShell.canGoBack,
       canGoForward:    docShell.canGoForward,
       charset:         charset.toString(),
-      isTopLevel:      (content == aWebProgress.DOMWindow)
+      isTopLevel:      (content == aWebProgress.DOMWindow),
+      requestURI:      this._requestSpec(aRequest)
     };
 
     sendAsyncMessage("Content:LocationChange", json);
@@ -59,7 +69,8 @@ let WebProgressListener = {
     let json = {
       status: aStatus,
       message: aMessage,
-      isTopLevel: (content == aWebProgress.DOMWindow)
+      isTopLevel: (content == aWebProgress.DOMWindow),
+      requestURI: this._requestSpec(aRequest)
     };
 
     sendAsyncMessage("Content:StatusChange", json);
@@ -69,7 +80,8 @@ let WebProgressListener = {
     let json = {
       contentWindowId: content.QueryInterface(Ci.nsIInterfaceRequestor).getInterface(Ci.nsIDOMWindowUtils).currentInnerWindowID,
       state: aState,
-      isTopLevel: (content == aWebProgress.DOMWindow)
+      isTopLevel: (content == aWebProgress.DOMWindow),
+      requestURI: this._requestSpec(aRequest)
     };
 
     sendAsyncMessage("Content:SecurityChange", json);

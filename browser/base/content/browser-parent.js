@@ -87,6 +87,19 @@ let BrowserParent = {
   }
 };
 
+function RemoteWebProgressRequest(spec)
+{
+  this.uri = Cc["@mozilla.org/network/io-service;1"]
+             .getService(Ci.nsIIOService)
+             .newURI(spec, null, null);
+}
+
+RemoteWebProgressRequest.prototype = {
+  QueryInterface : XPCOMUtils.generateQI([Ci.nsIChannel]),
+
+  get URI() { return this.uri; }
+};
+
 function RemoteWebProgress(browser)
 {
   this._browser = browser;
@@ -127,35 +140,47 @@ RemoteWebProgress.prototype = {
       this._progressListeners.filter(function (l) l != aListener);
   },
 
+  _uriSpec: function (spec) {
+    if (!spec)
+      return null;
+    return new RemoteWebProgressRequest(spec);
+  },
+
   receiveMessage: function WP_ReceiveMessage(aMessage) {
     this._isTopLevel = aMessage.json.isTopLevel;
 
     switch (aMessage.name) {
     case "Content:StateChange":
+      var req = this._uriSpec(aMessage.json.requestURI);
       for each (let p in this._progressListeners) {
-        p.onStateChange(this, null, aMessage.json.stateFlags, aMessage.json.status);
+        p.onStateChange(this, req, aMessage.json.stateFlags, aMessage.json.status);
       }
       break;
 
     case "Content:LocationChange":
-      let loc = Components.classes["@mozilla.org/network/io-service;1"].getService(Components.interfaces.nsIIOService).newURI(aMessage.json.location, null, null);
+      var req = this._uriSpec(aMessage.json.requestURI);
+      let loc = Cc["@mozilla.org/network/io-service;1"]
+                .getService(Ci.nsIIOService)
+                .newURI(aMessage.json.location, null, null);
       this._browser.webNavigation._currentURI = loc;
       this._browser.webNavigation.canGoBack = aMessage.json.canGoBack;
       this._browser.webNavigation.canGoForward = aMessage.json.canGoForward;
       for each (let p in this._progressListeners) {
-        p.onLocationChange(this, null, loc);
+        p.onLocationChange(this, req, loc);
       }
       break;
 
     case "Content:SecurityChange":
+      var req = this._uriSpec(aMessage.json.requestURI);
       for each (let p in this._progressListeners) {
-        p.onSecurityChange(this, null, aMessage.json.state);
+        p.onSecurityChange(this, req, aMessage.json.state);
       }
       break;
 
     case "Content:StatusChange":
+      var req = this._uriSpec(aMessage.json.requestURI);
       for each (let p in this._progressListeners) {
-        p.onStatusChange(this, null, aMessage.json.status, aMessage.json.message);
+        p.onStatusChange(this, req, aMessage.json.status, aMessage.json.message);
       }
       break;
     }
