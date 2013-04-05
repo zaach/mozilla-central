@@ -504,7 +504,7 @@
                 // We need to add 2 because loadURIWithFlags may have
                 // cancelled a pending load which would have cleared
                 // its anchor scroll detection temporary increment.
-		if (aWebProgress.isTopLevel)
+                if (WPIsTopLevel(aWebProgress))
                   this.mBrowser.userTypedClear += 2;
 
                 if (!this.mBlank) {
@@ -531,7 +531,7 @@
                 }
                 this.mTab.removeAttribute("progress");
 
-                if (aWebProgress.isTopLevel) {
+                if (WPIsTopLevel(aWebProgress)) {
                   if (!Components.isSuccessCode(aStatus) &&
                       !isTabEmpty(this.mTab)) {
                     // Restore the current document's location in case the
@@ -602,7 +602,7 @@
                                         aFlags) {
               // OnLocationChange is called for both the top-level content
               // and the subframes.
-              let topLevel = aWebProgress.isTopLevel;
+              let topLevel = WPIsTopLevel(aWebProgress);
 
               if (topLevel) {
                 // The document loaded correctly, clear the value if we should

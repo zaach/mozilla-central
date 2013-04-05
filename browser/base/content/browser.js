@@ -4031,6 +4031,14 @@ function mimeTypeIsTextBased(aMimeType)
          aMimeType == "mozilla.application/cached-xul";
 }
 
+function WPIsTopLevel(aWebProgress)
+{
+  if (gMultiProcessBrowser)
+    return aWebProgress.isTopLevel;
+  else
+    return content == aWebProgress.DOMWindow;
+}
+
 var XULBrowserWindow = {
   // Stored Status, Link and Loading values
   status: "",
@@ -4196,7 +4204,7 @@ var XULBrowserWindow = {
     const nsIWebProgressListener = Ci.nsIWebProgressListener;
     const nsIChannel = Ci.nsIChannel;
 
-    let isTopLevel = aWebProgress.isTopLevel;
+    let isTopLevel = WPIsTopLevel(aWebProgress);
 
     if (aStateFlags & nsIWebProgressListener.STATE_START &&
         aStateFlags & nsIWebProgressListener.STATE_IS_NETWORK) {
@@ -4276,7 +4284,7 @@ var XULBrowserWindow = {
     var location = aLocationURI ? aLocationURI.spec : "";
     this._hostChanged = true;
 
-    let isTopLevel = aWebProgress.isTopLevel;
+    let isTopLevel = WPIsTopLevel(aWebProgress);
 
     // Hide the form invalid popup.
     if (gFormSubmitObserver.panel) {
@@ -4747,7 +4755,7 @@ var TabsProgressListener = {
     }
 #endif
 
-    let isTopLevel = aWebProgress.isTopLevel;
+    let isTopLevel = WPIsTopLevel(aWebProgress);
 
     // Collect telemetry data about tab load times.
     if (isTopLevel) {
@@ -4797,7 +4805,7 @@ var TabsProgressListener = {
                               aFlags) {
     // Filter out sub-frame loads and location changes caused by anchor
     // navigation or history.push/pop/replaceState.
-    if (aWebProgress.isTopLevel &&
+    if (WPIsTopLevel(aWebProgress) &&
         !(aFlags & Ci.nsIWebProgressListener.LOCATION_CHANGE_SAME_DOCUMENT)) {
       // Initialize the click-to-play state.
       aBrowser._clickToPlayPluginsActivated = new Map();
