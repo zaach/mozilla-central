@@ -28,8 +28,8 @@ let WebProgressListener = {
     let utils = content.QueryInterface(Ci.nsIInterfaceRequestor)
                        .getInterface(Ci.nsIDOMWindowUtils);
 
-    return { currentInnerWindowId: utils.currentInnerWindowID,
-	     currentInnerWindowId: utils.currentOuterWindowID,
+    return { innerWindowId: utils.currentInnerWindowID,
+	     outerWindowId: utils.outerWindowID,
 	     domWindowId: aWebProgress ? aWebProgress.DOMWindowID : null,
 	     requestURI: this._requestSpec(aRequest)
 	   };
