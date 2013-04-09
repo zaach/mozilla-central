@@ -4031,12 +4031,20 @@ function mimeTypeIsTextBased(aMimeType)
          aMimeType == "mozilla.application/cached-xul";
 }
 
-function WPIsTopLevel(aWebProgress)
+function WPIsTopLevelInCurrentBrowser(aWebProgress)
 {
   if (gMultiProcessBrowser)
     return gBrowser.selectedTab.linkedBrowser.outerContentWindowId == aWebProgress.DOMWindowID;
   else
     return content == aWebProgress.DOMWindow;
+}
+
+function WPIsTopLevelInBrowser(aWebProgress, aBrowser)
+{
+  if (gMultiProcessBrowser)
+    return aBrowser.outerContentWindowId == aWebProgress.DOMWindowID;
+  else
+    return aBrowser.contentWindow == aWebProgress.DOMWindow;
 }
 
 var XULBrowserWindow = {
@@ -4204,7 +4212,7 @@ var XULBrowserWindow = {
     const nsIWebProgressListener = Ci.nsIWebProgressListener;
     const nsIChannel = Ci.nsIChannel;
 
-    let isTopLevel = WPIsTopLevel(aWebProgress);
+    let isTopLevel = WPIsTopLevelInCurrentBrowser(aWebProgress);
 
     if (aStateFlags & nsIWebProgressListener.STATE_START &&
         aStateFlags & nsIWebProgressListener.STATE_IS_NETWORK) {
@@ -4227,7 +4235,7 @@ var XULBrowserWindow = {
       }
     }
     else if (aStateFlags & nsIWebProgressListener.STATE_STOP) {
-      if (aStateFlags & nsIWebProgressListener.STATE_IS_NETWORK && isTopLevel)
+      if (aStateFlags & nsIWebProgressListener.STATE_IS_NETWORK && isTopLevel && aRequest)
         this.endDocumentLoad(aRequest, aStatus);
 
       // This (thanks to the filter) is a network stop or the last
@@ -4284,7 +4292,7 @@ var XULBrowserWindow = {
     var location = aLocationURI ? aLocationURI.spec : "";
     this._hostChanged = true;
 
-    let isTopLevel = WPIsTopLevel(aWebProgress);
+    let isTopLevel = WPIsTopLevelInCurrentBrowser(aWebProgress);
 
     // Hide the form invalid popup.
     if (gFormSubmitObserver.panel) {
@@ -4755,7 +4763,7 @@ var TabsProgressListener = {
     }
 #endif
 
-    let isTopLevel = WPIsTopLevel(aWebProgress);
+    let isTopLevel = WPIsTopLevelInBrowser(aWebProgress, aBrowser);
 
     // Collect telemetry data about tab load times.
     if (isTopLevel) {
@@ -4805,7 +4813,7 @@ var TabsProgressListener = {
                               aFlags) {
     // Filter out sub-frame loads and location changes caused by anchor
     // navigation or history.push/pop/replaceState.
-    if (WPIsTopLevel(aWebProgress) &&
+    if (WPIsTopLevelInBrowser(aWebProgress, aBrowser) &&
         !(aFlags & Ci.nsIWebProgressListener.LOCATION_CHANGE_SAME_DOCUMENT)) {
       // Initialize the click-to-play state.
       aBrowser._clickToPlayPluginsActivated = new Map();
