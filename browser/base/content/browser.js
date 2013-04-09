@@ -4299,7 +4299,6 @@ var XULBrowserWindow = {
       gFormSubmitObserver.panel.hidePopup();
     }
 
-#if 0
     if (document.tooltipNode) {
       // Optimise for the common case
       if (isTopLevel) {
@@ -4319,7 +4318,6 @@ var XULBrowserWindow = {
         }
       }
     }
-#endif
 
     // This code here does not compare uris exactly when determining
     // whether or not the message should be hidden since the message

@@ -562,13 +562,11 @@
                 if (this.mBlank)
                   this.mBlank = false;
 
-#if 0
                 var location = aRequest.QueryInterface(nsIChannel).URI;
 
                 // For keyword URIs clear the user typed value since they will be changed into real URIs
                 if (location.scheme == "keyword")
                   this.mBrowser.userTypedValue = null;
-#endif
 
                 if (this.mTab.label == this.mTabBrowser.mStringBundle.getString("tabs.connecting"))
                   this.mTabBrowser.setTabTitle(this.mTab);
