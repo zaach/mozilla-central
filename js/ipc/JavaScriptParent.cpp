@@ -454,7 +454,8 @@ JavaScriptParent::drop(JSObject *obj)
         return;
 
     objects_.remove(objId);
-    SendDropObject(objId);
+    if (!SendDropObject(objId))
+        MOZ_CRASH();
     DecRef();
 }
 
