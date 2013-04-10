@@ -665,7 +665,7 @@
         <body><![CDATA[
           this._numNoActionsKeys = 0;
           this.popup.removeAttribute("noactions");
-	  if (this._value) {
+          if (this._value) {
             let action = this._parseActionUrl(this._value);
             if (action)
               this.setAttribute("actiontype", action.type);

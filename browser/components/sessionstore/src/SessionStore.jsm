@@ -313,6 +313,9 @@ let SessionStoreInternal = {
   // "sessionstore.resume_from_crash" is true.
   _resume_session_once_on_shutdown: null,
 
+  // True if session store is disabled by multi-process browsing
+  _disabled: false,
+
   /**
    * A promise fulfilled once initialization is complete.
    */
@@ -350,6 +353,8 @@ let SessionStoreInternal = {
 
     // Do pref migration before we store any values and start observing changes
     this._migratePrefs();
+
+    this._disabled = this._prefBranch.getBoolPref("tabs.remote");
 
     // this pref is only read at startup, so no need to observe it
     this._sessionhistory_max_entries =
@@ -575,8 +580,8 @@ let SessionStoreInternal = {
    * Handle notifications
    */
   observe: function ssi_observe(aSubject, aTopic, aData) {
-    // Currently broken with electrolysis
-    return;
+    if (this._disabled)
+      return;
 
     switch (aTopic) {
       case "domwindowopened": // catch new windows
@@ -618,8 +623,8 @@ let SessionStoreInternal = {
    * Implement nsIDOMEventListener for handling various window and tab events
    */
   handleEvent: function ssi_handleEvent(aEvent) {
-    // Broken in electrolysis
-    return;
+    if (this._disabled)
+      return;
 
     var win = aEvent.currentTarget.ownerDocument.defaultView;
     switch (aEvent.type) {

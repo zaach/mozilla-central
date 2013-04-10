@@ -1137,9 +1137,7 @@ var gBrowserInit = {
     if ("arguments" in window && window.arguments[0])
       var uriToLoad = window.arguments[0];
 
-    gMultiProcessBrowser =
-      Services.prefs.getPrefType("browser.tabs.remote") == Services.prefs.PREF_BOOL &&
-      Services.prefs.getBoolPref("browser.tabs.remote");
+    gMultiProcessBrowser = Services.prefs.getBoolPref("browser.tabs.remote");
 
     var mustLoadSidebar = false;
 
@@ -1203,7 +1201,6 @@ var gBrowserInit = {
 
     // enable global history
     try {
-      // E10S FIXME: Can this run in a frame script?
       if (!gMultiProcessBrowser) {
         gBrowser.docShell.QueryInterface(Ci.nsIDocShellHistory).useGlobalHistory = true;
       }
@@ -2501,14 +2498,14 @@ function URLBarSetURI(aURI) {
 
     // Replace initial page URIs with an empty string
     // only if there's no opener (bug 370555).
-    if (gInitialPages.indexOf(uri.spec) != -1)
-#if 0
-      value = content.opener ? uri.spec : "";
-#else
-      value = "";
-#endif
-    else
+    if (gInitialPages.indexOf(uri.spec) != -1) {
+      if (gMultiProcessBrowser)
+        value = "";
+      else
+        value = content.opener ? uri.spec : "";
+    } else {
       value = losslessDecodeURI(uri);
+    }
 
     valid = !isBlankPageURL(uri.spec);
   }
@@ -4088,14 +4085,13 @@ var XULBrowserWindow = {
   init: function () {
     this.throbberElement = document.getElementById("navigator-throbber");
 
-#if 0
     // Bug 666809 - SecurityUI support for e10s
     // Initialize the security button's state and tooltip text.  Remember to reset
     // _hostChanged, otherwise onSecurityChange will short circuit.
     var securityUI = gBrowser.securityUI;
     this._hostChanged = true;
-    this.onSecurityChange(null, null, securityUI.state);
-#endif
+    if (securityUI)
+      this.onSecurityChange(null, null, securityUI.state);
   },
 
   destroy: function () {
@@ -4235,9 +4231,6 @@ var XULBrowserWindow = {
       }
     }
     else if (aStateFlags & nsIWebProgressListener.STATE_STOP) {
-      if (aStateFlags & nsIWebProgressListener.STATE_IS_NETWORK && isTopLevel && aRequest)
-        this.endDocumentLoad(aRequest, aStatus);
-
       // This (thanks to the filter) is a network stop or the last
       // request stop outside of loading the document, stop throbbers
       // and progress bars and such
@@ -4264,13 +4257,13 @@ var XULBrowserWindow = {
         this.status = "";
         this.setDefaultStatus(msg);
 
-#if 0
-        // Disable menu entries for images, enable otherwise
-        if (content.document && mimeTypeIsTextBased(content.document.contentType))
-          this.isImage.removeAttribute('disabled');
-        else
-          this.isImage.setAttribute('disabled', 'true');
-#endif
+        if (!gMultiProcessBrowser) {
+          // Disable menu entries for images, enable otherwise
+          if (content.document && mimeTypeIsTextBased(content.document.contentType))
+            this.isImage.removeAttribute('disabled');
+          else
+            this.isImage.setAttribute('disabled', 'true');
+        }
       }
 
       this.isBusy = false;
@@ -4345,13 +4338,13 @@ var XULBrowserWindow = {
       }
     }
 
-#if 0
-    // Disable menu entries for images, enable otherwise
-    if (content.document && mimeTypeIsTextBased(content.document.contentType))
-      this.isImage.removeAttribute('disabled');
-    else
-      this.isImage.setAttribute('disabled', 'true');
-#endif
+    if (!gMultiProcessBrowser) {
+      // Disable menu entries for images, enable otherwise
+      if (content.document && mimeTypeIsTextBased(content.document.contentType))
+        this.isImage.removeAttribute('disabled');
+      else
+        this.isImage.setAttribute('disabled', 'true');
+    }
 
     this.hideOverLinkImmediately = true;
     this.setOverLink("", null);
@@ -4364,15 +4357,15 @@ var XULBrowserWindow = {
 
     var browser = gBrowser.selectedBrowser;
     if (isTopLevel) {
-#if 0
-      if ((location == "about:blank" && !content.opener) ||
-          location == "") {  // Second condition is for new tabs, otherwise
-                             // reload function is enabled until tab is refreshed.
-        this.reloadCommand.setAttribute("disabled", "true");
-      } else {
-        this.reloadCommand.removeAttribute("disabled");
+      if (!gMultiProcessBrowser) {
+        if ((location == "about:blank" && !content.opener) ||
+            location == "") {  // Second condition is for new tabs, otherwise
+                               // reload function is enabled until tab is refreshed.
+            this.reloadCommand.setAttribute("disabled", "true");
+        } else {
+          this.reloadCommand.removeAttribute("disabled");
+        }
       }
-#endif
 
       if (gURLBar) {
         URLBarSetURI(aLocationURI);
@@ -4419,22 +4412,23 @@ var XULBrowserWindow = {
         disableFindCommands(shouldDisableFind(e.target));
       }
 
-#if 0
-      // Disable find commands in documents that ask for them to be disabled.
-      if (aLocationURI &&
-          (aLocationURI.schemeIs("about") || aLocationURI.schemeIs("chrome"))) {
-        // Don't need to re-enable/disable find commands for same-document location changes
-        // (e.g. the replaceStates in about:addons)
-        if (!(aFlags & Ci.nsIWebProgressListener.LOCATION_CHANGE_SAME_DOCUMENT)) {
-          if (content.document.readyState == "interactive" || content.document.readyState == "complete")
-            disableFindCommands(shouldDisableFind(content.document));
-          else {
-            content.document.addEventListener("readystatechange", onContentRSChange);
+      if (!gMultiProcessBrowser) {
+        // Disable find commands in documents that ask for them to be disabled.
+        if (aLocationURI &&
+            (aLocationURI.schemeIs("about") || aLocationURI.schemeIs("chrome"))) {
+          // Don't need to re-enable/disable find commands for same-document location changes
+          // (e.g. the replaceStates in about:addons)
+          if (!(aFlags & Ci.nsIWebProgressListener.LOCATION_CHANGE_SAME_DOCUMENT)) {
+            if (content.document.readyState == "interactive" || content.document.readyState == "complete")
+              disableFindCommands(shouldDisableFind(content.document));
+            else {
+              content.document.addEventListener("readystatechange", onContentRSChange);
+            }
           }
+        } else {
+          disableFindCommands(false);
         }
-      } else
-        disableFindCommands(false);
-#endif
+      }
 
       if (gFindBarInitialized) {
         if (gFindBar.findMode != gFindBar.FIND_NORMAL) {
@@ -4535,25 +4529,25 @@ var XULBrowserWindow = {
         gURLBar.removeAttribute("level");
     }
 
-#if 0
-    // Don't pass in the actual location object, since it can cause us to
-    // hold on to the window object too long.  Just pass in the fields we
-    // care about. (bug 424829)
-    var location = gBrowser.contentWindow.location;
-    var locationObj = {};
-    try {
-      // about:blank can be used by webpages so pretend it is http
-      locationObj.protocol = location == "about:blank" ? "http:" : location.protocol;
-      locationObj.host = location.host;
-      locationObj.hostname = location.hostname;
-      locationObj.port = location.port;
-    } catch (ex) {
-      // Can sometimes throw if the URL being visited has no host/hostname,
-      // e.g. about:blank. The _state for these pages means we won't need these
-      // properties anyways, though.
+    if (!gMultiProcessBrowser) {
+      // Don't pass in the actual location object, since it can cause us to
+      // hold on to the window object too long.  Just pass in the fields we
+      // care about. (bug 424829)
+      var location = gBrowser.contentWindow.location;
+      var locationObj = {};
+      try {
+        // about:blank can be used by webpages so pretend it is http
+        locationObj.protocol = location == "about:blank" ? "http:" : location.protocol;
+        locationObj.host = location.host;
+        locationObj.hostname = location.hostname;
+        locationObj.port = location.port;
+      } catch (ex) {
+        // Can sometimes throw if the URL being visited has no host/hostname,
+        // e.g. about:blank. The _state for these pages means we won't need these
+        // properties anyways, though.
+      }
+      gIdentityHandler.checkIdentity(this._state, locationObj);
     }
-    gIdentityHandler.checkIdentity(this._state, locationObj);
-#endif
   },
 
   // simulate all change notifications after switching tabs
@@ -4583,22 +4577,6 @@ var XULBrowserWindow = {
 
     // clear out search-engine data
     gBrowser.selectedBrowser.engines = null;
-
-    var uri = ""; // aRequest.QueryInterface(Ci.nsIChannel).URI;
-    try {
-      Services.obs.notifyObservers(content, "StartDocumentLoad", uri);
-    } catch (e) {
-    }
-  },
-
-  endDocumentLoad: function XWB_endDocumentLoad(aRequest, aStatus) {
-    var urlStr = ""; //aRequest.QueryInterface(Ci.nsIChannel).originalURI.spec;
-
-    var notification = Components.isSuccessCode(aStatus) ? "EndDocumentLoad" : "FailDocumentLoad";
-    try {
-      Services.obs.notifyObservers(content, notification, urlStr);
-    } catch (e) {
-    }
   }
 };
 
@@ -4783,28 +4761,28 @@ var TabsProgressListener = {
     // We can't look for this during onLocationChange since at that point the
     // document URI is not yet the about:-uri of the error page.
 
-#if 0
-    let doc = aWebProgress.DOMWindow.document;
-    if (aStateFlags & Ci.nsIWebProgressListener.STATE_STOP &&
-        Components.isSuccessCode(aStatus) &&
-        doc.documentURI.startsWith("about:") &&
-        !doc.documentURI.toLowerCase().startsWith("about:blank") &&
-        !doc.documentElement.hasAttribute("hasBrowserHandlers")) {
-      // STATE_STOP may be received twice for documents, thus store an
-      // attribute to ensure handling it just once.
-      doc.documentElement.setAttribute("hasBrowserHandlers", "true");
-      aBrowser.addEventListener("click", BrowserOnClick, true);
-      aBrowser.addEventListener("pagehide", function onPageHide(event) {
-        if (event.target.defaultView.frameElement)
-          return;
-        aBrowser.removeEventListener("click", BrowserOnClick, true);
-        aBrowser.removeEventListener("pagehide", onPageHide, true);
-      }, true);
+    if (!gMultiProcessBrowser) {
+      let doc = aWebProgress.DOMWindow.document;
+      if (aStateFlags & Ci.nsIWebProgressListener.STATE_STOP &&
+          Components.isSuccessCode(aStatus) &&
+          doc.documentURI.startsWith("about:") &&
+          !doc.documentURI.toLowerCase().startsWith("about:blank") &&
+          !doc.documentElement.hasAttribute("hasBrowserHandlers")) {
+        // STATE_STOP may be received twice for documents, thus store an
+        // attribute to ensure handling it just once.
+        doc.documentElement.setAttribute("hasBrowserHandlers", "true");
+        aBrowser.addEventListener("click", BrowserOnClick, true);
+        aBrowser.addEventListener("pagehide", function onPageHide(event) {
+          if (event.target.defaultView.frameElement)
+            return;
+          aBrowser.removeEventListener("click", BrowserOnClick, true);
+          aBrowser.removeEventListener("pagehide", onPageHide, true);
+        }, true);
 
-      // We also want to make changes to page UI for unprivileged about pages.
-      BrowserOnAboutPageLoad(doc);
+        // We also want to make changes to page UI for unprivileged about pages.
+        BrowserOnAboutPageLoad(doc);
+      }
     }
-#endif
   },
 
   onLocationChange: function (aBrowser, aWebProgress, aRequest, aLocationURI,
@@ -6775,10 +6753,8 @@ function isTabEmpty(aTab) {
   let browser = aTab.linkedBrowser;
   if (!isBlankPageURL(browser.currentURI.spec))
     return false;
-#if 0
-  if (browser.contentWindow.opener)
+  if (!gMultiProcessBrowser && browser.contentWindow.opener)
     return false;
-#endif
   if (browser.sessionHistory && browser.sessionHistory.count >= 2)
     return false;
 

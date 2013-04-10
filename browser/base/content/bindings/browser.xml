@@ -30,6 +30,9 @@
                 onget="return (this.getAttribute('remote') == 'true');"
                 readonly="true"/>
 
+      <property name="securityUI"
+                onget="return null;"/>
+
       <property name="webNavigation"
                 readonly="true">
         <getter>

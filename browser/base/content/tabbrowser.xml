@@ -474,8 +474,8 @@
             },
 
             onStateChange: function (aWebProgress, aRequest, aStateFlags, aStatus) {
-              //if (!aRequest)
-              //  return;
+              if (!aRequest)
+                return;
 
               var oldBlank = this.mBlank;
 
@@ -513,10 +513,10 @@
                 if (!this.mBlank) {
                   if (!(aStateFlags & nsIWebProgressListener.STATE_RESTORING)) {
                     this.mTab.setAttribute("busy", "true");
-#if 0
-                    if (!(this.mBrowser.docShell.loadType & Ci.nsIDocShell.LOAD_CMD_RELOAD))
-                      this.mTabBrowser.setTabTitleLoading(this.mTab);
-#endif
+		    if (!gMultiProcessBrowser) {
+                      if (!(this.mBrowser.docShell.loadType & Ci.nsIDocShell.LOAD_CMD_RELOAD))
+                        this.mTabBrowser.setTabTitleLoading(this.mTab);
+                    }
                   }
 
                   if (this.mTab.selected)
@@ -615,13 +615,13 @@
                 // previous location.
                 this.mBrowser.missingPlugins = null;
 
-#if 0
-                // Don't clear the favicon if this onLocationChange was
-                // triggered by a pushState or a replaceState.  See bug 550565.
-                if (aWebProgress.isLoadingDocument &&
-                    !(this.mBrowser.docShell.loadType & Ci.nsIDocShell.LOAD_CMD_PUSHSTATE))
-                  this.mBrowser.mIconURL = null;
-#endif
+                if (!gMultiProcessBrowser) {
+                  // Don't clear the favicon if this onLocationChange was
+                  // triggered by a pushState or a replaceState.  See bug 550565.
+                  if (aWebProgress.isLoadingDocument &&
+                      !(this.mBrowser.docShell.loadType & Ci.nsIDocShell.LOAD_CMD_PUSHSTATE))
+                    this.mBrowser.mIconURL = null;
+                }
 
                 let autocomplete = this.mTabBrowser._placesAutocomplete;
                 if (this.mBrowser.registeredOpenURI) {
@@ -737,7 +737,9 @@
         <parameter name="aTab"/>
         <body>
           <![CDATA[
-            return;
+            if (gMultiProcessBrowser)
+              return;
+
             var browser = this.getBrowserForTab(aTab);
             var docURIObject = browser.contentDocument.documentURIObject;
             var icon = null;
@@ -900,20 +902,16 @@
             var loc = this.mCurrentBrowser.currentURI;
 
             var webProgress = this.mCurrentBrowser.webProgress;
-#if 0
             var securityUI = this.mCurrentBrowser.securityUI;
-#endif
 
             this._callProgressListeners(null, "onLocationChange",
                                         [webProgress, null, loc, 0], true,
                                         false);
 
-#if 0
             if (securityUI) {
               this._callProgressListeners(null, "onSecurityChange",
                                           [webProgress, null, securityUI.state], true, false);
             }
-#endif
 
             var listener = this.mTabListeners[this.tabContainer.selectedIndex] || null;
             if (listener && listener.mStateFlags) {
@@ -928,7 +926,8 @@
               this.selectedTab.lastAccessed = Date.now();
 
               // Bug 666816 - TypeAheadFind support for e10s
-              //this._fastFind.setDocShell(this.mCurrentBrowser.docShell);
+              if (!gMultiProcessBrowser)
+                this._fastFind.setDocShell(this.mCurrentBrowser.docShell);
 
               this.updateTitlebar();
 
@@ -1018,16 +1017,17 @@
                 // Otherwise, focus the content area.
                 let fm = Cc["@mozilla.org/focus-manager;1"].getService(Ci.nsIFocusManager);
                 let focusFlags = fm.FLAG_NOSCROLL;
-#if 0
-                let newFocusedElement = fm.getFocusedElementForWindow(window.content, true, {});
 
-                // for anchors, use FLAG_SHOWRING so that it is clear what link was
-                // last clicked when switching back to that tab
-                if (newFocusedElement &&
-                    (newFocusedElement instanceof HTMLAnchorElement ||
-                     newFocusedElement.getAttributeNS("http://www.w3.org/1999/xlink", "type") == "simple"))
-                  focusFlags |= fm.FLAG_SHOWRING;
-#endif
+                if (!gMultiProcessBrowser) {
+                  let newFocusedElement = fm.getFocusedElementForWindow(window.content, true, {});
+
+                  // for anchors, use FLAG_SHOWRING so that it is clear what link was
+                  // last clicked when switching back to that tab
+                  if (newFocusedElement &&
+                      (newFocusedElement instanceof HTMLAnchorElement ||
+                       newFocusedElement.getAttributeNS("http://www.w3.org/1999/xlink", "type") == "simple"))
+                    focusFlags |= fm.FLAG_SHOWRING;
+                }
                 fm.setFocus(newBrowser, focusFlags);
               } while (false);
             }
@@ -1083,17 +1083,17 @@
               }
 
               if (title && !isBlankPageURL(title)) {
-#if 0
-                // At this point, we now have a URI.
-                // Let's try to unescape it using a character set
-                // in case the URI is not ASCII.
-                try {
-                  var characterSet = browser.contentDocument.characterSet;
-                  const textToSubURI = Components.classes["@mozilla.org/intl/texttosuburi;1"]
-                                                 .getService(Components.interfaces.nsITextToSubURI);
-                  title = textToSubURI.unEscapeNonAsciiURI(characterSet, title);
-                } catch(ex) { /* Do nothing. */ }
-#endif
+                if (!gMultiProcessBrowser) {
+                  // At this point, we now have a URI.
+                  // Let's try to unescape it using a character set
+                  // in case the URI is not ASCII.
+                  try {
+                    var characterSet = browser.contentDocument.characterSet;
+                    const textToSubURI = Components.classes["@mozilla.org/intl/texttosuburi;1"]
+                                                   .getService(Components.interfaces.nsITextToSubURI);
+                    title = textToSubURI.unEscapeNonAsciiURI(characterSet, title);
+                  } catch(ex) { /* Do nothing. */ }
+                }
                 crop = "center";
 
               } else // Still no title?  Fall back to our untitled string.
@@ -1671,11 +1671,11 @@
             aTab.dispatchEvent(evt);
 
             // Prevent this tab from showing further dialogs, since we're closing it
-#if 0
-            var windowUtils = browser.contentWindow.QueryInterface(Ci.nsIInterfaceRequestor).
-                              getInterface(Ci.nsIDOMWindowUtils);
-            windowUtils.preventFurtherDialogs();
-#endif
+            if (!gMultiProcessBrowser) {
+              var windowUtils = browser.contentWindow.QueryInterface(Ci.nsIInterfaceRequestor).
+                                getInterface(Ci.nsIDOMWindowUtils);
+              windowUtils.preventFurtherDialogs();
+            }
 
             // Remove the tab's filter and progress listener.
             const filter = this.mTabFilters[aTab._tPos];
