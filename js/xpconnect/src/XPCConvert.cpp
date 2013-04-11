@@ -22,6 +22,7 @@
 
 #include "jsapi.h"
 #include "jsfriendapi.h"
+#include "JavaScriptParent.h"
 
 #include "mozilla/dom/BindingUtils.h"
 #include "mozilla/dom/PrimitiveConversions.h"
@@ -58,6 +59,20 @@ XPCConvert::IsMethodReflectable(const XPTMethodDescriptor& info)
             return false;
     }
     return true;
+}
+
+static JSObject*
+UnwrapNativeCPOW(nsISupports* wrapper)
+{
+    nsCOMPtr<nsIXPConnectWrappedJS> underware = do_QueryInterface(wrapper);
+    if (underware) {
+        JSObject* mainObj = nullptr;
+        if (NS_SUCCEEDED(underware->GetJSObject(&mainObj)) && mainObj) {
+            if (mozilla::jsipc::JavaScriptParent::IsCPOW(mainObj))
+                return mainObj;
+        }
+    }
+    return nullptr;
 }
 
 /***************************************************************************/
@@ -316,6 +331,15 @@ XPCConvert::NativeData2JS(XPCLazyCallContext& lccx, jsval* d, const void* s,
 
                         return XPCVariant::VariantDataToJS(lccx, variant,
                                                            pErr, d);
+                    }
+                    if (JSObject *cpow = UnwrapNativeCPOW(iface)) {
+                        XPCCallContext &ccx = lccx.GetXPCCallContext();
+                        if (!ccx.IsValid())
+                            return false;
+                        if (!JS_WrapObject(ccx, &cpow))
+                            return false;
+                        *d = OBJECT_TO_JSVAL(cpow);
+                        return true;
                     }
                     // else...
                     xpcObjectHelper helper(iface);
