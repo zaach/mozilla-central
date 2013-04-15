@@ -340,6 +340,7 @@ private:
     //
     typedef std::deque<Message> MessageQueue;
     MessageQueue mPending;
+    MessageQueue mNonUrgentDeferred;
 
     // 
     // Stack of all the RPC out-calls on which this RPCChannel is

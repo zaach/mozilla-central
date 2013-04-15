@@ -70,6 +70,36 @@ SyncChannel::EventOccurred()
 }
 
 bool
+SyncChannel::ProcessUrgentMessages()
+{
+    while (!mUrgent.empty()) {
+        Message msg = mUrgent.front();
+        mUrgent.pop_front();
+
+        MOZ_ASSERT(msg.priority() == IPC::Message::PRIORITY_HIGH);
+
+        {
+            MOZ_ASSERT(msg.is_sync() || msg.is_rpc());
+
+            MonitorAutoUnlock unlock(*mMonitor);
+            SyncChannel::OnDispatchMessage(msg);
+        }
+
+        // Check state that could have been changed during dispatch.
+        if (!Connected()) {
+            ReportConnectionError("SyncChannel");
+            return false;
+        }
+
+        // We should not have received another synchronous reply,
+        // because we cannot send synchronous messages in this state.
+        MOZ_ASSERT(mRecvd.type() == 0);
+    }
+
+    return true;
+}
+
+bool
 SyncChannel::Send(Message* _msg, Message* reply)
 {
     NS_ABORT_IF_FALSE(!mPendingReply, "cannot nest sync");
@@ -134,29 +164,8 @@ SyncChannel::Send(Message* _msg, Message* reply)
 
         // Process all urgent messages. We forbid nesting synchronous sends,
         // so mPendingReply etc will still be valid.
-        while (!mUrgent.empty()) {
-            Message msg = mUrgent.front();
-            mUrgent.pop();
-
-            MOZ_ASSERT(msg.priority() == IPC::Message::PRIORITY_HIGH);
-
-            {
-                MOZ_ASSERT(msg.is_sync() || msg.is_rpc());
-
-                MonitorAutoUnlock unlock(*mMonitor);
-                SyncChannel::OnDispatchMessage(msg);
-            }
-
-            // Check state that could have been changed during dispatch.
-            if (!Connected()) {
-                ReportConnectionError("SyncChannel");
-                return false;
-            }
-
-            // We should not have received another synchronous reply,
-            // because we cannot send synchronous messages in this state.
-            MOZ_ASSERT(mRecvd.type() == 0);
-        }
+        if (!ProcessUrgentMessages())
+            return false;
 
         if (mRecvd.type() != 0) {
             // we just received a synchronous message from the other side.
@@ -240,7 +249,7 @@ SyncChannel::OnMessageReceivedFromLink(const Message& msg)
     if (AwaitingSyncReply() && msg.priority() == IPC::Message::PRIORITY_HIGH) {
         // If the message is high priority, we skip the worker entirely, and
         // wake up the loop that's spinning for a reply.
-        mUrgent.push(msg);
+        mUrgent.push_back(msg);
         NotifyWorkerThread();
         return;
     }

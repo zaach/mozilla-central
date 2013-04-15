@@ -105,6 +105,7 @@ function RemoteWebProgress(browser)
   this._browser = browser;
   this._isDocumentLoading = false;
   this._domWindowID = 0;
+  this._domWindow = null;
   this._progressListeners = [];
 }
 
@@ -129,7 +130,7 @@ RemoteWebProgress.prototype = {
   },
 
   get isLoadingDocument() { return this._isDocumentLoading },
-  get DOMWindow() { return null; },
+  get DOMWindow() { return this._domWindow; },
   get DOMWindowID() { return this._domWindowID; },
 
   addProgressListener: function WP_AddProgressListener (aListener) {
@@ -149,6 +150,8 @@ RemoteWebProgress.prototype = {
   },
 
   receiveMessage: function WP_ReceiveMessage(aMessage) {
+    let js = aMessage.target.jsParentUtils;
+    this._domWindow = js.unwrap(aMessage.json.domWindow);
     this._domWindowID = aMessage.json.domWindowId;
     this._browser.outerContentWindowId = aMessage.json.outerWindowId;
     this._browser.innerContentWindowId = aMessage.json.innerWindowId;

@@ -171,7 +171,7 @@ protected:
     bool mInTimeoutSecondHalf;
     int32_t mTimeoutMs;
 
-    std::queue<Message> mUrgent;
+    std::deque<Message> mUrgent;
 
 #ifdef OS_WIN
     HANDLE mEvent;
@@ -179,6 +179,7 @@ protected:
 
 private:
     bool EventOccurred();
+    bool ProcessUrgentMessages();
 };
 
 

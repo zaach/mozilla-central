@@ -97,6 +97,7 @@ RPCChannel::EventOccurred() const
 
     return (!Connected() ||
             !mPending.empty() ||
+            !mUrgent.empty() ||
             (!mOutOfTurnReplies.empty() &&
              mOutOfTurnReplies.find(mStack.top().seqno())
              != mOutOfTurnReplies.end()));
@@ -143,6 +144,8 @@ RPCChannel::Call(Message* _msg, Message* reply)
         ReportConnectionError("RPCChannel");
         return false;
     }
+
+    bool urgent = (copy.priority() == IPC::Message::PRIORITY_HIGH);
 
     msg->set_seqno(NextSeqno());
     msg->set_rpc_remote_stack_depth_guess(mRemoteStackDepthGuess);
@@ -199,7 +202,10 @@ RPCChannel::Call(Message* _msg, Message* reply)
             recvd = mPending.front();
             mPending.pop_front();
         }
-        else {
+        else if (!mUrgent.empty()) {
+            recvd = mUrgent.front();
+            mUrgent.pop_front();
+        } else {
             // because of subtleties with nested event loops, it's
             // possible that we got here and nothing happened.  or, we
             // might have a deferred in-call that needs to be
@@ -209,22 +215,28 @@ RPCChannel::Call(Message* _msg, Message* reply)
         }
 
         if (!recvd.is_sync() && !recvd.is_rpc()) {
-            MonitorAutoUnlock unlock(*mMonitor);
+            if (urgent && recvd.priority() != IPC::Message::PRIORITY_HIGH) {
+                mNonUrgentDeferred.push_back(recvd);
+            } else {
+                MonitorAutoUnlock unlock(*mMonitor);
 
-            CxxStackFrame f(*this, IN_MESSAGE, &recvd);
-            AsyncChannel::OnDispatchMessage(recvd);
-
+                CxxStackFrame f(*this, IN_MESSAGE, &recvd);
+                AsyncChannel::OnDispatchMessage(recvd);
+            }
             continue;
         }
 
         if (recvd.is_sync()) {
-            RPC_ASSERT(mPending.empty(),
-                       "other side should have been blocked");
-            MonitorAutoUnlock unlock(*mMonitor);
+            if (urgent && recvd.priority() != IPC::Message::PRIORITY_HIGH) {
+                mNonUrgentDeferred.push_back(recvd);
+            } else {
+                RPC_ASSERT(mPending.empty(),
+                           "other side should have been blocked");
+                MonitorAutoUnlock unlock(*mMonitor);
 
-            CxxStackFrame f(*this, IN_MESSAGE, &recvd);
-            SyncChannel::OnDispatchMessage(recvd);
-
+                CxxStackFrame f(*this, IN_MESSAGE, &recvd);
+                SyncChannel::OnDispatchMessage(recvd);
+            }
             continue;
         }
 
@@ -331,7 +343,8 @@ RPCChannel::EnqueuePendingMessages()
     // XXX performance tuning knob: could process all or k pending
     // messages here, rather than enqueuing for later processing
 
-    for (size_t i = 0; i < mPending.size(); ++i)
+    size_t total = mPending.size() + mUrgent.size() + mNonUrgentDeferred.size();
+    for (size_t i = 0; i < total; ++i)
         mWorkerLoop->PostTask(
             FROM_HERE,
             new DequeueTask(mDequeueOneTask));
@@ -380,11 +393,16 @@ RPCChannel::OnMaybeDequeueOne()
         if (!mDeferred.empty())
             MaybeUndeferIncall();
 
-        if (mPending.empty())
+        MessageQueue *queue = mPending.empty()
+                              ? mNonUrgentDeferred.empty()
+                                ? &mUrgent
+                                : &mNonUrgentDeferred
+                              : &mPending;
+        if (queue->empty())
             return false;
 
-        recvd = mPending.front();
-        mPending.pop_front();
+        recvd = queue->front();
+        queue->pop_front();
     }
 
     if (IsOnCxxStack() && recvd.is_rpc() && recvd.is_reply()) {
@@ -700,10 +718,9 @@ RPCChannel::OnMessageReceivedFromLink(const Message& msg)
         return;
     }
 
-    if (AwaitingSyncReply() && msg.priority() == IPC::Message::PRIORITY_HIGH) {
-        // If the message is high priority, we skip the worker entirely, and
-        // wake up the loop that's spinning for a reply.
-        mUrgent.push(msg);
+    // Urgent messages must be delivered immediately.
+    if (msg.priority() == IPC::Message::PRIORITY_HIGH) {
+        mUrgent.push_back(msg);
         NotifyWorkerThread();
         return;
     }

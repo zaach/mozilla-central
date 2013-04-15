@@ -31,6 +31,7 @@ let WebProgressListener = {
     return { innerWindowId: utils.currentInnerWindowID,
 	     outerWindowId: utils.outerWindowID,
 	     domWindowId: aWebProgress ? aWebProgress.DOMWindowID : null,
+       domWindow: aWebProgress ? wrap(aWebProgress.DOMWindow) : 0,
 	     requestURI: this._requestSpec(aRequest)
 	   };
   },
