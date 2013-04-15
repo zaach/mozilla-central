@@ -152,6 +152,8 @@ RemoteWebProgress.prototype = {
     this._domWindowID = aMessage.json.domWindowId;
     this._browser.outerContentWindowId = aMessage.json.outerWindowId;
     this._browser.innerContentWindowId = aMessage.json.innerWindowId;
+    this._browser._contentWindow = this._browser.jsParentUtils.unwrap(
+                                        aMessage.json.contentWindow);
 
     switch (aMessage.name) {
     case "Content:StateChange":

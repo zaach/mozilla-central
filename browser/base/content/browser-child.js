@@ -28,10 +28,20 @@ let WebProgressListener = {
     let utils = content.QueryInterface(Ci.nsIInterfaceRequestor)
                        .getInterface(Ci.nsIDOMWindowUtils);
 
+    let win = docShell.QueryInterface(Ci.nsIInterfaceRequestor)
+                      .getInterface(Ci.nsIDOMWindow);
+
+    try {
+      win = wrap(win);
+    } catch (e) {
+      win = null;
+    }
+
     return { innerWindowId: utils.currentInnerWindowID,
 	     outerWindowId: utils.outerWindowID,
 	     domWindowId: aWebProgress ? aWebProgress.DOMWindowID : null,
-	     requestURI: this._requestSpec(aRequest)
+	     requestURI: this._requestSpec(aRequest),
+       contentWindow: win
 	   };
   },
 
