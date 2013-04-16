@@ -198,13 +198,13 @@ RPCChannel::Call(Message* _msg, Message* reply)
             recvd = it->second;
             mOutOfTurnReplies.erase(it);
         }
-        else if (!mPending.empty()) {
-            recvd = mPending.front();
-            mPending.pop_front();
-        }
         else if (!mUrgent.empty()) {
             recvd = mUrgent.front();
             mUrgent.pop_front();
+        }
+        else if (!mPending.empty()) {
+            recvd = mPending.front();
+            mPending.pop_front();
         } else {
             // because of subtleties with nested event loops, it's
             // possible that we got here and nothing happened.  or, we
@@ -393,11 +393,11 @@ RPCChannel::OnMaybeDequeueOne()
         if (!mDeferred.empty())
             MaybeUndeferIncall();
 
-        MessageQueue *queue = mPending.empty()
-                              ? mNonUrgentDeferred.empty()
-                                ? &mUrgent
-                                : &mNonUrgentDeferred
-                              : &mPending;
+        MessageQueue *queue = mUrgent.empty()
+                              ? mPending.empty()
+                                ? &mNonUrgentDeferred
+                                : &mPending
+                              : &mUrgent;
         if (queue->empty())
             return false;
 
@@ -721,7 +721,10 @@ RPCChannel::OnMessageReceivedFromLink(const Message& msg)
     // Urgent messages must be delivered immediately.
     if (msg.priority() == IPC::Message::PRIORITY_HIGH) {
         mUrgent.push_back(msg);
-        NotifyWorkerThread();
+        if (!AwaitingSyncReply() && (0 == StackDepth() && !mBlockedOnParent))
+            mWorkerLoop->PostTask(FROM_HERE, new DequeueTask(mDequeueOneTask));
+        else
+            NotifyWorkerThread();
         return;
     }
 
