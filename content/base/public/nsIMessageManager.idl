@@ -268,7 +268,7 @@ interface nsIMessageBroadcaster : nsIMessageListenerManager
   nsIMessageListenerManager getChildAt(in unsigned long aIndex);
 };
 
-[scriptable, builtinclass, uuid(83be5862-2996-4685-ae7d-ae25bd795d50)]
+[scriptable, builtinclass, uuid(31827a41-0315-4a22-9b6b-b073f339ca0a)]
 interface nsISyncMessageSender : nsIMessageSender
 {
   /**
