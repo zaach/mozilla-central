@@ -409,6 +409,10 @@
                 onget="return this.contentDocument.nodePrincipal;"
                 readonly="true"/>
 
+      <property name="characterSet"
+                onget="return this.contentDocument.characterSet;"
+                readonly="true"/>
+
       <property name="showWindowResizer"
                 onset="if (val) this.setAttribute('showresizer', 'true');
                        else this.removeAttribute('showresizer');

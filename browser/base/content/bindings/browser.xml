@@ -74,6 +74,12 @@
                 onget="return this._contentWindow"
                 readonly="true"/>
 
+      <field name="_characterSet">null</field>
+
+      <property name="characterSet"
+                onget="return this._characterSet"
+                readonly="true"/>
+
       <constructor>
         <![CDATA[
           this.messageManager.loadFrameScript("chrome://browser/content/browser-child.js", true);
