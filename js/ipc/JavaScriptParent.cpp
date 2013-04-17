@@ -16,7 +16,7 @@ using namespace js;
 using namespace mozilla;
 using namespace mozilla::jsipc;
 
-class JavaScriptParentUtils : public nsIJavaScriptParent
+class JavaScriptParentUtils MOZ_FINAL : public nsIJavaScriptParent
 {
   public:
     JavaScriptParentUtils(JavaScriptParent *parent)
