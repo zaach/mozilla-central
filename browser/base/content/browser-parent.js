@@ -129,7 +129,7 @@ RemoteWebProgress.prototype = {
   },
 
   get isLoadingDocument() { return this._isDocumentLoading },
-  get DOMWindow() { return null; },
+  get DOMWindow() { return this._browser.contentWindow; },
   get DOMWindowID() { return this._domWindowID; },
 
   addProgressListener: function WP_AddProgressListener (aListener) {
