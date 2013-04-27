@@ -85,6 +85,7 @@ let WebProgressListener = {
   onSecurityChange: function onSecurityChange(aWebProgress, aRequest, aState) {
     let json = this._setupJSON(aWebProgress, aRequest);
     json.state = aState;
+    json.status = SecurityUI.getSSLStatusAsString();
 
     sendAsyncMessage("Content:SecurityChange", json);
   },
@@ -101,6 +102,22 @@ let WebProgressListener = {
 };
 
 WebProgressListener.init();
+
+let SecurityUI = {
+  getSSLStatusAsString: function() {
+    let status = docShell.securityUI.QueryInterface(Ci.nsISSLStatusProvider).SSLStatus;
+
+    if (status) {
+      let helper = Cc["@mozilla.org/network/serialization-helper;1"]
+                      .getService(Ci.nsISerializationHelper);
+
+      status.QueryInterface(Ci.nsISerializable);
+      return helper.serializeToString(status);
+    }
+
+    return null;
+  }
+}
 
 let DOMEvents = {
   init: function() {
@@ -206,7 +223,7 @@ let Content = {
       let uri = Services.io.newURI(json.href, null, null);
       let styleSheets = Cc["@mozilla.org/content/style-sheet-service;1"].getService(Ci.nsIStyleSheetService);
       if (!styleSheets.sheetRegistered(uri, Ci.nsIStyleSheetService.USER_SHEET))
-	styleSheets.loadAndRegisterSheet(uri, Ci.nsIStyleSheetService.USER_SHEET);
+	      styleSheets.loadAndRegisterSheet(uri, Ci.nsIStyleSheetService.USER_SHEET);
       break;
     }
   },

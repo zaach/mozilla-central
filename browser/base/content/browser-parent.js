@@ -180,8 +180,12 @@ RemoteWebProgress.prototype = {
 
     case "Content:SecurityChange":
       var req = this._uriSpec(aMessage.json.requestURI);
+      let state = aMessage.json.state;
+      let status = aMessage.json.status;
+      this._browser.securityUI._update(state, status);
+
       for each (let p in this._progressListeners) {
-        p.onSecurityChange(this, req, aMessage.json.state);
+        p.onSecurityChange(this, req, this._browser.securityUI.state);
       }
       break;
 
@@ -194,3 +198,36 @@ RemoteWebProgress.prototype = {
     }
   }
 };
+
+function SSLStatusProvider(browser)
+{
+  this._browser = browser;
+  this._state = 0;
+  this._SSLStatus = null;
+}
+
+SSLStatusProvider.prototype = {
+  QueryInterface : XPCOMUtils.generateQI([Ci.nsISSLStatusProvider]),
+
+  get state() { return this._state; },
+  get SSLStatus() { return this._SSLStatus; },
+
+  _update: function (state, status) {
+      let deserialized = null;
+      if (status) {
+        let helper = Cc["@mozilla.org/network/serialization-helper;1"]
+                      .getService(Components.interfaces.nsISerializationHelper);
+
+        deserialized = helper.deserializeObject(status)
+        deserialized.QueryInterface(Ci.nsISSLStatus);
+      }
+
+      // We must check the Extended Validation (EV) state here, on the chrome
+      // process, because NSS is needed for that determination.
+      if (deserialized && deserialized.isExtendedValidation)
+        state |= Ci.nsIWebProgressListener.STATE_IDENTITY_EV_TOPLEVEL;
+
+      this._state = state;
+      this._SSLStatus = deserialized;
+  }
+}

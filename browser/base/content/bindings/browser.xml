@@ -30,33 +30,39 @@
                 onget="return (this.getAttribute('remote') == 'true');"
                 readonly="true"/>
 
+      <field name="_securityUI">null</field>
+
       <property name="securityUI"
-                onget="return null;"/>
+                readonly="true">
+      <getter>
+        <![CDATA[
+          if (this._securityUI)
+            return this._securityUI;
+          this._securityUI = new SSLStatusProvider(this);
+          return this._securityUI;
+        ]]>
+      </getter>
+      </property>
 
       <property name="webNavigation"
-                readonly="true">
-        <getter>
-        <![CDATA[
-          return this._remoteWebNavigation;
-        ]]>
-        </getter>
-      </property>
+                onget="return this._remoteWebNavigation;"
+                readonly="true"/>
 
       <field name="_remoteWebProgress">null</field>
 
       <property name="webProgress"
                 readonly="true">
-	<getter>
-	  <![CDATA[
-            if (this.isRemoteBrowser) {
-              if (!this._remoteWebProgress)
-                this._remoteWebProgress = new RemoteWebProgress(this);
-              return this._remoteWebProgress;
-            } else {
-              return this.docShell.QueryInterface(Components.interfaces.nsIInterfaceRequestor).getInterface(Components.interfaces.nsIWebProgress);
-	    }
-	  ]]>
-	</getter>
+    	<getter>
+    	  <![CDATA[
+          if (this.isRemoteBrowser) {
+            if (!this._remoteWebProgress)
+              this._remoteWebProgress = new RemoteWebProgress(this);
+            return this._remoteWebProgress;
+          } else {
+            return this.docShell.QueryInterface(Components.interfaces.nsIInterfaceRequestor).getInterface(Components.interfaces.nsIWebProgress);
+    	    }
+    	  ]]>
+    	</getter>
       </property>
 
       <field name="outerContentWindowId">null</field>

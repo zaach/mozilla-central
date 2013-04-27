@@ -4529,25 +4529,24 @@ var XULBrowserWindow = {
         gURLBar.removeAttribute("level");
     }
 
-    if (!gMultiProcessBrowser) {
-      // Don't pass in the actual location object, since it can cause us to
-      // hold on to the window object too long.  Just pass in the fields we
-      // care about. (bug 424829)
-      var location = gBrowser.contentWindow.location;
-      var locationObj = {};
-      try {
-        // about:blank can be used by webpages so pretend it is http
-        locationObj.protocol = location == "about:blank" ? "http:" : location.protocol;
-        locationObj.host = location.host;
-        locationObj.hostname = location.hostname;
-        locationObj.port = location.port;
-      } catch (ex) {
-        // Can sometimes throw if the URL being visited has no host/hostname,
-        // e.g. about:blank. The _state for these pages means we won't need these
-        // properties anyways, though.
-      }
-      gIdentityHandler.checkIdentity(this._state, locationObj);
+
+    // Don't pass in the actual location object, since it can cause us to
+    // hold on to the window object too long.  Just pass in the fields we
+    // care about. (bug 424829)
+    var location = gBrowser.currentURI;
+    var locationObj = {};
+    try {
+      // about:blank can be used by webpages so pretend it is http
+      locationObj.protocol = location.spec == "about:blank" ? "http:" : location.scheme + ":";
+      locationObj.host = location.hostPort;
+      locationObj.hostname = location.host;
+      locationObj.port = location.port;
+    } catch (ex) {
+      // Can sometimes throw if the URL being visited has no host/hostname,
+      // e.g. about:blank. The _state for these pages means we won't need these
+      // properties anyways, though.
     }
+    gIdentityHandler.checkIdentity(this._state, locationObj);
   },
 
   // simulate all change notifications after switching tabs
