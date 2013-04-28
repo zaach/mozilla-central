@@ -64,7 +64,7 @@ namespace shadow {
 
 struct ArenaHeader
 {
-    js::Zone *zone;
+    JS::Zone *zone;
 };
 
 struct Zone
@@ -139,7 +139,7 @@ GCThingIsMarkedGray(void *thing)
 static JS_ALWAYS_INLINE bool
 IsIncrementalBarrierNeededOnGCThing(void *thing, JSGCTraceKind kind)
 {
-    js::Zone *zone = GetGCThingZone(thing);
+    JS::Zone *zone = GetGCThingZone(thing);
     return reinterpret_cast<shadow::Zone *>(zone)->needsBarrier_;
 }
 
