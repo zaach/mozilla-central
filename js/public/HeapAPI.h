@@ -7,6 +7,8 @@
 #ifndef js_heap_api_h___
 #define js_heap_api_h___
 
+#include "jspubtd.h"
+
 /* These values are private to the JS engine. */
 namespace js {
 namespace gc {
