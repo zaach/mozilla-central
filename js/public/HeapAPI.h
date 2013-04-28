@@ -9,6 +9,8 @@
 
 #include "jspubtd.h"
 
+#include "js/Utility.h"
+
 /* These values are private to the JS engine. */
 namespace js {
 namespace gc {
