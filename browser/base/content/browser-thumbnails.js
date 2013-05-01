@@ -31,7 +31,7 @@ let gBrowserThumbnails = {
   _tabEvents: ["TabClose", "TabSelect"],
 
   init: function Thumbnails_init() {
-    // This is broken in e10s
+    // Bug 863512 - Make page thumbnails work in electrolysis
     if (gMultiProcessBrowser)
       return;
 
@@ -55,7 +55,7 @@ let gBrowserThumbnails = {
   },
 
   uninit: function Thumbnails_uninit() {
-    // This is broken in e10s
+    // Bug 863512 - Make page thumbnails work in electrolysis
     if (gMultiProcessBrowser)
       return;
 

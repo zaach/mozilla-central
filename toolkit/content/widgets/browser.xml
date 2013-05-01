@@ -239,6 +239,10 @@
         </setter>
       </property>
 
+      <property name="isRemoteBrowser"
+                onget="return (this.getAttribute('remote') == 'true');"
+                readonly="true"/>
+
       <property name="messageManager"
                 onget="return this.QueryInterface(Components.interfaces.nsIFrameLoaderOwner).frameLoader.messageManager;"
                 readonly="true"/>
@@ -316,7 +320,7 @@
         <getter>
         <![CDATA[
           if (!this._webNavigation)
-            this._webNavigation = this.docShell.QueryInterface(Components.interfaces.nsIWebNavigation);
+            this._webBrowserFind = this.docShell.QueryInterface(Components.interfaces.nsIInterfaceRequestor).getInterface(Components.interfaces.nsIWebBrowserFind);
           return this._webNavigation;
         ]]>
         </getter>
@@ -613,6 +617,7 @@
       <property name="securityUI">
         <getter>
           <![CDATA[
+            // Bug 666809 - SecurityUI support for e10s
             if (!this.docShell)
 	      return null;
 

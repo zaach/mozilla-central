@@ -751,10 +751,6 @@ let gGestureSupport = {
    *        True to add/init listeners and false to remove/uninit
    */
   init: function GS_init(aAddListener) {
-    // broken in e10s
-    if (gMultiProcessBrowser)
-      return;
-
     const gestureEvents = ["SwipeGesture",
       "MagnifyGestureStart", "MagnifyGestureUpdate", "MagnifyGesture",
       "RotateGestureStart", "RotateGestureUpdate", "RotateGesture",
@@ -1083,10 +1079,6 @@ let gGestureSupport = {
    * image
    */
   restoreRotationState: function() {
-    // broken in e10s
-    if (gMultiProcessBrowser)
-      return;
-
     if (!(content.document instanceof ImageDocument))
       return;
 
@@ -1159,6 +1151,8 @@ var gBrowserInit = {
 
     window.addEventListener("AppCommand", HandleAppCommandEvent, true);
 
+    messageManager.loadFrameScript("chrome://browser/content/content.js", true);
+
     if (gMultiProcessBrowser)
       BrowserParent.init();
 
@@ -1201,9 +1195,8 @@ var gBrowserInit = {
 
     // enable global history
     try {
-      if (!gMultiProcessBrowser) {
+      if (!gMultiProcessBrowser)
         gBrowser.docShell.QueryInterface(Ci.nsIDocShellHistory).useGlobalHistory = true;
-      }
     } catch(ex) {
       Cu.reportError("Places database may be locked: " + ex);
     }
@@ -2498,14 +2491,10 @@ function URLBarSetURI(aURI) {
 
     // Replace initial page URIs with an empty string
     // only if there's no opener (bug 370555).
-    if (gInitialPages.indexOf(uri.spec) != -1) {
-      if (gMultiProcessBrowser)
-        value = "";
-      else
-        value = content.opener ? uri.spec : "";
-    } else {
+    if (gInitialPages.indexOf(uri.spec) != -1)
+      value = !gMultiProcessBrowser && content.opener ? uri.spec : "";
+    else
       value = losslessDecodeURI(uri);
-    }
 
     valid = !isBlankPageURL(uri.spec);
   }
@@ -4028,22 +4017,6 @@ function mimeTypeIsTextBased(aMimeType)
          aMimeType == "mozilla.application/cached-xul";
 }
 
-function WPIsTopLevelInCurrentBrowser(aWebProgress)
-{
-  if (gMultiProcessBrowser)
-    return gBrowser.selectedTab.linkedBrowser.outerContentWindowId == aWebProgress.DOMWindowID;
-  else
-    return content == aWebProgress.DOMWindow;
-}
-
-function WPIsTopLevelInBrowser(aWebProgress, aBrowser)
-{
-  if (gMultiProcessBrowser)
-    return aBrowser.outerContentWindowId == aWebProgress.DOMWindowID;
-  else
-    return aBrowser.contentWindow == aWebProgress.DOMWindow;
-}
-
 var XULBrowserWindow = {
   // Stored Status, Link and Loading values
   status: "",
@@ -4086,12 +4059,14 @@ var XULBrowserWindow = {
     this.throbberElement = document.getElementById("navigator-throbber");
 
     // Bug 666809 - SecurityUI support for e10s
+    if (gMultiProcessBrowser)
+      return;
+
     // Initialize the security button's state and tooltip text.  Remember to reset
     // _hostChanged, otherwise onSecurityChange will short circuit.
     var securityUI = gBrowser.securityUI;
     this._hostChanged = true;
-    if (securityUI)
-      this.onSecurityChange(null, null, securityUI.state);
+    this.onSecurityChange(null, null, securityUI.state);
   },
 
   destroy: function () {
@@ -4208,13 +4183,16 @@ var XULBrowserWindow = {
     const nsIWebProgressListener = Ci.nsIWebProgressListener;
     const nsIChannel = Ci.nsIChannel;
 
-    let isTopLevel = WPIsTopLevelInCurrentBrowser(aWebProgress);
-
     if (aStateFlags & nsIWebProgressListener.STATE_START &&
         aStateFlags & nsIWebProgressListener.STATE_IS_NETWORK) {
 
-      if (isTopLevel)
-        this.startDocumentLoad(aRequest);
+      if (aRequest && aWebProgress.isTopLevel) {
+        // clear out feed data
+        gBrowser.selectedBrowser.feeds = null;
+
+        // clear out search-engine data
+        gBrowser.selectedBrowser.engines = null;
+      }
 
       this.isBusy = true;
 
@@ -4242,7 +4220,7 @@ var XULBrowserWindow = {
           location = aRequest.URI;
 
           // For keyword URIs clear the user typed value since they will be changed into real URIs
-          if (location.scheme == "keyword" && isTopLevel)
+          if (location.scheme == "keyword" && aWebProgress.isTopLevel)
             gBrowser.userTypedValue = null;
 
           if (location.spec != "about:blank") {
@@ -4257,13 +4235,11 @@ var XULBrowserWindow = {
         this.status = "";
         this.setDefaultStatus(msg);
 
-        if (!gMultiProcessBrowser) {
-          // Disable menu entries for images, enable otherwise
-          if (content.document && mimeTypeIsTextBased(content.document.contentType))
-            this.isImage.removeAttribute('disabled');
-          else
-            this.isImage.setAttribute('disabled', 'true');
-        }
+        // Disable menu entries for images, enable otherwise
+        if (!gMultiProcessBrowser && content.document && mimeTypeIsTextBased(content.document.contentType))
+          this.isImage.removeAttribute('disabled');
+        else
+          this.isImage.setAttribute('disabled', 'true');
       }
 
       this.isBusy = false;
@@ -4285,8 +4261,6 @@ var XULBrowserWindow = {
     var location = aLocationURI ? aLocationURI.spec : "";
     this._hostChanged = true;
 
-    let isTopLevel = WPIsTopLevelInCurrentBrowser(aWebProgress);
-
     // Hide the form invalid popup.
     if (gFormSubmitObserver.panel) {
       gFormSubmitObserver.panel.hidePopup();
@@ -4294,7 +4268,7 @@ var XULBrowserWindow = {
 
     if (document.tooltipNode) {
       // Optimise for the common case
-      if (isTopLevel) {
+      if (aWebProgress.isTopLevel) {
         document.getElementById("aHTMLTooltip").hidePopup();
         document.tooltipNode = null;
       }
@@ -4356,15 +4330,13 @@ var XULBrowserWindow = {
     // Do not update urlbar if there was a subframe navigation
 
     var browser = gBrowser.selectedBrowser;
-    if (isTopLevel) {
-      if (!gMultiProcessBrowser) {
-        if ((location == "about:blank" && !content.opener) ||
-            location == "") {  // Second condition is for new tabs, otherwise
-                               // reload function is enabled until tab is refreshed.
-            this.reloadCommand.setAttribute("disabled", "true");
-        } else {
-          this.reloadCommand.removeAttribute("disabled");
-        }
+    if (aWebProgress.isTopLevel) {
+      if ((location == "about:blank" && (gMultiProcessBrowser || !content.opener)) ||
+          location == "") {  // Second condition is for new tabs, otherwise
+                             // reload function is enabled until tab is refreshed.
+        this.reloadCommand.setAttribute("disabled", "true");
+      } else {
+        this.reloadCommand.removeAttribute("disabled");
       }
 
       if (gURLBar) {
@@ -4412,23 +4384,20 @@ var XULBrowserWindow = {
         disableFindCommands(shouldDisableFind(e.target));
       }
 
-      if (!gMultiProcessBrowser) {
-        // Disable find commands in documents that ask for them to be disabled.
-        if (aLocationURI &&
-            (aLocationURI.schemeIs("about") || aLocationURI.schemeIs("chrome"))) {
-          // Don't need to re-enable/disable find commands for same-document location changes
-          // (e.g. the replaceStates in about:addons)
-          if (!(aFlags & Ci.nsIWebProgressListener.LOCATION_CHANGE_SAME_DOCUMENT)) {
-            if (content.document.readyState == "interactive" || content.document.readyState == "complete")
-              disableFindCommands(shouldDisableFind(content.document));
-            else {
-              content.document.addEventListener("readystatechange", onContentRSChange);
-            }
+      // Disable find commands in documents that ask for them to be disabled.
+      if (!gMultiProcessBrowser && aLocationURI &&
+          (aLocationURI.schemeIs("about") || aLocationURI.schemeIs("chrome"))) {
+        // Don't need to re-enable/disable find commands for same-document location changes
+        // (e.g. the replaceStates in about:addons)
+        if (!(aFlags & Ci.nsIWebProgressListener.LOCATION_CHANGE_SAME_DOCUMENT)) {
+          if (content.document.readyState == "interactive" || content.document.readyState == "complete")
+            disableFindCommands(shouldDisableFind(content.document));
+          else {
+            content.document.addEventListener("readystatechange", onContentRSChange);
           }
-        } else {
-          disableFindCommands(false);
         }
-      }
+      } else
+        disableFindCommands(false);
 
       if (gFindBarInitialized) {
         if (gFindBar.findMode != gFindBar.FIND_NORMAL) {
@@ -4529,7 +4498,6 @@ var XULBrowserWindow = {
         gURLBar.removeAttribute("level");
     }
 
-
     // Don't pass in the actual location object, since it can cause us to
     // hold on to the window object too long.  Just pass in the fields we
     // care about. (bug 424829)
@@ -4568,14 +4536,6 @@ var XULBrowserWindow = {
     if (loadingDone)
       return;
     this.onStatusChange(gBrowser.webProgress, null, 0, aMessage);
-  },
-
-  startDocumentLoad: function XWB_startDocumentLoad(aRequest) {
-    // clear out feed data
-    gBrowser.selectedBrowser.feeds = null;
-
-    // clear out search-engine data
-    gBrowser.selectedBrowser.engines = null;
   }
 };
 
@@ -4738,10 +4698,8 @@ var TabsProgressListener = {
     }
 #endif
 
-    let isTopLevel = WPIsTopLevelInBrowser(aWebProgress, aBrowser);
-
     // Collect telemetry data about tab load times.
-    if (isTopLevel) {
+    if (aWebProgress.isTopLevel) {
       if (aStateFlags & Ci.nsIWebProgressListener.STATE_IS_WINDOW) {
         if (aStateFlags & Ci.nsIWebProgressListener.STATE_START)
           TelemetryStopwatch.start("FX_PAGE_LOAD_MS", aBrowser);
@@ -4760,27 +4718,26 @@ var TabsProgressListener = {
     // We can't look for this during onLocationChange since at that point the
     // document URI is not yet the about:-uri of the error page.
 
-    if (!gMultiProcessBrowser) {
-      let doc = aWebProgress.DOMWindow.document;
-      if (aStateFlags & Ci.nsIWebProgressListener.STATE_STOP &&
-          Components.isSuccessCode(aStatus) &&
-          doc.documentURI.startsWith("about:") &&
-          !doc.documentURI.toLowerCase().startsWith("about:blank") &&
-          !doc.documentElement.hasAttribute("hasBrowserHandlers")) {
-        // STATE_STOP may be received twice for documents, thus store an
-        // attribute to ensure handling it just once.
-        doc.documentElement.setAttribute("hasBrowserHandlers", "true");
-        aBrowser.addEventListener("click", BrowserOnClick, true);
-        aBrowser.addEventListener("pagehide", function onPageHide(event) {
-          if (event.target.defaultView.frameElement)
-            return;
-          aBrowser.removeEventListener("click", BrowserOnClick, true);
-          aBrowser.removeEventListener("pagehide", onPageHide, true);
-        }, true);
+    let doc = gMultiProcessBrowser ? null : aWebProgress.DOMWindow.document;
+    if (!gMultiProcessBrowser &&
+        aStateFlags & Ci.nsIWebProgressListener.STATE_STOP &&
+        Components.isSuccessCode(aStatus) &&
+        doc.documentURI.startsWith("about:") &&
+        !doc.documentURI.toLowerCase().startsWith("about:blank") &&
+        !doc.documentElement.hasAttribute("hasBrowserHandlers")) {
+      // STATE_STOP may be received twice for documents, thus store an
+      // attribute to ensure handling it just once.
+      doc.documentElement.setAttribute("hasBrowserHandlers", "true");
+      aBrowser.addEventListener("click", BrowserOnClick, true);
+      aBrowser.addEventListener("pagehide", function onPageHide(event) {
+        if (event.target.defaultView.frameElement)
+          return;
+        aBrowser.removeEventListener("click", BrowserOnClick, true);
+        aBrowser.removeEventListener("pagehide", onPageHide, true);
+      }, true);
 
-        // We also want to make changes to page UI for unprivileged about pages.
-        BrowserOnAboutPageLoad(doc);
-      }
+      // We also want to make changes to page UI for unprivileged about pages.
+      BrowserOnAboutPageLoad(doc);
     }
   },
 
@@ -4788,7 +4745,7 @@ var TabsProgressListener = {
                               aFlags) {
     // Filter out sub-frame loads and location changes caused by anchor
     // navigation or history.push/pop/replaceState.
-    if (WPIsTopLevelInBrowser(aWebProgress, aBrowser) &&
+    if (aWebProgress.isTopLevel &&
         !(aFlags & Ci.nsIWebProgressListener.LOCATION_CHANGE_SAME_DOCUMENT)) {
       // Initialize the click-to-play state.
       aBrowser._clickToPlayPluginsActivated = new Map();

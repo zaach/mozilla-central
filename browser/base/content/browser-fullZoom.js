@@ -60,7 +60,7 @@ var FullZoom = {
   // Initialization & Destruction
 
   init: function FullZoom_init() {
-    // Currently nonfunctional in e10s
+    // Bug 691614 - zooming support for electrolysis
     if (gMultiProcessBrowser)
       return;
 
@@ -80,7 +80,7 @@ var FullZoom = {
   },
 
   destroy: function FullZoom_destroy() {
-    // Currently nonfunctional in e10s
+    // Bug 691614 - zooming support for electrolysis
     if (gMultiProcessBrowser)
       return;
 
@@ -209,7 +209,7 @@ var FullZoom = {
    *        (optional) browser object displaying the document
    */
   onLocationChange: function FullZoom_onLocationChange(aURI, aIsTabSwitch, aBrowser) {
-    // Currently nonfunctional in e10s
+    // Bug 691614 - zooming support for electrolysis
     if (gMultiProcessBrowser)
       return;
 

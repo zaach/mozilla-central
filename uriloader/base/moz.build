@@ -12,7 +12,7 @@ XPIDL_SOURCES += [
     'nsIURILoader.idl',
     'nsIWebProgress.idl',
     'nsIWebProgressListener.idl',
-    'nsIWebProgressListener2.idl'
+    'nsIWebProgressListener2.idl',
 ]
 
 MODULE = 'uriloader'

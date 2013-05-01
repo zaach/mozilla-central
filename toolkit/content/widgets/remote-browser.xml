@@ -26,10 +26,6 @@
         </getter>
       </property>
 
-      <property name="isRemoteBrowser"
-                onget="return (this.getAttribute('remote') == 'true');"
-                readonly="true"/>
-
       <field name="_securityUI">null</field>
 
       <property name="securityUI"
@@ -54,24 +50,26 @@
                 readonly="true">
     	<getter>
     	  <![CDATA[
-          if (this.isRemoteBrowser) {
-            if (!this._remoteWebProgress)
+            if (!this._remoteWebProgress) {
+              let RemoteWebProgress = Components.utils.import("resource://gre/modules/RemoteWebProgress.jsm",
+ {}).RemoteWebProgress;
               this._remoteWebProgress = new RemoteWebProgress(this);
+            }
             return this._remoteWebProgress;
-          } else {
-            return this.docShell.QueryInterface(Components.interfaces.nsIInterfaceRequestor).getInterface(Components.interfaces.nsIWebProgress);
-    	    }
     	  ]]>
     	</getter>
       </property>
-
-      <field name="outerContentWindowId">null</field>
-      <field name="innerContentWindowId">null</field>
 
       <field name="_contentTitle">null</field>
 
       <property name="contentTitle"
                 onget="return this._contentTitle"
+                readonly="true"/>
+
+      <field name="_characterSet">null</field>
+
+      <property name="characterSet"
+                onget="return this._characterSet"
                 readonly="true"/>
 
       <field name="_contentWindow">null</field>
@@ -84,35 +82,32 @@
                 onget="return this.contentWindow ? this.contentWindow.document : null"
                 readonly="true"/>
 
-      <field name="_characterSet">null</field>
-
-      <property name="characterSet"
-                onget="return this._characterSet"
-                readonly="true"/>
-
       <constructor>
         <![CDATA[
+          this.messageManager.addMessageListener("DOMTitleChanged", this);
           this.messageManager.loadFrameScript("chrome://browser/content/browser-child.js", true);
-          this.messageManager.addMessageListener("DOMTitleChanged", this._messageListener);
           this.webProgress._init();
         ]]>
       </constructor>
 
-      <field name="_messageListener"><![CDATA[
-        ({
-          self: this,
-          receiveMessage: function receiveMessage(aMessage) {
-            let self = this.self;
-            let json = aMessage.json;
+      <destructor>
+        <![CDATA[
+          this.messageManager.removeMessageListener("DOMTitleChanged", this);
+          this.webProgress._destroy();
+        ]]>
+      </destructor>
 
-            switch (aMessage.name) {
-              case "DOMTitleChanged":
-                self._contentTitle = json.title;
-                break;
-            }
+      <method name="receiveMessage">
+        <parameter name="aMessage"/>
+        <body><![CDATA[
+          let json = aMessage.json;
+          switch (aMessage.name) {
+            case "DOMTitleChanged":
+              this._contentTitle = json.title;
+              break;
           }
-        })
-      ]]></field>
+        ]]></body>
+      </method>
 
     </implementation>
 

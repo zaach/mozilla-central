@@ -17,17 +17,12 @@ let WebProgressListener = {
   },
 
   _requestSpec: function (aRequest) {
-    if (!aRequest)
+    if (!aRequest || !(aRequest instanceof Ci.nsIChannel))
       return null;
-    if (aRequest instanceof Ci.nsIChannel)
-      return aRequest.QueryInterface(Ci.nsIChannel).URI.spec;
-    return undefined;
+    return aRequest.QueryInterface(Ci.nsIChannel).URI.spec;
   },
 
   _setupJSON: function setupJSON(aWebProgress, aRequest) {
-    let utils = content.QueryInterface(Ci.nsIInterfaceRequestor)
-                       .getInterface(Ci.nsIDOMWindowUtils);
-
     let win = docShell.QueryInterface(Ci.nsIInterfaceRequestor)
                       .getInterface(Ci.nsIDOMWindow);
 
@@ -37,12 +32,11 @@ let WebProgressListener = {
       win = null;
     }
 
-    return { innerWindowId: utils.currentInnerWindowID,
-	     outerWindowId: utils.outerWindowID,
-	     domWindowId: aWebProgress ? aWebProgress.DOMWindowID : null,
-	     requestURI: this._requestSpec(aRequest),
-       contentWindow: win
-	   };
+    return {
+      isTopLevel: aWebProgress.isTopLevel,
+      requestURI: this._requestSpec(aRequest),
+      contentWindow: win
+    };
   },
 
   onStateChange: function onStateChange(aWebProgress, aRequest, aStateFlags, aStatus) {
@@ -58,8 +52,6 @@ let WebProgressListener = {
 
   onLocationChange: function onLocationChange(aWebProgress, aRequest, aLocationURI, aFlags) {
     let spec = aLocationURI ? aLocationURI.spec : "";
-    let location = spec.split("#")[0];
-
     let charset = content.document.characterSet;
 
     let json = this._setupJSON(aWebProgress, aRequest);
@@ -70,8 +62,6 @@ let WebProgressListener = {
     json.charset = charset.toString();
 
     sendAsyncMessage("Content:LocationChange", json);
-
-    let self = this;
   },
 
   onStatusChange: function onStatusChange(aWebProgress, aRequest, aStatus, aMessage) {
@@ -103,46 +93,8 @@ let WebProgressListener = {
 
 WebProgressListener.init();
 
-let SecurityUI = {
-  getSSLStatusAsString: function() {
-    let status = docShell.securityUI.QueryInterface(Ci.nsISSLStatusProvider).SSLStatus;
-
-    if (status) {
-      let helper = Cc["@mozilla.org/network/serialization-helper;1"]
-                      .getService(Ci.nsISerializationHelper);
-
-      status.QueryInterface(Ci.nsISerializable);
-      return helper.serializeToString(status);
-    }
-
-    return null;
-  }
-}
-
-let DOMEvents = {
-  init: function() {
-    addEventListener("DOMTitleChanged", this, false);
-  },
-
-  handleEvent: function (aEvent) {
-    let document = content.document;
-    switch (aEvent.type) {
-    case "DOMTitleChanged":
-      if (!aEvent.isTrusted ||
-          aEvent.target.defaultView != aEvent.target.defaultView.top)
-        return;
-
-      sendAsyncMessage("DOMTitleChanged", { title: document.title });
-      break;
-    }
-  }
-};
-
-DOMEvents.init();
-
 let WebNavigation =  {
   _webNavigation: docShell.QueryInterface(Ci.nsIWebNavigation),
-  _timer: null,
 
   init: function() {
     addMessageListener("WebNavigation:GoBack", this);
@@ -207,6 +159,43 @@ let WebNavigation =  {
 };
 
 WebNavigation.init();
+
+let SecurityUI = {
+  getSSLStatusAsString: function() {
+    let status = docShell.securityUI.QueryInterface(Ci.nsISSLStatusProvider).SSLStatus;
+
+    if (status) {
+      let helper = Cc["@mozilla.org/network/serialization-helper;1"]
+                      .getService(Ci.nsISerializationHelper);
+
+      status.QueryInterface(Ci.nsISerializable);
+      return helper.serializeToString(status);
+    }
+
+    return null;
+  }
+}
+
+let DOMEvents = {
+  init: function() {
+    addEventListener("DOMTitleChanged", this, false);
+  },
+
+  handleEvent: function (aEvent) {
+    let document = content.document;
+    switch (aEvent.type) {
+    case "DOMTitleChanged":
+      if (!aEvent.isTrusted ||
+          aEvent.target.defaultView != aEvent.target.defaultView.top)
+        return;
+
+      sendAsyncMessage("DOMTitleChanged", { title: document.title });
+      break;
+    }
+  }
+};
+
+DOMEvents.init();
 
 let Content = {
   init: function init() {
@@ -320,13 +309,3 @@ let AddonListeners = {
 };
 
 AddonListeners.init();
-
-addMessageListener("Browser:HideSessionRestoreButton", function (message) {
-  // Hide session restore button on about:home
-  let doc = content.document;
-  let container;
-  if (doc.documentURI.toLowerCase() == "about:home" &&
-      (container = doc.getElementById("sessionRestoreContainer"))){
-    container.hidden = true;
-  }
-});
