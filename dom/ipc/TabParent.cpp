@@ -30,10 +30,10 @@
 #include "nsFocusManager.h"
 #include "nsFrameLoader.h"
 #include "nsIContent.h"
+#include "nsIDocShell.h"
 #include "nsIDOMApplicationRegistry.h"
 #include "nsIDOMElement.h"
 #include "nsIDOMEvent.h"
-#include "nsIDOMEventTarget.h"
 #include "nsIDOMHTMLFrameElement.h"
 #include "nsIDOMWindow.h"
 #include "nsIDialogCreator.h"
@@ -222,6 +222,31 @@ TabParent::SetOwnerElement(nsIDOMElement* aElement)
 }
 
 void
+TabParent::GetAppType(nsAString& aOut)
+{
+  aOut.Truncate();
+  nsCOMPtr<Element> elem = do_QueryInterface(mFrameElement);
+  if (!elem) {
+    return;
+  }
+
+  elem->GetAttr(kNameSpaceID_None, nsGkAtoms::mozapptype, aOut);
+}
+
+bool
+TabParent::IsVisible()
+{
+  nsRefPtr<nsFrameLoader> frameLoader = GetFrameLoader();
+  if (!frameLoader) {
+    return false;
+  }
+
+  bool visible = false;
+  frameLoader->GetVisible(&visible);
+  return visible;
+}
+
+void
 TabParent::Destroy()
 {
   if (mIsDestroyed) {
@@ -267,17 +292,19 @@ TabParent::ActorDestroy(ActorDestroyReason why)
     mIMETabParent = nullptr;
   }
   nsRefPtr<nsFrameLoader> frameLoader = GetFrameLoader();
+  nsCOMPtr<nsIObserverService> os = services::GetObserverService();
   if (frameLoader) {
     ReceiveMessage(CHILD_PROCESS_SHUTDOWN_MESSAGE, false, nullptr, nullptr);
     frameLoader->DestroyChild();
 
-    if (why == AbnormalShutdown) {
-      nsCOMPtr<nsIObserverService> os = services::GetObserverService();
-      if (os) {
-        os->NotifyObservers(NS_ISUPPORTS_CAST(nsIFrameLoader*, frameLoader),
-                            "oop-frameloader-crashed", nullptr);
-      }
+    if (why == AbnormalShutdown && os) {
+      os->NotifyObservers(NS_ISUPPORTS_CAST(nsIFrameLoader*, frameLoader),
+                          "oop-frameloader-crashed", nullptr);
     }
+  }
+
+  if (os) {
+    os->NotifyObservers(NS_ISUPPORTS_CAST(nsITabParent*, this), "ipc:browser-destroyed", nullptr);
   }
 }
 
@@ -509,6 +536,14 @@ TabParent::GetState(uint32_t *aState)
 }
 
 NS_IMETHODIMP
+TabParent::SetDocShell(nsIDocShell *aDocShell)
+{
+  NS_ENSURE_ARG(aDocShell);
+  NS_WARNING("No mDocShell member in TabParent so there is no docShell to set");
+  return NS_OK;
+}
+
+NS_IMETHODIMP
 TabParent::GetTooltipText(nsAString & aTooltipText)
 {
   aTooltipText.Truncate();
@@ -644,10 +679,6 @@ TabParent::TryCapture(const nsGUIEvent& aEvent)
 {
   MOZ_ASSERT(sEventCapturer == this && mEventCaptureDepth > 0);
 
-  if (mIsDestroyed) {
-    return false;
-  }
-
   if (aEvent.eventStructType != NS_TOUCH_EVENT) {
     // Only capture of touch events is implemented, for now.
     return false;
@@ -668,29 +699,19 @@ TabParent::TryCapture(const nsGUIEvent& aEvent)
     return false;
   }
 
-  if (RenderFrameParent* rfp = GetRenderFrame()) {
-    // We need to process screen relative events co-ordinates for gestures to
-    // avoid phantom movement when the frame moves.
-    rfp->NotifyInputEvent(event);
+  // Adjust the widget coordinates to be relative to our frame.
+  nsRefPtr<nsFrameLoader> frameLoader = GetFrameLoader();
 
-    // Adjust the widget coordinates to be relative to our frame.
-    nsRefPtr<nsFrameLoader> frameLoader = GetFrameLoader();
-
-    if (!frameLoader) {
-      // No frame anymore?
-      sEventCapturer = nullptr;
-      return false;
-    }
-
-    // Remove the frame offset and compensate for zoom.
-    nsEventStateManager::MapEventCoordinatesForChildProcess(frameLoader,
-                                                            &event);
-    rfp->ApplyZoomCompensationToEvent(&event);
+  if (!frameLoader) {
+    // No frame anymore?
+    sEventCapturer = nullptr;
+    return false;
   }
 
-  return (event.message == NS_TOUCH_MOVE) ?
-    PBrowserParent::SendRealTouchMoveEvent(event) :
-    PBrowserParent::SendRealTouchEvent(event);
+  nsEventStateManager::MapEventCoordinatesForChildProcess(frameLoader, &event);
+
+  SendRealTouchEvent(event);
+  return true;
 }
 
 bool
@@ -1144,6 +1165,14 @@ TabParent::RecvPIndexedDBConstructor(PIndexedDBParent* aActor,
   nsCOMPtr<nsPIDOMWindow> window = doc->GetInnerWindow();
   NS_ENSURE_TRUE(window, false);
 
+  // Let's do a current inner check to see if the inner is active or is in
+  // bf cache, and bail out if it's not active.
+  nsCOMPtr<nsPIDOMWindow> outer = doc->GetWindow();
+  if (!outer || outer->GetCurrentInnerWindow() != window) {
+    *aAllowed = false;
+    return true;
+  }
+
   ContentParent* contentParent = static_cast<ContentParent*>(Manager());
   NS_ASSERTION(contentParent, "Null manager?!");
 
@@ -1265,22 +1294,21 @@ TabParent::HandleDelayedDialogs()
 
 PRenderFrameParent*
 TabParent::AllocPRenderFrame(ScrollingBehavior* aScrolling,
-                             LayersBackend* aBackend,
-                             int32_t* aMaxTextureSize,
+                             TextureFactoryIdentifier* aTextureFactoryIdentifier,
                              uint64_t* aLayersId)
 {
   MOZ_ASSERT(ManagedPRenderFrameParent().IsEmpty());
 
   nsRefPtr<nsFrameLoader> frameLoader = GetFrameLoader();
   if (!frameLoader) {
-    NS_ERROR("Can't allocate graphics resources, aborting subprocess");
+    NS_WARNING("Can't allocate graphics resources, aborting subprocess");
     return nullptr;
   }
 
   *aScrolling = UseAsyncPanZoom() ? ASYNC_PAN_ZOOM : DEFAULT_SCROLLING;
   return new RenderFrameParent(frameLoader,
                                *aScrolling,
-                               aBackend, aMaxTextureSize, aLayersId);
+                               aTextureFactoryIdentifier, aLayersId);
 }
 
 bool
@@ -1402,8 +1430,7 @@ TabParent::MaybeForwardEventToRenderFrame(const nsInputEvent& aEvent,
                                           nsInputEvent* aOutEvent)
 {
   if (RenderFrameParent* rfp = GetRenderFrame()) {
-    rfp->NotifyInputEvent(aEvent);
-    rfp->ApplyZoomCompensationToEvent(aOutEvent);
+    rfp->NotifyInputEvent(aEvent, aOutEvent);
   }
 }
 
@@ -1423,8 +1450,7 @@ TabParent::RecvBrowserFrameOpenWindow(PBrowserParent* aOpener,
 bool
 TabParent::RecvPRenderFrameConstructor(PRenderFrameParent* actor,
                                        ScrollingBehavior* scrolling,
-                                       LayersBackend* backend,
-                                       int32_t* maxTextureSize,
+                                       TextureFactoryIdentifier* factoryIdentifier,
                                        uint64_t* layersId)
 {
   RenderFrameParent* rfp = GetRenderFrame();

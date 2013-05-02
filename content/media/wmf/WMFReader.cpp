@@ -40,7 +40,8 @@ WMFReader::WMFReader(AbstractMediaDecoder* aDecoder)
     mVideoStride(0),
     mHasAudio(false),
     mHasVideo(false),
-    mCanSeek(false)
+    mCanSeek(false),
+    mIsMP3Enabled(WMFDecoder::IsMP3Supported())
 {
   NS_ASSERTION(NS_IsMainThread(), "Must be on main thread.");
   MOZ_COUNT_CTOR(WMFReader);
@@ -388,6 +389,28 @@ WMFReader::ConfigureVideoDecoder()
   return S_OK;
 }
 
+void
+WMFReader::GetSupportedAudioCodecs(const GUID** aCodecs, uint32_t* aNumCodecs)
+{
+  MOZ_ASSERT(aCodecs);
+  MOZ_ASSERT(aNumCodecs);
+
+  if (mIsMP3Enabled) {
+    static const GUID codecs[] = {
+      MFAudioFormat_AAC,
+      MFAudioFormat_MP3
+    };
+    *aCodecs = codecs;
+    *aNumCodecs = NS_ARRAY_LENGTH(codecs);
+  } else {
+    static const GUID codecs[] = {
+      MFAudioFormat_AAC
+    };
+    *aCodecs = codecs;
+    *aNumCodecs = NS_ARRAY_LENGTH(codecs);
+  }
+}
+
 HRESULT
 WMFReader::ConfigureAudioDecoder()
 {
@@ -399,15 +422,15 @@ WMFReader::ConfigureAudioDecoder()
     return S_OK;
   }
 
-  static const GUID MP4AudioTypes[] = {
-    MFAudioFormat_AAC,
-    MFAudioFormat_MP3
-  };
+  const GUID* codecs;
+  uint32_t numCodecs = 0;
+  GetSupportedAudioCodecs(&codecs, &numCodecs);
+
   HRESULT hr = ConfigureSourceReaderStream(mSourceReader,
                                            MF_SOURCE_READER_FIRST_AUDIO_STREAM,
                                            MFAudioFormat_Float,
-                                           MP4AudioTypes,
-                                           NS_ARRAY_LENGTH(MP4AudioTypes));
+                                           codecs,
+                                           numCodecs);
   if (FAILED(hr)) {
     NS_WARNING("Failed to configure WMF Audio decoder for PCM output");
     return hr;

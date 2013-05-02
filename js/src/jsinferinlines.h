@@ -1,10 +1,12 @@
-/* -*- Mode: C++; c-basic-offset: 4; tab-width: 4; indent-tabs-mode: nil -*- */
-/* vim: set ts=4 sw=4 et tw=99: */
-/* This Source Code Form is subject to the terms of the Mozilla Public
+/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
+ * vim: set ts=8 sts=4 et sw=4 tw=99:
+ * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 /* Inline members for javascript type inference. */
+
+#include "mozilla/PodOperations.h"
 
 #include "jsarray.h"
 #include "jsanalyze.h"
@@ -149,7 +151,7 @@ CompilerOutput::isValid() const
       case Ion:
 #ifdef JS_ION
         if (script->hasIonScript()) {
-            JS_ASSERT(this == script->ion->recompileInfo().compilerOutput(types));
+            JS_ASSERT(this == script->ionScript()->recompileInfo().compilerOutput(types));
             return true;
         }
         if (script->isIonCompilingOffThread())
@@ -606,6 +608,24 @@ TrackPropertyTypes(JSContext *cx, RawObject obj, RawId id)
     return true;
 }
 
+inline void
+EnsureTrackPropertyTypes(JSContext *cx, RawObject obj, RawId id)
+{
+    JS_ASSERT(!obj->hasLazyType());
+
+    if (!cx->typeInferenceEnabled() || obj->type()->unknownProperties())
+        return;
+
+    id = IdToTypeId(id);
+
+    if (obj->hasSingletonType()) {
+        AutoEnterAnalysis enter(cx);
+        obj->type()->getProperty(cx, id, true);
+    }
+
+    JS_ASSERT(obj->type()->unknownProperties() || TrackPropertyTypes(cx, obj, id));
+}
+
 /* Add a possible type for a property of obj. */
 inline void
 AddTypePropertyId(JSContext *cx, JSObject *obj, jsid id, Type type)
@@ -855,7 +875,7 @@ struct AllocationSiteKey {
 
     static const uint32_t OFFSET_LIMIT = (1 << 23);
 
-    AllocationSiteKey() { PodZero(this); }
+    AllocationSiteKey() { mozilla::PodZero(this); }
 
     typedef AllocationSiteKey Lookup;
 
@@ -1233,7 +1253,7 @@ HashSetInsertTry(LifoAlloc &alloc, U **&values, unsigned &count, T key)
     U **newValues = alloc.newArray<U*>(newCapacity);
     if (!newValues)
         return NULL;
-    PodZero(newValues, newCapacity);
+    mozilla::PodZero(newValues, newCapacity);
 
     for (unsigned i = 0; i < capacity; i++) {
         if (values[i]) {
@@ -1276,7 +1296,7 @@ HashSetInsert(LifoAlloc &alloc, U **&values, unsigned &count, T key)
             values = (U **) oldData;
             return NULL;
         }
-        PodZero(values, SET_ARRAY_SIZE);
+        mozilla::PodZero(values, SET_ARRAY_SIZE);
         count++;
 
         values[0] = oldData;
@@ -1548,7 +1568,7 @@ TypeCallsite::TypeCallsite(JSContext *cx, RawScript script, jsbytecode *pc,
 
 inline TypeObject::TypeObject(Class *clasp, TaggedProto proto, bool function, bool unknown)
 {
-    PodZero(this);
+    mozilla::PodZero(this);
 
     /* Inner objects may not appear on prototype chains. */
     JS_ASSERT_IF(proto.isObject(), !proto.toObject()->getClass()->ext.outerObject);
@@ -1664,7 +1684,7 @@ inline void
 TypeObject::writeBarrierPre(TypeObject *type)
 {
 #ifdef JSGC_INCREMENTAL
-    if (!type)
+    if (!type || !type->runtime()->needsBarrier())
         return;
 
     JS::Zone *zone = type->zone();
@@ -1698,7 +1718,7 @@ inline void
 TypeNewScript::writeBarrierPre(TypeNewScript *newScript)
 {
 #ifdef JSGC_INCREMENTAL
-    if (!newScript)
+    if (!newScript || !newScript->fun->runtime()->needsBarrier())
         return;
 
     JS::Zone *zone = newScript->fun->zone();
@@ -1724,6 +1744,34 @@ inline
 Property::Property(const Property &o)
   : id(o.id.get()), types(o.types)
 {
+}
+
+inline bool
+HasOperationOverflowed(JSScript *script, jsbytecode *pc)
+{
+    types::TypeResult *result = script->types->dynamicList;
+    while (result) {
+        if (result->offset == uint32_t(pc - script->code)) {
+            if (result->type == types::Type::DoubleType())
+                return true;
+        }
+        result = result->next;
+    }
+    return false;
+}
+
+inline bool
+IterationValuesMustBeStrings(JSScript *script)
+{
+    // Return true if no custom non-string-producing iterators have been used
+    // in a 'for in' loop within the script.
+    types::TypeResult *result = script->types->dynamicList;
+    while (result) {
+        if (result->offset == UINT32_MAX)
+            return false;
+        result = result->next;
+    }
+    return true;
 }
 
 } } /* namespace js::types */

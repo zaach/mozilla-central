@@ -79,9 +79,17 @@ class JavaScriptShared
 
   protected:
     bool toVariant(JSContext *cx, jsval from, JSVariant *to);
-    bool toValue(JSContext *cx, const JSVariant &from, jsval *to);
+    bool toValue(JSContext *cx, const JSVariant &from, JS::MutableHandleValue to);
     bool fromDesc(JSContext *cx, const JSPropertyDescriptor &desc, PPropertyDescriptor *out);
     bool toDesc(JSContext *cx, const PPropertyDescriptor &in, JSPropertyDescriptor *out);
+
+    bool toValue(JSContext *cx, const JSVariant &from, jsval *to) {
+        JS::RootedValue v(cx);
+        if (!toValue(cx, from, &v))
+            return false;
+        *to = v;
+        return true;
+    }
 
     virtual bool makeId(JSContext *cx, JSObject *obj, ObjectId *idp) = 0;
     virtual JSObject *unwrap(JSContext *cx, ObjectId id) = 0;

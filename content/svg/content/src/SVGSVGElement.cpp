@@ -20,7 +20,7 @@
 #include "DOMSVGPoint.h"
 #include "nsIFrame.h"
 #include "nsISVGSVGFrame.h" //XXX
-#include "nsSVGRect.h"
+#include "mozilla/dom/SVGRect.h"
 #include "nsError.h"
 #include "nsISVGChildFrame.h"
 #include "nsGUIEvent.h"
@@ -46,7 +46,7 @@ namespace dom {
 class SVGAnimatedLength;
 
 JSObject*
-SVGSVGElement::WrapNode(JSContext *aCx, JSObject *aScope)
+SVGSVGElement::WrapNode(JSContext *aCx, JS::Handle<JSObject*> aScope)
 {
   return SVGSVGElementBinding::Wrap(aCx, aScope, this);
 }
@@ -174,7 +174,6 @@ SVGSVGElement::SVGSVGElement(already_AddRefed<nsINodeInfo> aNodeInfo,
     mHasChildrenOnlyTransform(false),
     mUseCurrentView(false)
 {
-  SetIsDOMBinding();
 }
 
 //----------------------------------------------------------------------
@@ -409,25 +408,23 @@ SVGSVGElement::CreateSVGMatrix()
   return matrix.forget();
 }
 
-already_AddRefed<nsIDOMSVGRect>
+already_AddRefed<SVGIRect>
 SVGSVGElement::CreateSVGRect()
 {
-  nsCOMPtr<nsIDOMSVGRect> rect;
-  NS_NewSVGRect(getter_AddRefs(rect));
-  return rect.forget();
+  return NS_NewSVGRect();
 }
 
-already_AddRefed<DOMSVGTransform>
+already_AddRefed<SVGTransform>
 SVGSVGElement::CreateSVGTransform()
 {
-  nsRefPtr<DOMSVGTransform> transform = new DOMSVGTransform();
+  nsRefPtr<SVGTransform> transform = new SVGTransform();
   return transform.forget();
 }
 
-already_AddRefed<DOMSVGTransform>
+already_AddRefed<SVGTransform>
 SVGSVGElement::CreateSVGTransformFromMatrix(SVGMatrix& matrix)
 {
-  nsRefPtr<DOMSVGTransform> transform = new DOMSVGTransform(matrix.Matrix());
+  nsRefPtr<SVGTransform> transform = new SVGTransform(matrix.Matrix());
   return transform.forget();
 }
 

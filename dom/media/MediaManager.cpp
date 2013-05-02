@@ -975,9 +975,8 @@ MediaManager::GetUserMedia(bool aPrivileged, nsPIDOMWindow* aWindow,
       nsCOMPtr<nsIDocument> doc = aWindow->GetExtantDoc();
       pm->TestPermission(doc->NodePrincipal(), &permission);
       if (permission == nsIPopupWindowManager::DENY_POPUP) {
-        nsCOMPtr<nsIDOMDocument> domDoc = aWindow->GetExtantDocument();
         nsGlobalWindow::FirePopupBlockedEvent(
-          domDoc, aWindow, nullptr, EmptyString(), EmptyString()
+          doc, aWindow, nullptr, EmptyString(), EmptyString()
         );
         return NS_OK;
       }
@@ -1272,6 +1271,7 @@ MediaManager::Observe(nsISupports* aSubject, const char* aTopic,
       MutexAutoLock lock(mMutex);
       GetActiveWindows()->Clear();
       mActiveCallbacks.Clear();
+      LOG(("Releasing MediaManager singleton and thread"));
       sSingleton = nullptr;
     }
 

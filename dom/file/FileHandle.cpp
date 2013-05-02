@@ -35,7 +35,7 @@ public:
   { }
 
   nsresult
-  GetSuccessResult(JSContext* aCx, jsval* aVal);
+  GetSuccessResult(JSContext* aCx, JS::Value* aVal);
 
   void
   ReleaseObjects()
@@ -107,7 +107,7 @@ FileHandle::Open(FileMode aMode, ErrorResult& aError)
 {
   MOZ_ASSERT(NS_IsMainThread());
 
-  if (FileService::IsShuttingDown() || mFileStorage->IsStorageShuttingDown()) {
+  if (FileService::IsShuttingDown() || mFileStorage->IsShuttingDown()) {
     aError.Throw(NS_ERROR_DOM_FILEHANDLE_UNKNOWN_ERR);
     return nullptr;
   }
@@ -186,7 +186,7 @@ FileHandle::GetFileInfo()
 }
 
 nsresult
-GetFileHelper::GetSuccessResult(JSContext* aCx, jsval* aVal)
+GetFileHelper::GetSuccessResult(JSContext* aCx, JS::Value* aVal)
 {
   nsCOMPtr<nsIDOMFile> domFile =
     mFileHandle->CreateFileObject(mLockedFile, mParams->Size());
@@ -201,7 +201,7 @@ GetFileHelper::GetSuccessResult(JSContext* aCx, jsval* aVal)
 
 /* virtual */
 JSObject*
-FileHandle::WrapObject(JSContext* aCx, JSObject* aScope)
+FileHandle::WrapObject(JSContext* aCx, JS::Handle<JSObject*> aScope)
 {
   return FileHandleBinding::Wrap(aCx, aScope, this);
 }

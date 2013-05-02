@@ -52,7 +52,7 @@ class SVGUserUnitList;
 class SVGAnimatedPointList;
 class SVGAnimatedPathSegList;
 class SVGAnimatedPreserveAspectRatio;
-class SVGAnimatedTransformList;
+class nsSVGAnimatedTransformList;
 class SVGStringList;
 class DOMSVGStringList;
 }
@@ -63,13 +63,19 @@ struct nsSVGEnumMapping;
 typedef nsStyledElementNotElementCSSInlineStyle nsSVGElementBase;
 
 class nsSVGElement : public nsSVGElementBase    // nsIContent
+                   , public nsIDOMSVGElement
 {
 protected:
   nsSVGElement(already_AddRefed<nsINodeInfo> aNodeInfo);
+  friend nsresult NS_NewSVGElement(nsIContent **aResult,
+                                   already_AddRefed<nsINodeInfo> aNodeInfo);
   nsresult Init();
   virtual ~nsSVGElement(){}
 
 public:
+
+  virtual nsresult Clone(nsINodeInfo *aNodeInfo, nsINode **aResult) const MOZ_MUST_OVERRIDE;
+
   typedef mozilla::SVGNumberList SVGNumberList;
   typedef mozilla::SVGAnimatedNumberList SVGAnimatedNumberList;
   typedef mozilla::SVGUserUnitList SVGUserUnitList;
@@ -77,7 +83,7 @@ public:
   typedef mozilla::SVGAnimatedPointList SVGAnimatedPointList;
   typedef mozilla::SVGAnimatedPathSegList SVGAnimatedPathSegList;
   typedef mozilla::SVGAnimatedPreserveAspectRatio SVGAnimatedPreserveAspectRatio;
-  typedef mozilla::SVGAnimatedTransformList SVGAnimatedTransformList;
+  typedef mozilla::nsSVGAnimatedTransformList nsSVGAnimatedTransformList;
   typedef mozilla::SVGStringList SVGStringList;
 
   // nsISupports
@@ -117,13 +123,9 @@ public:
   static const MappedAttributeEntry sLightingEffectsMap[];
   static const MappedAttributeEntry sMaskMap[];
 
-  // nsIDOMSVGElement
-  NS_IMETHOD GetId(nsAString & aId);
-  NS_IMETHOD SetId(const nsAString & aId);
-  NS_IMETHOD GetOwnerSVGElement(nsIDOMSVGElement** aOwnerSVGElement);
-  NS_IMETHOD GetViewportElement(nsIDOMSVGElement** aViewportElement);
-  NS_IMETHOD GetClassName(nsIDOMSVGAnimatedString** aClassName);
-  NS_IMETHOD GetStyle(nsIDOMCSSStyleDeclaration** aStyle);
+  NS_FORWARD_NSIDOMNODE_TO_NSINODE
+  NS_FORWARD_NSIDOMELEMENT_TO_GENERIC
+  NS_DECL_NSIDOMSVGELEMENT
 
   // Gets the element that establishes the rectangular viewport against which
   // we should resolve percentage lengths (our "coordinate context"). Returns
@@ -262,18 +264,18 @@ public:
     return nullptr;
   }
   /**
-   * Get the SVGAnimatedTransformList for this element.
+   * Get the nsSVGAnimatedTransformList for this element.
    *
    * Despite the fact that animated transform lists are used for a variety of
    * attributes, no SVG element uses more than one.
    *
    * It's relatively uncommon for elements to have their transform attribute
-   * set, so to save memory the SVGAnimatedTransformList is not allocated until
+   * set, so to save memory the nsSVGAnimatedTransformList is not allocated until
    * the attribute is set/animated or its DOM wrapper is created. Callers that
-   * require the SVGAnimatedTransformList to be allocated and for this method
+   * require the nsSVGAnimatedTransformList to be allocated and for this method
    * to return non-null must pass the DO_ALLOCATE flag.
    */
-  virtual SVGAnimatedTransformList* GetAnimatedTransformList(
+  virtual nsSVGAnimatedTransformList* GetAnimatedTransformList(
                                                         uint32_t aFlags = 0) {
     return nullptr;
   }
@@ -297,13 +299,17 @@ public:
     return nullptr;
   }
 
+  virtual nsIDOMNode* AsDOMNode() MOZ_FINAL { return this; }
+  virtual bool IsTransformable() { return false; }
+
   // WebIDL
   mozilla::dom::SVGSVGElement* GetOwnerSVGElement(mozilla::ErrorResult& rv);
   nsSVGElement* GetViewportElement();
   already_AddRefed<nsIDOMSVGAnimatedString> ClassName();
   already_AddRefed<mozilla::dom::CSSValue> GetPresentationAttribute(const nsAString& aName, mozilla::ErrorResult& rv);
 protected:
-  virtual JSObject* WrapNode(JSContext *cx, JSObject *scope) MOZ_OVERRIDE;
+  virtual JSObject* WrapNode(JSContext *cx,
+                             JS::Handle<JSObject*> scope) MOZ_OVERRIDE;
 
 #ifdef DEBUG
   // We define BeforeSetAttr here and mark it MOZ_FINAL to ensure it is NOT used

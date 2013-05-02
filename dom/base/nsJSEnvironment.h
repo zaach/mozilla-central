@@ -19,9 +19,11 @@
 #include "nsIArray.h"
 #include "mozilla/Attributes.h"
 
+class nsICycleCollectorListener;
 class nsIXPConnectJSObjectHolder;
 class nsRootedJSValueArray;
 class nsScriptNameSpaceManager;
+
 namespace mozilla {
 template <class> class Maybe;
 }
@@ -61,9 +63,6 @@ public:
   virtual nsresult ExecuteScript(JSScript* aScriptObject,
                                  JSObject* aScopeObject);
 
-  virtual nsresult CallEventHandler(nsISupports* aTarget, JSObject* aScope,
-                                    JSObject* aHandler,
-                                    nsIArray *argv, nsIVariant **rv);
   virtual nsresult BindCompiledEventHandler(nsISupports *aTarget,
                                             JSObject *aScope,
                                             JSObject* aHandler,
@@ -98,9 +97,6 @@ public:
   virtual nsresult Serialize(nsIObjectOutputStream* aStream, JSScript* aScriptObject);
   virtual nsresult Deserialize(nsIObjectInputStream* aStream,
                                JS::MutableHandle<JSScript*> aResult);
-
-  virtual nsresult DropScriptObject(void *object);
-  virtual nsresult HoldScriptObject(void *object);
 
   virtual void EnterModalState();
   virtual void LeaveModalState();
@@ -169,10 +165,10 @@ protected:
   nsresult ConvertSupportsTojsvals(nsISupports *aArgs,
                                    JSObject *aScope,
                                    uint32_t *aArgc,
-                                   jsval **aArgv,
+                                   JS::Value **aArgv,
                                    mozilla::Maybe<nsRootedJSValueArray> &aPoolRelease);
 
-  nsresult AddSupportsPrimitiveTojsvals(nsISupports *aArg, jsval *aArgv);
+  nsresult AddSupportsPrimitiveTojsvals(nsISupports *aArg, JS::Value *aArgv);
 
   // given an nsISupports object (presumably an event target or some other
   // DOM object), get (or create) the JSObject wrapping it.
@@ -291,9 +287,6 @@ public:
   CreateContext(bool aGCOnDestruction,
                 nsIScriptGlobalObject* aGlobalObject);
 
-  virtual nsresult DropScriptObject(void *object);
-  virtual nsresult HoldScriptObject(void *object);
-  
   static void Startup();
   static void Shutdown();
   // Setup all the statics etc - safe to call multiple times after Startup()
@@ -315,8 +308,8 @@ class nsIJSArgArray : public nsIArray
 public:
   NS_DECLARE_STATIC_IID_ACCESSOR(NS_IJSARGARRAY_IID)
   // Bug 312003 describes why this must be "void **", but after calling argv
-  // may be cast to jsval* and the args found at:
-  //    ((jsval*)argv)[0], ..., ((jsval*)argv)[argc - 1]
+  // may be cast to JS::Value* and the args found at:
+  //    ((JS::Value*)argv)[0], ..., ((JS::Value*)argv)[argc - 1]
   virtual nsresult GetArgs(uint32_t *argc, void **argv) = 0;
 };
 

@@ -9,7 +9,10 @@ import org.mozilla.gecko.AwesomeBar.ContextMenuSubject;
 import org.mozilla.gecko.db.BrowserContract.Combined;
 import org.mozilla.gecko.db.BrowserDB;
 import org.mozilla.gecko.db.BrowserDB.URLColumns;
+import org.mozilla.gecko.gfx.BitmapUtils;
+import org.mozilla.gecko.util.GamepadUtils;
 import org.mozilla.gecko.util.ThreadUtils;
+import org.mozilla.gecko.widget.FaviconView;
 
 import android.app.Activity;
 import android.content.ContentResolver;
@@ -18,14 +21,13 @@ import android.content.res.Resources;
 import android.database.ContentObserver;
 import android.database.Cursor;
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.os.AsyncTask;
 import android.text.TextUtils;
 import android.util.Log;
 import android.util.Pair;
 import android.view.ContextMenu;
 import android.view.ContextMenu.ContextMenuInfo;
-import android.view.LayoutInflater;
+import android.view.KeyEvent;
 import android.view.MenuInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -68,7 +70,7 @@ public class HistoryTab extends AwesomeBarTab {
     @Override
     public ListView getView() {
         if (mView == null) {
-            mView = LayoutInflater.from(mContext).inflate(R.layout.awesomebar_expandable_list, null);
+            mView = new ExpandableListView(mContext, null);
             ((Activity)mContext).registerForContextMenu(mView);
             mView.setTag(TAG);
 
@@ -88,6 +90,25 @@ public class HistoryTab extends AwesomeBarTab {
                 @Override
                 public boolean onGroupClick(ExpandableListView parent, View v, int groupPosition, long id) {
                     return true;
+                }
+            });
+            list.setOnKeyListener(new View.OnKeyListener() {
+                @Override public boolean onKey(View v, int keyCode, KeyEvent event) {
+                    if (GamepadUtils.isActionKeyDown(event)) {
+                        ExpandableListView expando = (ExpandableListView)v;
+                        long selected = expando.getSelectedPosition();
+                        switch (ExpandableListView.getPackedPositionType(selected)) {
+                        case ExpandableListView.PACKED_POSITION_TYPE_CHILD:
+                            return handleItemClick(ExpandableListView.getPackedPositionGroup(selected),
+                                                   ExpandableListView.getPackedPositionChild(selected));
+                        case ExpandableListView.PACKED_POSITION_TYPE_GROUP:
+                            int group = ExpandableListView.getPackedPositionGroup(selected);
+                            return (expando.isGroupExpanded(group)
+                                ? expando.collapseGroup(group)
+                                : expando.expandGroup(group));
+                        }
+                    }
+                    return false;
                 }
             });
 
@@ -143,7 +164,7 @@ public class HistoryTab extends AwesomeBarTab {
                 viewHolder = new AwesomeEntryViewHolder();
                 viewHolder.titleView = (TextView) convertView.findViewById(R.id.title);
                 viewHolder.urlView = (TextView) convertView.findViewById(R.id.url);
-                viewHolder.faviconView = (ImageView) convertView.findViewById(R.id.favicon);
+                viewHolder.faviconView = (FaviconView) convertView.findViewById(R.id.favicon);
                 viewHolder.bookmarkIconView = (ImageView) convertView.findViewById(R.id.bookmark_icon);
 
                 convertView.setTag(viewHolder);
@@ -172,8 +193,8 @@ public class HistoryTab extends AwesomeBarTab {
             Bitmap favicon = null;
 
             if (b != null) {
-                Bitmap bitmap = BitmapFactory.decodeByteArray(b, 0, b.length);
-                if (bitmap != null && bitmap.getWidth() > 0 && bitmap.getHeight() > 0) {
+                Bitmap bitmap = BitmapUtils.decodeByteArray(b);
+                if (bitmap != null) {
                     favicon = Favicons.getInstance().scaleImage(bitmap);
                 }
             }

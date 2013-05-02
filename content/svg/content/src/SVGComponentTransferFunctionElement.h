@@ -30,7 +30,6 @@ protected:
   SVGComponentTransferFunctionElement(already_AddRefed<nsINodeInfo> aNodeInfo)
     : SVGComponentTransferFunctionElementBase(aNodeInfo)
   {
-    SetIsDOMBinding();
   }
 
 public:
@@ -46,8 +45,8 @@ public:
   bool GenerateLookupTable(uint8_t* aTable);
 
   // WebIDL
-  virtual JSObject*
-  WrapNode(JSContext* aCx, JSObject* aScope) MOZ_OVERRIDE = 0;
+  virtual JSObject* WrapNode(JSContext* aCx,
+                             JS::Handle<JSObject*> aScope) MOZ_OVERRIDE = 0;
   already_AddRefed<nsIDOMSVGAnimatedEnumeration> Type();
   already_AddRefed<DOMSVGAnimatedNumberList> TableValues();
   already_AddRefed<nsIDOMSVGAnimatedNumber> Slope();
@@ -84,8 +83,7 @@ nsresult NS_NewSVGFEFuncRElement(
 namespace mozilla {
 namespace dom {
 
-class SVGFEFuncRElement : public SVGComponentTransferFunctionElement,
-                          public nsIDOMSVGElement
+class SVGFEFuncRElement : public SVGComponentTransferFunctionElement
 {
   friend nsresult (::NS_NewSVGFEFuncRElement(
     nsIContent** aResult, already_AddRefed<nsINodeInfo> aNodeInfo));
@@ -94,21 +92,12 @@ protected:
     : SVGComponentTransferFunctionElement(aNodeInfo) {}
 
 public:
-  // interfaces:
-  NS_DECL_ISUPPORTS_INHERITED
-
   virtual int32_t GetChannel() { return 0; }
-
-  NS_FORWARD_NSIDOMSVGELEMENT(SVGComponentTransferFunctionElement::)
-  NS_FORWARD_NSIDOMNODE_TO_NSINODE
-  NS_FORWARD_NSIDOMELEMENT_TO_GENERIC
 
   virtual nsresult Clone(nsINodeInfo *aNodeInfo, nsINode **aResult) const;
 
-  virtual nsIDOMNode* AsDOMNode() { return this; }
-
-  virtual JSObject*
-  WrapNode(JSContext* aCx, JSObject* aScope) MOZ_OVERRIDE;
+  virtual JSObject* WrapNode(JSContext* aCx,
+                             JS::Handle<JSObject*> aScope) MOZ_OVERRIDE;
 };
 
 } // namespace dom
@@ -120,8 +109,7 @@ nsresult NS_NewSVGFEFuncGElement(
 namespace mozilla {
 namespace dom {
 
-class SVGFEFuncGElement : public SVGComponentTransferFunctionElement,
-                          public nsIDOMSVGElement
+class SVGFEFuncGElement : public SVGComponentTransferFunctionElement
 {
   friend nsresult (::NS_NewSVGFEFuncGElement(
     nsIContent** aResult, already_AddRefed<nsINodeInfo> aNodeInfo));
@@ -130,21 +118,12 @@ protected:
     : SVGComponentTransferFunctionElement(aNodeInfo) {}
 
 public:
-  // interfaces:
-  NS_DECL_ISUPPORTS_INHERITED
-
   virtual int32_t GetChannel() { return 1; }
-
-  NS_FORWARD_NSIDOMSVGELEMENT(SVGComponentTransferFunctionElement::)
-  NS_FORWARD_NSIDOMNODE_TO_NSINODE
-  NS_FORWARD_NSIDOMELEMENT_TO_GENERIC
 
   virtual nsresult Clone(nsINodeInfo *aNodeInfo, nsINode **aResult) const;
 
-  virtual nsIDOMNode* AsDOMNode() { return this; }
-
-  virtual JSObject*
-  WrapNode(JSContext* aCx, JSObject* aScope) MOZ_OVERRIDE;
+  virtual JSObject* WrapNode(JSContext* aCx,
+                             JS::Handle<JSObject*> aScope) MOZ_OVERRIDE;
 };
 
 } // namespace dom
@@ -156,8 +135,7 @@ nsresult NS_NewSVGFEFuncBElement(
 namespace mozilla {
 namespace dom {
 
-class SVGFEFuncBElement : public SVGComponentTransferFunctionElement,
-                          public nsIDOMSVGElement
+class SVGFEFuncBElement : public SVGComponentTransferFunctionElement
 {
   friend nsresult (::NS_NewSVGFEFuncBElement(
     nsIContent** aResult, already_AddRefed<nsINodeInfo> aNodeInfo));
@@ -166,21 +144,12 @@ protected:
     : SVGComponentTransferFunctionElement(aNodeInfo) {}
 
 public:
-  // interfaces:
-  NS_DECL_ISUPPORTS_INHERITED
-
   virtual int32_t GetChannel() { return 2; }
-
-  NS_FORWARD_NSIDOMSVGELEMENT(SVGComponentTransferFunctionElement::)
-  NS_FORWARD_NSIDOMNODE_TO_NSINODE
-  NS_FORWARD_NSIDOMELEMENT_TO_GENERIC
 
   virtual nsresult Clone(nsINodeInfo *aNodeInfo, nsINode **aResult) const;
 
-  virtual nsIDOMNode* AsDOMNode() { return this; }
-
-  virtual JSObject*
-  WrapNode(JSContext* aCx, JSObject* aScope) MOZ_OVERRIDE;
+  virtual JSObject* WrapNode(JSContext* aCx,
+                             JS::Handle<JSObject*> aScope) MOZ_OVERRIDE;
 };
 
 } // namespace dom
@@ -192,8 +161,7 @@ nsresult NS_NewSVGFEFuncAElement(
 namespace mozilla {
 namespace dom {
 
-class SVGFEFuncAElement : public SVGComponentTransferFunctionElement,
-                          public nsIDOMSVGElement
+class SVGFEFuncAElement : public SVGComponentTransferFunctionElement
 {
   friend nsresult (::NS_NewSVGFEFuncAElement(
     nsIContent** aResult, already_AddRefed<nsINodeInfo> aNodeInfo));
@@ -202,21 +170,12 @@ protected:
     : SVGComponentTransferFunctionElement(aNodeInfo) {}
 
 public:
-  // interfaces:
-  NS_DECL_ISUPPORTS_INHERITED
-
   virtual int32_t GetChannel() { return 3; }
-
-  NS_FORWARD_NSIDOMSVGELEMENT(SVGComponentTransferFunctionElement::)
-  NS_FORWARD_NSIDOMNODE_TO_NSINODE
-  NS_FORWARD_NSIDOMELEMENT_TO_GENERIC
 
   virtual nsresult Clone(nsINodeInfo *aNodeInfo, nsINode **aResult) const;
 
-  virtual nsIDOMNode* AsDOMNode() { return this; }
-
-  virtual JSObject*
-  WrapNode(JSContext* aCx, JSObject* aScope) MOZ_OVERRIDE;
+  virtual JSObject* WrapNode(JSContext* aCx,
+                             JS::Handle<JSObject*> aScope) MOZ_OVERRIDE;
 };
 
 } // namespace dom

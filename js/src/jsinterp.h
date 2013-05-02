@@ -1,6 +1,5 @@
-/* -*- Mode: C; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
- * vim: set ts=4 sw=4 et tw=78:
- *
+/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
+ * vim: set ts=8 sts=4 et sw=4 tw=99:
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -211,7 +210,8 @@ enum InterpretStatus
  * pointed to by cx->fp until completion or error.
  */
 extern JS_NEVER_INLINE InterpretStatus
-Interpret(JSContext *cx, StackFrame *stopFp, InterpMode mode = JSINTERP_NORMAL);
+Interpret(JSContext *cx, StackFrame *stopFp, InterpMode mode = JSINTERP_NORMAL,
+          bool useNewType = false);
 
 extern bool
 RunScript(JSContext *cx, StackFrame *fp);
@@ -373,6 +373,10 @@ SetObjectElement(JSContext *cx, HandleObject obj, HandleValue index, HandleValue
                  JSBool strict, HandleScript script, jsbytecode *pc);
 
 bool
+InitElementArray(JSContext *cx, jsbytecode *pc,
+                 HandleObject obj, uint32_t index, HandleValue value);
+
+bool
 AddValues(JSContext *cx, HandleScript script, jsbytecode *pc,
           MutableHandleValue lhs, MutableHandleValue rhs,
           Value *res);
@@ -410,11 +414,29 @@ template <bool strict>
 bool
 DeleteProperty(JSContext *ctx, HandleValue val, HandlePropertyName name, JSBool *bv);
 
+template <bool strict>
+bool
+DeleteElement(JSContext *cx, HandleValue val, HandleValue index, JSBool *bv);
+
 bool
 DefFunOperation(JSContext *cx, HandleScript script, HandleObject scopeChain, HandleFunction funArg);
 
 bool
 GetAndClearException(JSContext *cx, MutableHandleValue res);
+
+bool
+DeleteNameOperation(JSContext *cx, HandlePropertyName name, HandleObject scopeObj,
+                    MutableHandleValue res);
+
+bool
+ImplicitThisOperation(JSContext *cx, HandleObject scopeObj, HandlePropertyName name,
+                      MutableHandleValue res);
+
+bool
+IteratorMore(JSContext *cx, JSObject *iterobj, bool *cond, MutableHandleValue rval);
+
+bool
+IteratorNext(JSContext *cx, HandleObject iterobj, MutableHandleValue rval);
 
 }  /* namespace js */
 

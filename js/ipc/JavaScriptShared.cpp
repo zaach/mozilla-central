@@ -10,6 +10,7 @@
 #include "xpcprivate.h"
 
 using namespace js;
+using namespace JS;
 using namespace mozilla;
 using namespace mozilla::jsipc;
 
@@ -27,10 +28,8 @@ ObjectStore::init()
 void
 ObjectStore::trace(JSTracer *trc)
 {
-    for (ObjectTable::Range r(table_.all()); !r.empty(); r.popFront()) {
-        JS_SET_TRACING_NAME(trc, "ipc-object");
-        JS_CallTracer(trc, r.front().value, JSTRACE_OBJECT);
-    }
+    for (ObjectTable::Range r(table_.all()); !r.empty(); r.popFront())
+        JS_CallObjectTracer(trc, r.front().value, "ipc-object");
 }
 
 JSObject *
@@ -68,10 +67,8 @@ ObjectIdCache::init()
 void
 ObjectIdCache::trace(JSTracer *trc)
 {
-    for (ObjectIdTable::Range r(table_.all()); !r.empty(); r.popFront()) {
-        JS_SET_TRACING_NAME(trc, "ipc-id");
-        JS_CallTracer(trc, r.front().key, JSTRACE_OBJECT);
-    }
+    for (ObjectIdTable::Range r(table_.all()); !r.empty(); r.popFront())
+        JS_CallObjectTracer(trc, r.front().key, "ipc-id");
 }
 
 ObjectId
@@ -169,11 +166,11 @@ JavaScriptShared::toVariant(JSContext *cx, jsval from, JSVariant *to)
 }
 
 bool
-JavaScriptShared::toValue(JSContext *cx, const JSVariant &from, jsval *to)
+JavaScriptShared::toValue(JSContext *cx, const JSVariant &from, MutableHandleValue to)
 {
     switch (from.type()) {
         case JSVariant::Tvoid_t:
-          *to = JSVAL_VOID;
+          to.set(JSVAL_VOID);
           return true;
 
         case JSVariant::Tuint32_t:
@@ -183,19 +180,19 @@ JavaScriptShared::toValue(JSContext *cx, const JSVariant &from, jsval *to)
               JSObject *obj = unwrap(cx, id);
               if (!obj)
                   return false;
-              *to = OBJECT_TO_JSVAL(obj);
+              to.set(OBJECT_TO_JSVAL(obj));
           } else {
-              *to = JSVAL_NULL;
+              to.set(JSVAL_NULL);
           }
           return true;
         }
 
         case JSVariant::Tdouble:
-          *to = JS_NumberValue(from.get_double());
+          to.set(JS_NumberValue(from.get_double()));
           return true;
 
         case JSVariant::Tbool:
-          *to = BOOLEAN_TO_JSVAL(from.get_bool());
+          to.set(BOOLEAN_TO_JSVAL(from.get_bool()));
           return true;
 
         case JSVariant::TnsString:
@@ -204,7 +201,7 @@ JavaScriptShared::toValue(JSContext *cx, const JSVariant &from, jsval *to)
           JSString *str = JS_NewUCStringCopyN(cx, old.BeginReading(), old.Length());
           if (!str)
               return false;
-          *to = STRING_TO_JSVAL(str);
+          to.set(STRING_TO_JSVAL(str));
           return true;
         }
 
@@ -215,11 +212,11 @@ JavaScriptShared::toValue(JSContext *cx, const JSVariant &from, jsval *to)
           ConvertID(id, &iid);
 
           JSCompartment *compartment = GetContextCompartment(cx);
-          JSObject *global = JS_GetGlobalForCompartmentOrNull(cx, compartment);
+          RootedObject global(cx, JS_GetGlobalForCompartmentOrNull(cx, compartment));
           JSObject *obj = xpc_NewIDObject(cx, global, iid);
           if (!obj)
               return false;
-          *to = OBJECT_TO_JSVAL(obj);
+          to.set(OBJECT_TO_JSVAL(obj));
           return true;
         }
 
@@ -363,4 +360,3 @@ JavaScriptShared::toDesc(JSContext *cx, const PPropertyDescriptor &in, JSPropert
 
     return true;
 }
-

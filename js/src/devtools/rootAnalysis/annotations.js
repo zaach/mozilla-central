@@ -2,9 +2,27 @@
 
 "use strict";
 
+var ignoreIndirectCalls = {
+    "mallocSizeOf" : true,
+    "aMallocSizeOf" : true,
+    "_malloc_message" : true,
+    "__conv" : true,
+    "__convf" : true,
+    "prerrortable.c:callback_newtable" : true,
+    "mozalloc_oom.cpp:void (* gAbortHandler)(size_t)" : true,
+    "JSObject* js::GetWeakmapKeyDelegate(JSObject*)" : true, // FIXME: mark with AutoAssertNoGC instead
+};
+
+
 function indirectCallCannotGC(caller, name)
 {
-    if (name == "mallocSizeOf")
+    if (name in ignoreIndirectCalls)
+        return true;
+
+    if (name == "mapper" && caller == "ptio.c:pt_MapError")
+        return true;
+
+    if (name == "params" && caller == "PR_ExplodeTime")
         return true;
 
     // hook called during script finalization which cannot GC.
@@ -15,23 +33,34 @@ function indirectCallCannotGC(caller, name)
 }
 
 // classes to ignore indirect calls on.
-var ignoreClasses = [
-    "JSTracer",
-    "JSStringFinalizer",
-    "SprintfStateStr",
-    "JSLocaleCallbacks",
-    "JSC::ExecutableAllocator"
-];
+var ignoreClasses = {
+    "JSTracer" : true,
+    "JSStringFinalizer" : true,
+    "SprintfStateStr" : true,
+    "JSLocaleCallbacks" : true,
+    "JSC::ExecutableAllocator" : true,
+    "PRIOMethods": true,
+    "XPCOMFunctions" : true, // I'm a little unsure of this one
+    "_MD_IOVector" : true,
+};
 
-function fieldCallCannotGC(csu, field)
+var ignoreCallees = {
+    "js::Class.trace" : true,
+    "js::Class.finalize" : true,
+    "JSRuntime.destroyPrincipals" : true,
+    "nsISupports.AddRef" : true,
+    "nsISupports.Release" : true, // makes me a bit nervous; this is a bug but can happen
+    "nsAXPCNativeCallContext.GetJSContext" : true,
+    "js::ion::MDefinition.op" : true, // macro generated virtuals just return a constant
+    "js::ion::LInstruction.getDef" : true, // virtual but no implementation can GC
+    "js::ion::IonCache.kind" : true, // macro generated virtuals just return a constant
+};
+
+function fieldCallCannotGC(csu, fullfield)
 {
-    for (var i = 0; i < ignoreClasses.length; i++) {
-        if (csu == ignoreClasses[i])
-            return true;
-    }
-    if (csu == "js::Class" && (field == "trace" || field == "finalize"))
+    if (csu in ignoreClasses)
         return true;
-    if (csu == "JSRuntime" && field == "destroyPrincipals")
+    if (fullfield in ignoreCallees)
         return true;
     return false;
 }
@@ -67,8 +96,22 @@ function ignoreEdgeUse(edge, variable)
     return false;
 }
 
+var ignoreFunctions = {
+    "ptio.c:pt_MapError" : true,
+    "PR_ExplodeTime" : true,
+    "PR_ErrorInstallTable" : true,
+    "PR_SetThreadPrivate" : true
+};
+
 function ignoreGCFunction(fun)
 {
+    if (fun in ignoreFunctions)
+        return true;
+
+    // Templatized function
+    if (fun.indexOf("void nsCOMPtr<T>::Assert_NoQueryNeeded()") >= 0)
+        return true;
+
     // XXX modify refillFreeList<NoGC> to not need data flow analysis to understand it cannot GC.
     if (/refillFreeList/.test(fun) && /\(js::AllowGC\)0u/.test(fun))
         return true;
@@ -77,16 +120,32 @@ function ignoreGCFunction(fun)
 
 function isRootedTypeName(name)
 {
+    if (name == "mozilla::ErrorResult" ||
+        name == "js::frontend::TokenStream" ||
+        name == "js::frontend::TokenStream::Position")
+    {
+        return true;
+    }
+    return false;
+}
+
+function isRootedPointerTypeName(name)
+{
     if (name.startsWith('struct '))
         name = name.substr(7);
     if (name.startsWith('class '))
         name = name.substr(6);
     if (name.startsWith('const '))
         name = name.substr(6);
+    if (name.startsWith('js::ctypes::'))
+        name = name.substr(12);
     if (name.startsWith('js::'))
         name = name.substr(4);
     if (name.startsWith('JS::'))
         name = name.substr(4);
+
+    if (name.startsWith('MaybeRooted<'))
+        return /\(js::AllowGC\)1u>::RootType/.test(name);
 
     return name.startsWith('Rooted');
 }

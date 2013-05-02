@@ -1,6 +1,5 @@
-/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*-
- * vim: set ts=4 sw=4 et tw=99:
- *
+/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
+ * vim: set ts=8 sts=4 et sw=4 tw=99:
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -284,15 +283,17 @@ CodeGeneratorX86Shared::bailout(const T &binder, LSnapshot *snapshot)
     CompileInfo &info = snapshot->mir()->block()->info();
     switch (info.executionMode()) {
       case ParallelExecution: {
-        // in parallel mode, make no attempt to recover, just signal an error.
+        // In parallel mode, make no attempt to recover, just signal an error.
         Label *ool;
         if (!ensureOutOfLineParallelAbort(&ool))
             return false;
         binder(masm, ool);
         return true;
       }
-
-      case SequentialExecution: break;
+      case SequentialExecution:
+        break;
+      default:
+        JS_NOT_REACHED("No such execution mode");
     }
 
     if (!encode(snapshot))
@@ -1305,9 +1306,19 @@ CodeGeneratorX86Shared::visitGuardShape(LGuardShape *guard)
 {
     Register obj = ToRegister(guard->input());
     masm.cmpPtr(Operand(obj, JSObject::offsetOfShape()), ImmGCPtr(guard->mir()->shape()));
-    if (!bailoutIf(Assembler::NotEqual, guard->snapshot()))
-        return false;
-    return true;
+
+    return bailoutIf(Assembler::NotEqual, guard->snapshot());
+}
+
+bool
+CodeGeneratorX86Shared::visitGuardObjectType(LGuardObjectType *guard)
+{
+    Register obj = ToRegister(guard->input());
+    masm.cmpPtr(Operand(obj, JSObject::offsetOfType()), ImmGCPtr(guard->mir()->typeObject()));
+
+    Assembler::Condition cond =
+        guard->mir()->bailOnEquality() ? Assembler::Equal : Assembler::NotEqual;
+    return bailoutIf(cond, guard->snapshot());
 }
 
 bool
@@ -1323,38 +1334,6 @@ CodeGeneratorX86Shared::visitGuardClass(LGuardClass *guard)
     return true;
 }
 
-class OutOfLineTruncate : public OutOfLineCodeBase<CodeGeneratorX86Shared>
-{
-    LTruncateDToInt32 *ins_;
-
-  public:
-    OutOfLineTruncate(LTruncateDToInt32 *ins)
-      : ins_(ins)
-    { }
-
-    bool accept(CodeGeneratorX86Shared *codegen) {
-        return codegen->visitOutOfLineTruncate(this);
-    }
-    LTruncateDToInt32 *ins() const {
-        return ins_;
-    }
-};
-
-bool
-CodeGeneratorX86Shared::visitTruncateDToInt32(LTruncateDToInt32 *ins)
-{
-    FloatRegister input = ToFloatRegister(ins->input());
-    Register output = ToRegister(ins->output());
-
-    OutOfLineTruncate *ool = new OutOfLineTruncate(ins);
-    if (!addOutOfLineCode(ool))
-        return false;
-
-    masm.branchTruncateDouble(input, output, ool->entry());
-    masm.bind(ool->rejoin());
-    return true;
-}
-
 bool
 CodeGeneratorX86Shared::visitEffectiveAddress(LEffectiveAddress *ins)
 {
@@ -1363,62 +1342,6 @@ CodeGeneratorX86Shared::visitEffectiveAddress(LEffectiveAddress *ins)
     Register index = ToRegister(ins->index());
     Register output = ToRegister(ins->output());
     masm.leal(Operand(base, index, mir->scale(), mir->displacement()), output);
-    return true;
-}
-
-bool
-CodeGeneratorX86Shared::visitOutOfLineTruncate(OutOfLineTruncate *ool)
-{
-    LTruncateDToInt32 *ins = ool->ins();
-    FloatRegister input = ToFloatRegister(ins->input());
-    FloatRegister temp = ToFloatRegister(ins->tempFloat());
-    Register output = ToRegister(ins->output());
-
-    // Try to convert doubles representing integers within 2^32 of a signed
-    // integer, by adding/subtracting 2^32 and then trying to convert to int32.
-    // This has to be an exact conversion, as otherwise the truncation works
-    // incorrectly on the modified value.
-    Label fail;
-    masm.xorpd(ScratchFloatReg, ScratchFloatReg);
-    masm.ucomisd(input, ScratchFloatReg);
-    masm.j(Assembler::Parity, &fail);
-
-    {
-        Label positive;
-        masm.j(Assembler::Above, &positive);
-
-        static const double shiftNeg = 4294967296.0;
-        masm.loadStaticDouble(&shiftNeg, temp);
-        Label skip;
-        masm.jmp(&skip);
-
-        masm.bind(&positive);
-        static const double shiftPos = -4294967296.0;
-        masm.loadStaticDouble(&shiftPos, temp);
-        masm.bind(&skip);
-    }
-
-    masm.addsd(input, temp);
-    masm.cvttsd2si(temp, output);
-    masm.cvtsi2sd(output, ScratchFloatReg);
-
-    masm.ucomisd(temp, ScratchFloatReg);
-    masm.j(Assembler::Parity, &fail);
-    masm.j(Assembler::Equal, ool->rejoin());
-
-    masm.bind(&fail);
-    {
-        saveVolatile(output);
-
-        masm.setupUnalignedABICall(1, output);
-        masm.passABIArg(input);
-        masm.callWithABI(JS_FUNC_TO_DATA_PTR(void *, js::ToInt32));
-        masm.storeCallResult(output);
-
-        restoreVolatile(output);
-    }
-
-    masm.jump(ool->rejoin());
     return true;
 }
 
@@ -1452,6 +1375,27 @@ CodeGeneratorX86Shared::generateInvalidateEpilogue()
     masm.breakpoint();
     return true;
 }
+
+bool
+CodeGeneratorX86Shared::visitNegI(LNegI *ins)
+{
+    Register input = ToRegister(ins->input());
+    JS_ASSERT(input == ToRegister(ins->output()));
+
+    masm.neg32(input);
+    return true;
+}
+
+bool
+CodeGeneratorX86Shared::visitNegD(LNegD *ins)
+{
+    FloatRegister input = ToFloatRegister(ins->input());
+    JS_ASSERT(input == ToFloatRegister(ins->output()));
+
+    masm.negateDouble(input);
+    return true;
+}
+
 
 } // namespace ion
 } // namespace js

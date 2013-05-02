@@ -467,8 +467,6 @@ public:
 
   void SetMozSrcObject(DOMMediaStream& aValue);
 
-  double InitialTime();
-
   bool MozPreservesPitch() const
   {
     return mPreservesPitch;
@@ -520,7 +518,7 @@ protected:
 
   class WakeLockBoolWrapper {
   public:
-    WakeLockBoolWrapper(bool val = false) : mValue(val), mOuter(NULL), mWakeLock(NULL) {}
+    WakeLockBoolWrapper(bool val = false) : mValue(val), mOuter(nullptr), mWakeLock(nullptr) {}
     void SetOuter(HTMLMediaElement* outer) { mOuter = outer; }
     operator bool() const { return mValue; }
     WakeLockBoolWrapper& operator=(bool val);
@@ -804,7 +802,7 @@ protected:
   nsresult UpdateChannelMuteState(bool aCanPlay);
 
   // Update the audio channel playing state
-  void UpdateAudioChannelPlayingState();
+  virtual void UpdateAudioChannelPlayingState();
 
   // The current decoder. Load() has been called on this decoder.
   // At most one of mDecoder and mSrcStream can be non-null.
@@ -958,7 +956,7 @@ protected:
   nsAutoPtr<AudioStream> mAudioStream;
 
   // Range of time played.
-  TimeRanges mPlayed;
+  nsRefPtr<TimeRanges> mPlayed;
 
   // Stores the time at the start of the current 'played' range.
   double mCurrentPlayRangeStart;

@@ -30,14 +30,12 @@
 
       <property name="securityUI"
                 readonly="true">
-      <getter>
-        <![CDATA[
+        <getter><![CDATA[
           if (this._securityUI)
             return this._securityUI;
           this._securityUI = new SSLStatusProvider(this);
           return this._securityUI;
-        ]]>
-      </getter>
+        ]]></getter>
       </property>
 
       <property name="webNavigation"
@@ -48,16 +46,14 @@
 
       <property name="webProgress"
                 readonly="true">
-    	<getter>
-    	  <![CDATA[
+        <getter><![CDATA[
             if (!this._remoteWebProgress) {
               let RemoteWebProgress = Components.utils.import("resource://gre/modules/RemoteWebProgress.jsm",
  {}).RemoteWebProgress;
               this._remoteWebProgress = new RemoteWebProgress(this);
             }
             return this._remoteWebProgress;
-    	  ]]>
-    	</getter>
+        ]]></getter>
       </property>
 
       <field name="_contentTitle">null</field>
@@ -85,7 +81,7 @@
       <constructor>
         <![CDATA[
           this.messageManager.addMessageListener("DOMTitleChanged", this);
-          this.messageManager.loadFrameScript("chrome://browser/content/browser-child.js", true);
+          this.messageManager.loadFrameScript("chrome://global/content/browser-child.js", true);
           this.webProgress._init();
         ]]>
       </constructor>

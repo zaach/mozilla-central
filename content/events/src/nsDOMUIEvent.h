@@ -92,7 +92,8 @@ public:
                                                     const mozilla::dom::UIEventInit& aParam,
                                                     mozilla::ErrorResult& aRv);
 
-  virtual JSObject* WrapObject(JSContext* aCx, JSObject* aScope)
+  virtual JSObject* WrapObject(JSContext* aCx,
+                               JS::Handle<JSObject*> aScope) MOZ_OVERRIDE
   {
     return mozilla::dom::UIEventBinding::Wrap(aCx, aScope, this);
   }
@@ -100,7 +101,7 @@ public:
   already_AddRefed<nsIDOMWindow> GetView()
   {
     nsCOMPtr<nsIDOMWindow> view = mView;
-    return mView.forget();
+    return view.forget();
   }
 
   int32_t Detail()
@@ -132,7 +133,7 @@ public:
     return y;
   }
 
-  uint32_t Which()
+  virtual uint32_t Which()
   {
     uint32_t w;
     GetWhich(&w);

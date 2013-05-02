@@ -154,10 +154,6 @@ void nsGIFDecoder2::BeginGIF()
   mGIFOpen = true;
 
   PostSize(mGIFStruct.screen_width, mGIFStruct.screen_height);
-
-  // If we're doing a size decode, we have what we came for
-  if (IsSizeDecode())
-    return;
 }
 
 //******************************************************************************
@@ -1035,8 +1031,8 @@ nsGIFDecoder2::WriteInternal(const char *aBuffer, uint32_t aCount)
       break;
 
     case gif_done:
-      PostDecodeDone(mGIFStruct.loop_count - 1);
-      mGIFOpen = false;
+      MOZ_ASSERT(!IsSizeDecode(), "Size decodes shouldn't reach gif_done");
+      FinishInternal();
       goto done;
 
     case gif_error:

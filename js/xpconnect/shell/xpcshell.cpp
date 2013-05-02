@@ -45,6 +45,7 @@
 #include "nsJSPrincipals.h"
 #include "xpcpublic.h"
 #include "nsXULAppAPI.h"
+#include "BackstagePass.h"
 #ifdef XP_MACOSX
 #include "xpcshellMacUtils.h"
 #endif
@@ -76,8 +77,6 @@
 #ifdef HAVE_UNISTD_H
 #include <unistd.h>     /* for isatty() */
 #endif
-
-#include "nsIJSContextStack.h"
 
 #ifdef MOZ_CRASHREPORTER
 #include "nsICrashReporter.h"
@@ -807,7 +806,7 @@ Btoa(JSContext *cx, unsigned argc, jsval *vp)
   return xpc::Base64Encode(cx, JS_ARGV(cx, vp)[0], &JS_RVAL(cx, vp));
 }
 
-static JSFunctionSpec glob_functions[] = {
+static const JSFunctionSpec glob_functions[] = {
     JS_FS("print",           Print,          0,0),
     JS_FS("readline",        ReadLine,       1,0),
     JS_FS("load",            Load,           1,0),
@@ -833,7 +832,7 @@ static JSFunctionSpec glob_functions[] = {
 
 JSClass global_class = {
     "global", 0,
-    JS_PropertyStub,  JS_PropertyStub,  JS_PropertyStub,  JS_StrictPropertyStub,
+    JS_PropertyStub,  JS_DeletePropertyStub,  JS_PropertyStub,  JS_StrictPropertyStub,
     JS_EnumerateStub, JS_ResolveStub,   JS_ConvertStub,   nullptr
 };
 
@@ -924,7 +923,7 @@ env_enumerate(JSContext *cx, JSHandleObject obj)
 
 static JSBool
 env_resolve(JSContext *cx, JSHandleObject obj, JSHandleId id, unsigned flags,
-            JSMutableHandleObject objp)
+            JS::MutableHandleObject objp)
 {
     JSString *idstr, *valstr;
 
@@ -954,7 +953,7 @@ env_resolve(JSContext *cx, JSHandleObject obj, JSHandleId id, unsigned flags,
 
 static JSClass env_class = {
     "environment", JSCLASS_HAS_PRIVATE | JSCLASS_NEW_RESOLVE,
-    JS_PropertyStub,  JS_PropertyStub,
+    JS_PropertyStub,  JS_DeletePropertyStub,
     JS_PropertyStub,  env_setProperty,
     env_enumerate, (JSResolveOp) env_resolve,
     JS_ConvertStub,   nullptr
@@ -1857,27 +1856,22 @@ main(int argc, char **argv, char **envp)
         xpc->SetFunctionThisTranslator(NS_GET_IID(nsITestXPCFunctionCallback), translator);
 #endif
 
-        nsCOMPtr<nsIJSContextStack> cxstack = do_GetService("@mozilla.org/js/xpc/ContextStack;1");
-        if (!cxstack) {
-            printf("failed to get the nsThreadJSContextStack service!\n");
+        if (!xpc::danger::PushJSContext(cx)) {
+            printf("failed to push the current JSContext!\n");
             return 1;
         }
 
-        if (NS_FAILED(cxstack->Push(cx))) {
-            printf("failed to push the current JSContext on the nsThreadJSContextStack!\n");
-            return 1;
-        }
-
-        nsCOMPtr<nsIXPCScriptable> backstagePass;
-        nsresult rv = rtsvc->GetBackstagePass(getter_AddRefs(backstagePass));
+        nsRefPtr<BackstagePass> backstagePass;
+        rv = NS_NewBackstagePass(getter_AddRefs(backstagePass));
         if (NS_FAILED(rv)) {
-            fprintf(gErrFile, "+++ Failed to get backstage pass from rtsvc: %8x\n",
+            fprintf(gErrFile, "+++ Failed to create BackstagePass: %8x\n",
                     static_cast<uint32_t>(rv));
             return 1;
         }
 
         nsCOMPtr<nsIXPConnectJSObjectHolder> holder;
-        rv = xpc->InitClassesWithNewWrappedGlobal(cx, backstagePass,
+        rv = xpc->InitClassesWithNewWrappedGlobal(cx,
+                                                  static_cast<nsIGlobalObject *>(backstagePass),
                                                   systemprincipal,
                                                   0,
                                                   JS::SystemZone,
@@ -1890,6 +1884,8 @@ main(int argc, char **argv, char **envp)
             NS_ASSERTION(glob == nullptr, "bad GetJSObject?");
             return 1;
         }
+
+        backstagePass->SetGlobalObject(glob);
 
         JS_BeginRequest(cx);
         {
@@ -1923,22 +1919,10 @@ main(int argc, char **argv, char **envp)
 
             result = ProcessArgs(cx, glob, argv, argc, &dirprovider);
 
-
-//#define TEST_CALL_ON_WRAPPED_JS_AFTER_SHUTDOWN 1
-
-#ifdef TEST_CALL_ON_WRAPPED_JS_AFTER_SHUTDOWN
-            // test of late call and release (see below)
-            nsCOMPtr<nsIJSContextStack> bogus;
-            xpc->WrapJS(cx, glob, NS_GET_IID(nsIJSContextStack),
-                        (void**) getter_AddRefs(bogus));
-#endif
             JS_DropPrincipals(rt, gJSPrincipals);
             JS_SetAllNonReservedSlotsToUndefined(cx, glob);
             JS_GC(rt);
-            JSContext *oldcx;
-            cxstack->Pop(&oldcx);
-            NS_ASSERTION(oldcx == cx, "JS thread context push/pop mismatch");
-            cxstack = nullptr;
+            xpc::danger::PopJSContext();
             JS_GC(rt);
         } //this scopes the JSAutoCrossCompartmentCall
         JS_EndRequest(cx);

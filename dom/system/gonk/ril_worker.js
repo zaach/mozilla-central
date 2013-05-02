@@ -67,13 +67,15 @@ const MMI_MAX_LENGTH_SHORT_CODE = 2;
 
 const MMI_END_OF_USSD = "#";
 
-let RILQUIRKS_CALLSTATE_EXTRA_UINT32 = libcutils.property_get("ro.moz.ril.callstate_extra_int");
+let RILQUIRKS_CALLSTATE_EXTRA_UINT32 = libcutils.property_get("ro.moz.ril.callstate_extra_int", "false") === "true";
 // This may change at runtime since in RIL v6 and later, we get the version
 // number via the UNSOLICITED_RIL_CONNECTED parcel.
-let RILQUIRKS_V5_LEGACY = libcutils.property_get("ro.moz.ril.v5_legacy");
-let RILQUIRKS_REQUEST_USE_DIAL_EMERGENCY_CALL = libcutils.property_get("ro.moz.ril.dial_emergency_call");
-let RILQUIRKS_MODEM_DEFAULTS_TO_EMERGENCY_MODE = libcutils.property_get("ro.moz.ril.emergency_by_default");
-let RILQUIRKS_SIM_APP_STATE_EXTRA_FIELDS = libcutils.property_get("ro.moz.ril.simstate_extra_field");
+let RILQUIRKS_V5_LEGACY = libcutils.property_get("ro.moz.ril.v5_legacy", "true") === "true";
+let RILQUIRKS_REQUEST_USE_DIAL_EMERGENCY_CALL = libcutils.property_get("ro.moz.ril.dial_emergency_call", "false") === "true";
+let RILQUIRKS_MODEM_DEFAULTS_TO_EMERGENCY_MODE = libcutils.property_get("ro.moz.ril.emergency_by_default", "false") === "true";
+let RILQUIRKS_SIM_APP_STATE_EXTRA_FIELDS = libcutils.property_get("ro.moz.ril.simstate_extra_field", "false") === "true";
+// Needed for call-waiting on Peak device
+let RILQUIRKS_EXTRA_UINT32_2ND_CALL = libcutils.property_get("ro.moz.ril.extra_int_2nd_call", "false") == "true";
 
 // Marker object.
 let PENDING_NETWORK_TYPE = {};
@@ -1373,9 +1375,22 @@ let RIL = {
    *        Boolean indicating the desired power state.
    */
   setRadioPower: function setRadioPower(options) {
-    Buf.newParcel(REQUEST_RADIO_POWER);
+    Buf.newParcel(REQUEST_RADIO_POWER, options);
     Buf.writeUint32(1);
     Buf.writeUint32(options.on ? 1 : 0);
+    Buf.sendParcel();
+  },
+
+  /**
+   * Query call waiting status.
+   *
+   */
+  queryCallWaiting: function queryCallWaiting(options) {
+    Buf.newParcel(REQUEST_QUERY_CALL_WAITING, options);
+    Buf.writeUint32(1);
+    // As per 3GPP TS 24.083, section 1.6 UE doesn't need to send service
+    // class parameter in call waiting interrogation  to network
+    Buf.writeUint32(ICC_SERVICE_CLASS_NONE);
     Buf.sendParcel();
   },
 
@@ -1603,6 +1618,14 @@ let RIL = {
   },
 
   /**
+   * Cache the request for making an emergency call when radio is off. The
+   * request shall include two types of callback functions. 'callback' is
+   * called when radio is ready, and 'onerror' is called when turning radio
+   * on fails.
+   */
+  cachedDialRequest : null,
+
+  /**
    * Dial the phone.
    *
    * @param number
@@ -1613,30 +1636,60 @@ let RIL = {
    *        Integer doing something XXX TODO
    */
   dial: function dial(options) {
-    let dial_request_type = REQUEST_DIAL;
-    if (this.voiceRegistrationState.emergencyCallsOnly ||
-        options.isDialEmergency) {
-      if (!this._isEmergencyNumber(options.number)) {
-        // Notify error in establishing the call with an invalid number.
-        options.callIndex = -1;
-        options.rilMessageType = "callError";
-        options.errorMsg =
-          RIL_CALL_FAILCAUSE_TO_GECKO_CALL_ERROR[CALL_FAIL_UNOBTAINABLE_NUMBER];
-        this.sendDOMMessage(options);
-        return;
-      }
+    let onerror = (function onerror(errorMsg) {
+      options.callIndex = -1;
+      options.rilMessageType = "callError";
+      options.errorMsg = errorMsg;
+      this.sendDOMMessage(options);
+    }).bind(this);
 
-      if (RILQUIRKS_REQUEST_USE_DIAL_EMERGENCY_CALL) {
-        dial_request_type = REQUEST_DIAL_EMERGENCY_CALL;
-      }
+    if (this._isEmergencyNumber(options.number)) {
+      this.dialEmergencyNumber(options, onerror);
     } else {
-      if (this._isEmergencyNumber(options.number) &&
-          RILQUIRKS_REQUEST_USE_DIAL_EMERGENCY_CALL) {
-        dial_request_type = REQUEST_DIAL_EMERGENCY_CALL;
-      }
+      this.dialNonEmergencyNumber(options, onerror);
+    }
+  },
+
+  dialNonEmergencyNumber: function dialNonEmergencyNumber(options, onerror) {
+    if (this.radioState == GECKO_RADIOSTATE_OFF) {
+      // Notify error in establishing the call without radio.
+      onerror(GECKO_ERROR_RADIO_NOT_AVAILABLE);
+      return;
     }
 
-    let token = Buf.newParcel(dial_request_type);
+    if (this.voiceRegistrationState.emergencyCallsOnly ||
+        options.isDialEmergency) {
+      onerror(RIL_CALL_FAILCAUSE_TO_GECKO_CALL_ERROR[CALL_FAIL_UNOBTAINABLE_NUMBER]);
+      return;
+    }
+
+    options.request = REQUEST_DIAL;
+    this.sendDialRequest(options);
+  },
+
+  dialEmergencyNumber: function dialEmergencyNumber(options, onerror) {
+    options.request = RILQUIRKS_REQUEST_USE_DIAL_EMERGENCY_CALL ?
+                      REQUEST_DIAL_EMERGENCY_CALL : REQUEST_DIAL;
+
+    if (this.radioState == GECKO_RADIOSTATE_OFF) {
+      if (DEBUG) debug("Automatically enable radio for an emergency call.");
+
+      if (!this.cachedDialRequest) {
+        this.cachedDialRequest = {};
+      }
+      this.cachedDialRequest.onerror = onerror;
+      this.cachedDialRequest.callback = this.sendDialRequest.bind(this, options);
+
+      // Change radio setting value in settings DB to enable radio.
+      this.sendDOMMessage({rilMessageType: "setRadioEnabled", on: true});
+      return;
+    }
+
+    this.sendDialRequest(options);
+  },
+
+  sendDialRequest: function sendDialRequest(options) {
+    let token = Buf.newParcel(options.request);
     Buf.writeString(options.number);
     Buf.writeUint32(options.clirMode || 0);
     Buf.writeUint32(options.uusInfo || 0);
@@ -1763,10 +1816,8 @@ let RIL = {
    *        String containing the recipient number.
    * @param body
    *        String containing the message text.
-   * @param requestId
-   *        String identifying the sms request used by the SmsRequestManager.
-   * @param processId
-   *        String containing the processId for the SmsRequestManager.
+   * @param envelopeId
+   *        Numeric value identifying the sms request.
    */
   sendSMS: function sendSMS(options) {
     options.langIndex = options.langIndex || PDU_NL_IDENTIFIER_DEFAULT;
@@ -4330,6 +4381,13 @@ RIL[REQUEST_GET_CURRENT_CALLS] = function REQUEST_GET_CURRENT_CALLS(length, opti
   let calls = {};
   for (let i = 0; i < calls_length; i++) {
     let call = {};
+
+    // Extra uint32 field to get correct callIndex and rest of call data for
+    // call waiting feature.
+    if (RILQUIRKS_EXTRA_UINT32_2ND_CALL && i > 0) {
+      Buf.readUint32();
+    }
+
     call.state          = Buf.readUint32(); // CALL_STATE_*
     call.callIndex      = Buf.readUint32(); // GSM index (1-based)
     call.toa            = Buf.readUint32();
@@ -4513,6 +4571,12 @@ RIL[REQUEST_SIGNAL_STRENGTH] = function REQUEST_SIGNAL_STRENGTH(length, options)
   if (DEBUG) debug("Signal strength " + JSON.stringify(obj));
   obj.rilMessageType = "signalstrengthchange";
   this.sendDOMMessage(obj);
+
+  if (this.cachedDialRequest && obj.gsmDBM && obj.gsmRelative) {
+    // Radio is ready for making the cached emergency call.
+    this.cachedDialRequest.callback();
+    this.cachedDialRequest = null;
+  }
 };
 RIL[REQUEST_VOICE_REGISTRATION_STATE] = function REQUEST_VOICE_REGISTRATION_STATE(length, options) {
   this._receivedNetworkInfo(NETWORK_INFO_VOICE_REGISTRATION_STATE);
@@ -4549,6 +4613,11 @@ RIL[REQUEST_OPERATOR] = function REQUEST_OPERATOR(length, options) {
 };
 RIL[REQUEST_RADIO_POWER] = function REQUEST_RADIO_POWER(length, options) {
   if (options.rilRequestError) {
+    if (this.cachedDialRequest && options.on) {
+      // Turning on radio fails. Notify the error of making an emergency call.
+      this.cachedDialRequest.onerror(GECKO_ERROR_RADIO_NOT_AVAILABLE);
+      this.cachedDialRequest = null;
+    }
     return;
   }
 
@@ -4677,9 +4746,25 @@ RIL[REQUEST_SET_CALL_FORWARD] =
     }
     this.sendDOMMessage(options);
 };
-RIL[REQUEST_QUERY_CALL_WAITING] = null;
+RIL[REQUEST_QUERY_CALL_WAITING] =
+  function REQUEST_QUERY_CALL_WAITING(length, options) {
+  options.success = options.rilRequestError == 0;
+  if (!options.success) {
+    options.errorMsg = RIL_ERROR_TO_GECKO_ERROR[options.rilRequestError];
+    this.sendDOMMessage(options);
+    return;
+  }
+  options.length = Buf.readUint32();
+  options.enabled = ((Buf.readUint32() == 1) &&
+                     ((Buf.readUint32() & ICC_SERVICE_CLASS_VOICE) == 0x01));
+  this.sendDOMMessage(options);
+};
+
 RIL[REQUEST_SET_CALL_WAITING] = function REQUEST_SET_CALL_WAITING(length, options) {
-  options.errorMsg = RIL_ERROR_TO_GECKO_ERROR[options.rilRequestError];
+  options.success = options.rilRequestError == 0;
+  if (!options.success) {
+    options.errorMsg = RIL_ERROR_TO_GECKO_ERROR[options.rilRequestError];
+  }
   this.sendDOMMessage(options);
 };
 RIL[REQUEST_SMS_ACKNOWLEDGE] = null;
@@ -10793,7 +10878,7 @@ let ICCRecordHelper = {
   readPLMNEntries: function readPLMNEntries(length) {
     let plmnList = [];
     // Each PLMN entry has 3 bytes.
-    debug("readPLMNEntries: PLMN entries length = " + length);
+    if (DEBUG) debug("readPLMNEntries: PLMN entries length = " + length);
     let index = 0;
     while (index < length) {
       // Unused entries will be 0xFFFFFF, according to EF_SPDI
@@ -10877,40 +10962,43 @@ let ICCUtilsHelper = {
       return null;
     }
 
-    // According to 3GPP TS 31.102 Sec. 4.2.59 and 3GPP TS 51.011 Sec. 10.3.42,
-    // the ME shall use this EF_OPL in association with the EF_PNN in place
-    // of any network name stored within the ME's internal list and any network
-    // name received when registered to the PLMN.
-    let length = iccInfoPriv.OPL ? iccInfoPriv.OPL.length : 0;
-    for (let i = 0; i < length; i++) {
-      let opl = iccInfoPriv.OPL[i];
-      // Try to match the MCC/MNC.
-      if (mcc != opl.mcc || mnc != opl.mnc) {
-        continue;
+    if (!iccInfoPriv.OPL) {
+      // When OPL is not present:
+      // According to 3GPP TS 31.102 Sec. 4.2.58 and 3GPP TS 51.011 Sec. 10.3.41,
+      // If EF_OPL is not present, the first record in this EF is used for the
+      // default network name when registered to the HPLMN.
+      // If we haven't get pnnEntry assigned, we should try to assign default
+      // value to it.
+      if (mcc == iccInfo.mcc && mnc == iccInfo.mnc) {
+        pnnEntry = iccInfoPriv.PNN[0];
       }
-      // Try to match the location area code. If current local area code is
-      // covered by lac range that specified in the OPL entry, use the PNN
-      // that specified in the OPL entry.
-      if ((opl.lacTacStart == 0x0 && opl.lacTacEnd == 0xFFFE) ||
-          (opl.lacTacStart <= lac && opl.lacTacEnd >= lac)) {
-        if (opl.pnnRecordId == 0) {
-          // See 3GPP TS 31.102 Sec. 4.2.59 and 3GPP TS 51.011 Sec. 10.3.42,
-          // A value of '00' indicates that the name is to be taken from other
-          // sources.
-          return null;
+    } else {
+      // According to 3GPP TS 31.102 Sec. 4.2.59 and 3GPP TS 51.011 Sec. 10.3.42,
+      // the ME shall use this EF_OPL in association with the EF_PNN in place
+      // of any network name stored within the ME's internal list and any network
+      // name received when registered to the PLMN.
+      let length = iccInfoPriv.OPL ? iccInfoPriv.OPL.length : 0;
+      for (let i = 0; i < length; i++) {
+        let opl = iccInfoPriv.OPL[i];
+        // Try to match the MCC/MNC.
+        if (mcc != opl.mcc || mnc != opl.mnc) {
+          continue;
         }
-        pnnEntry = iccInfoPriv.PNN[opl.pnnRecordId - 1]
-        break;
+        // Try to match the location area code. If current local area code is
+        // covered by lac range that specified in the OPL entry, use the PNN
+        // that specified in the OPL entry.
+        if ((opl.lacTacStart == 0x0 && opl.lacTacEnd == 0xFFFE) ||
+            (opl.lacTacStart <= lac && opl.lacTacEnd >= lac)) {
+          if (opl.pnnRecordId == 0) {
+            // See 3GPP TS 31.102 Sec. 4.2.59 and 3GPP TS 51.011 Sec. 10.3.42,
+            // A value of '00' indicates that the name is to be taken from other
+            // sources.
+            return null;
+          }
+          pnnEntry = iccInfoPriv.PNN[opl.pnnRecordId - 1];
+          break;
+        }
       }
-    }
-
-    // According to 3GPP TS 31.102 Sec. 4.2.58 and 3GPP TS 51.011 Sec. 10.3.41,
-    // the first record in this EF is used for the default network name when
-    // registered to the HPLMN.
-    // If we haven't get pnnEntry assigned, we should try to assign default
-    // value to it.
-    if (!pnnEntry && mcc == iccInfo.mcc && mnc == iccInfo.mnc) {
-      pnnEntry = iccInfoPriv.PNN[0]
     }
 
     if (!pnnEntry) {
@@ -10918,8 +11006,8 @@ let ICCUtilsHelper = {
     }
 
     // Return a new object to avoid global variable, PNN, be modified by accident.
-    return {fullName: pnnEntry.fullName || "",
-            shortName: pnnEntry.shortName || ""};
+    return { fullName: pnnEntry.fullName || "",
+             shortName: pnnEntry.shortName || "" };
   },
 
   /**

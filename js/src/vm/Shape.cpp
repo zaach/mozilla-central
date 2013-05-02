@@ -1,6 +1,5 @@
 /* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
- * vim: set ts=8 sw=4 et tw=78:
- *
+ * vim: set ts=8 sts=4 et sw=4 tw=99:
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -11,6 +10,7 @@
 #include <string.h>
 
 #include "mozilla/DebugOnly.h"
+#include "mozilla/PodOperations.h"
 
 #include "jstypes.h"
 #include "jsclist.h"
@@ -38,6 +38,7 @@ using namespace js;
 using namespace js::gc;
 
 using mozilla::DebugOnly;
+using mozilla::PodZero;
 
 bool
 ShapeTable::init(JSRuntime *rt, RawShape lastProp)
@@ -370,7 +371,7 @@ JSObject::getChildProperty(JSContext *cx, HandleObject obj, HandleShape parent, 
 }
 
 bool
-JSObject::toDictionaryMode(JSContext *cx)
+js::ObjectImpl::toDictionaryMode(JSContext *cx)
 {
     JS_ASSERT(!inDictionaryMode());
 
@@ -379,7 +380,7 @@ JSObject::toDictionaryMode(JSContext *cx)
 
     uint32_t span = slotSpan();
 
-    RootedObject self(cx, this);
+    Rooted<ObjectImpl*> self(cx, this);
 
     /*
      * Clone the shapes into a new dictionary list. Don't update the
@@ -586,6 +587,14 @@ JSObject::putProperty(JSContext *cx, HandleObject obj, HandleId id,
                       unsigned flags, int shortid)
 {
     JS_ASSERT(!JSID_IS_VOID(id));
+
+#ifdef DEBUG
+    if (obj->isArray()) {
+        uint32_t index;
+        if (js_IdIsIndex(id, &index))
+            JS_ASSERT(index < obj->getArrayLength() || obj->arrayLengthIsWritable());
+    }
+#endif
 
     NormalizeGetterAndSetter(obj, id, attrs, flags, getter, setter);
 
@@ -925,17 +934,17 @@ JSObject::rollbackProperties(JSContext *cx, uint32_t slotSpan)
 }
 
 Shape *
-JSObject::replaceWithNewEquivalentShape(JSContext *cx, Shape *oldShape, Shape *newShape)
+js::ObjectImpl::replaceWithNewEquivalentShape(JSContext *cx, Shape *oldShape, Shape *newShape)
 {
     JS_ASSERT(cx->compartment == oldShape->compartment());
     JS_ASSERT_IF(oldShape != lastProperty(),
                  inDictionaryMode() &&
                  nativeLookup(cx, oldShape->propidRef()) == oldShape);
 
-    JSObject *self = this;
+    ObjectImpl *self = this;
 
     if (!inDictionaryMode()) {
-        RootedObject selfRoot(cx, self);
+        Rooted<ObjectImpl*> selfRoot(cx, self);
         RootedShape newRoot(cx, newShape);
         if (!toDictionaryMode(cx))
             return NULL;
@@ -945,7 +954,7 @@ JSObject::replaceWithNewEquivalentShape(JSContext *cx, Shape *oldShape, Shape *n
     }
 
     if (!newShape) {
-        RootedObject selfRoot(cx, self);
+        Rooted<ObjectImpl*> selfRoot(cx, self);
         RootedShape oldRoot(cx, oldShape);
         newShape = js_NewGCShape(cx);
         if (!newShape)
@@ -1028,12 +1037,19 @@ Shape::setObjectParent(JSContext *cx, JSObject *parent, TaggedProto proto, Shape
     return replaceLastProperty(cx, base, proto, lastRoot);
 }
 
-bool
-JSObject::preventExtensions(JSContext *cx)
+/* static */ bool
+js::ObjectImpl::preventExtensions(JSContext *cx, Handle<ObjectImpl*> obj)
 {
-    JS_ASSERT(isExtensible());
+    MOZ_ASSERT(obj->isExtensible(),
+               "Callers must ensure |obj| is extensible before calling "
+               "preventExtensions");
 
-    RootedObject self(cx, this);
+    if (obj->isProxy()) {
+        RootedObject object(cx, obj->asObjectPtr());
+        return js::Proxy::preventExtensions(cx, object);
+    }
+
+    RootedObject self(cx, obj->asObjectPtr());
 
     /*
      * Force lazy properties to be resolved by iterating over the objects' own
@@ -1056,14 +1072,15 @@ JSObject::preventExtensions(JSContext *cx)
 }
 
 bool
-JSObject::setFlag(JSContext *cx, /*BaseShape::Flag*/ uint32_t flag_, GenerateShape generateShape)
+js::ObjectImpl::setFlag(JSContext *cx, /*BaseShape::Flag*/ uint32_t flag_,
+                        GenerateShape generateShape)
 {
     BaseShape::Flag flag = (BaseShape::Flag) flag_;
 
     if (lastProperty()->getObjectFlags() & flag)
         return true;
 
-    RootedObject self(cx, this);
+    Rooted<ObjectImpl*> self(cx, this);
 
     if (inDictionaryMode()) {
         if (generateShape == GENERATE_SHAPE && !generateOwnShape(cx))
@@ -1078,7 +1095,8 @@ JSObject::setFlag(JSContext *cx, /*BaseShape::Flag*/ uint32_t flag_, GenerateSha
         return true;
     }
 
-    RawShape newShape = Shape::setObjectFlag(cx, flag, getTaggedProto(), lastProperty());
+    RawShape newShape =
+        Shape::setObjectFlag(cx, flag, self->getTaggedProto(), self->lastProperty());
     if (!newShape)
         return false;
 
@@ -1087,12 +1105,12 @@ JSObject::setFlag(JSContext *cx, /*BaseShape::Flag*/ uint32_t flag_, GenerateSha
 }
 
 bool
-JSObject::clearFlag(JSContext *cx, /*BaseShape::Flag*/ uint32_t flag)
+js::ObjectImpl::clearFlag(JSContext *cx, /*BaseShape::Flag*/ uint32_t flag)
 {
     JS_ASSERT(inDictionaryMode());
     JS_ASSERT(lastProperty()->getObjectFlags() & flag);
 
-    RootedObject self(cx, this);
+    RootedObject self(cx, this->asObjectPtr());
 
     StackBaseShape base(self->lastProperty());
     base.flags &= ~flag;
@@ -1230,7 +1248,7 @@ InitialShapeEntry::match(const InitialShapeEntry &key, const Lookup &lookup)
 
 /* static */ Shape *
 EmptyShape::getInitialShape(JSContext *cx, Class *clasp, TaggedProto proto, JSObject *parent,
-                            AllocKind kind, uint32_t objectFlags)
+                            size_t nfixed, uint32_t objectFlags)
 {
     JS_ASSERT_IF(proto.isObject(), cx->compartment == proto.toObject()->compartment());
     JS_ASSERT_IF(parent, cx->compartment == parent->compartment());
@@ -1240,7 +1258,6 @@ EmptyShape::getInitialShape(JSContext *cx, Class *clasp, TaggedProto proto, JSOb
     if (!table.initialized() && !table.init())
         return NULL;
 
-    size_t nfixed = GetGCKindSlots(kind, clasp);
     InitialShapeEntry::Lookup lookup(clasp, proto, parent, nfixed, objectFlags);
 
     InitialShapeSet::AddPtr p = table.lookupForAdd(lookup);
@@ -1268,6 +1285,13 @@ EmptyShape::getInitialShape(JSContext *cx, Class *clasp, TaggedProto proto, JSOb
         return NULL;
 
     return shape;
+}
+
+/* static */ Shape *
+EmptyShape::getInitialShape(JSContext *cx, Class *clasp, TaggedProto proto, JSObject *parent,
+                            AllocKind kind, uint32_t objectFlags)
+{
+    return getInitialShape(cx, clasp, proto, parent, GetGCKindSlots(kind, clasp), objectFlags);
 }
 
 void
@@ -1323,6 +1347,30 @@ EmptyShape::insertInitialShape(JSContext *cx, HandleShape shape, HandleObject pr
      * this duplicate regeneration.
      */
     cx->runtime->newObjectCache.invalidateEntriesForShape(cx, shape, proto);
+}
+
+/*
+ * This is called by the minor GC to ensure that any relocated proto objects
+ * get updated in the shape table.
+ */
+void
+JSCompartment::markAllInitialShapeTableEntries(JSTracer *trc)
+{
+    if (!initialShapes.initialized())
+        return;
+
+    for (InitialShapeSet::Enum e(initialShapes); !e.empty(); e.popFront()) {
+        if (!e.front().proto.isObject())
+            continue;
+        JSObject *proto = e.front().proto.toObject();
+        JS_SET_TRACING_LOCATION(trc, (void*)&e.front().proto);
+        MarkObjectRoot(trc, &proto, "InitialShapeSet proto");
+        if (proto != e.front().proto.toObject()) {
+            InitialShapeEntry moved = e.front();
+            moved.proto = TaggedProto(proto);
+            e.rekeyFront(e.front().getLookup(), moved);
+        }
+    }
 }
 
 void

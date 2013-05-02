@@ -633,7 +633,7 @@ bool SetStringProperty(JSContext *cx, JSObject *aObject, const char *aProperty,
   }
   JSString* strValue = JS_NewUCStringCopyZ(cx, aValue.get());
   NS_ENSURE_TRUE(strValue, false);
-  jsval valValue = STRING_TO_JSVAL(strValue);
+  JS::Value valValue = STRING_TO_JSVAL(strValue);
   return JS_SetProperty(cx, aObject, aProperty, &valValue);
 }
 
@@ -706,11 +706,18 @@ bool DefineOSFileConstants(JSContext *cx, JSObject *global)
       return false;
     }
 
-    jsval valVersion = STRING_TO_JSVAL(strVersion);
+    JS::Value valVersion = STRING_TO_JSVAL(strVersion);
     if (!JS_SetProperty(cx, objSys, "Name", &valVersion)) {
       return false;
     }
   }
+
+#if defined(DEBUG)
+  JS::Value valDebug = JSVAL_TRUE;
+  if (!JS_SetProperty(cx, objSys, "DEBUG", &valDebug)) {
+    return false;
+  }
+#endif
 
   // Build OS.Constants.Path
 
@@ -785,9 +792,8 @@ OSFileConstantsService::Init(JSContext *aCx)
     return rv;
   }
 
-  JSObject *targetObj = nullptr;
-
   mozJSComponentLoader* loader = mozJSComponentLoader::Get();
+  JS::Rooted<JSObject*> targetObj(aCx);
   rv = loader->FindTargetObject(aCx, &targetObj);
   NS_ENSURE_SUCCESS(rv, rv);
 

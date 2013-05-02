@@ -1,3 +1,4 @@
+
 /* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
  * vim: set ts=4 sw=4 et tw=80:
  *
@@ -26,13 +27,13 @@ class JavaScriptParent
     bool init();
 
   public:
-    bool has(JSContext *cx, JSObject *proxy, jsid id, bool *bp);
-    bool hasOwn(JSContext *cx, JSObject *proxy, jsid id, bool *bp);
-    bool get(JSContext *cx, JSObject *proxy, JSObject *receiver,
-             jsid id, JS::Value *vp);
-    bool set(JSContext *cx, JSObject *proxy, JSObject *receiver,
-             jsid id, bool strict, JS::Value *vp);
-    bool call(JSContext *cx, JSObject *proxy, unsigned argc, JS::Value *vp);
+    bool has(JSContext *cx, JS::HandleObject proxy, JS::HandleId id, bool *bp);
+    bool hasOwn(JSContext *cx, JS::HandleObject proxy, JS::HandleId id, bool *bp);
+    bool get(JSContext *cx, JS::HandleObject proxy, JS::HandleObject receiver,
+             JS::HandleId id, JS::MutableHandleValue vp);
+    bool set(JSContext *cx, JS::HandleObject proxy, JS::HandleObject receiver,
+             JS::HandleId id, bool strict, JS::MutableHandleValue vp);
+    bool call(JSContext *cx, JS::HandleObject proxy, const JS::CallArgs &args);
 
     JSObject *Unwrap(JSContext *cx, ObjectId objId) {
         JSAutoRequest request(cx);
@@ -50,9 +51,11 @@ class JavaScriptParent
     static nsresult InstanceOf(JSObject *obj, const nsID *id, bool *bp);
 
     nsresult instanceOf(JSObject *obj, const nsID *id, bool *bp);
-    bool getPropertyDescriptor(JSContext *cx, JSObject *proxy, jsid id,
+    bool getPropertyDescriptor(JSContext *cx, JS::HandleObject proxy, JS::HandleId id,
                                JSPropertyDescriptor *desc, unsigned flags);
-    bool objectClassIs(JSContext *cx, JSObject *obj, js::ESClassValue classValue);
+    bool objectClassIs(JSContext *cx, JS::HandleObject obj, js::ESClassValue classValue);
+    bool preventExtensions(JSContext *cx, JS::HandleObject proxy);
+    bool isExtensible(JSObject *proxy);
 
   protected:
     JSObject *unwrap(JSContext *cx, ObjectId objId);
@@ -77,4 +80,3 @@ class JavaScriptParent
 } // mozilla
 
 #endif // mozilla_jsipc_JavaScriptWrapper_h__
-

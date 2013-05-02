@@ -2,11 +2,6 @@
 /* Any copyright is dedicated to the Public Domain.
    http://creativecommons.org/publicdomain/zero/1.0/ */
 
-let tempScope = {};
-Cu.import("resource:///modules/devtools/CssRuleView.jsm", tempScope);
-let CssRuleView = tempScope.CssRuleView;
-let _ElementStyle = tempScope._ElementStyle;
-
 let doc;
 let ruleDialog;
 let ruleView;
@@ -37,7 +32,7 @@ function startTest()
   doc.body.innerHTML = '<div id="testid" class="testclass">Styled Node</div>';
   let testElement = doc.getElementById("testid");
 
-  ruleDialog = openDialog("chrome://browser/content/devtools/cssruleview.xul",
+  ruleDialog = openDialog("chrome://browser/content/devtools/cssruleview.xhtml",
                           "cssruleviewtest",
                           "width=200,height=350");
   ruleDialog.addEventListener("load", function onLoad(evt) {
@@ -133,9 +128,10 @@ function testEditProperty()
     }
   });
 
-  EventUtils.synthesizeMouse(propEditor.nameSpan, 1, 1,
+  EventUtils.synthesizeMouse(propEditor.nameSpan, 32, 1,
                              { },
-                             ruleDialog);}
+                             ruleDialog);
+}
 
 function finishTest()
 {

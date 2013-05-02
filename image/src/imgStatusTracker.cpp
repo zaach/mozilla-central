@@ -300,7 +300,8 @@ imgStatusTracker::imgStatusTracker(Image* aImage)
     mState(0),
     mImageStatus(imgIRequest::STATUS_NONE),
     mIsMultipart(false),
-    mHadLastPart(false)
+    mHadLastPart(false),
+    mHasBeenDecoded(false)
 {
   mTrackerObserver = new imgStatusTrackerObserver(this);
 }
@@ -311,7 +312,8 @@ imgStatusTracker::imgStatusTracker(const imgStatusTracker& aOther)
     mState(aOther.mState),
     mImageStatus(aOther.mImageStatus),
     mIsMultipart(aOther.mIsMultipart),
-    mHadLastPart(aOther.mHadLastPart)
+    mHadLastPart(aOther.mHadLastPart),
+    mHasBeenDecoded(aOther.mHasBeenDecoded)
     // Note: we explicitly don't copy several fields:
     //  - mRequestRunnable, because it won't be nulled out when the
     //    mRequestRunnable's Run function eventually gets called.
@@ -454,7 +456,7 @@ imgStatusTracker::NotifyCurrentState(imgRequestProxy* proxy)
 
   proxy->SetNotificationsDeferred(true);
 
-  // We don't keep track of 
+  // We don't keep track of
   nsCOMPtr<nsIRunnable> ev = new imgStatusNotifyRunnable(*this, proxy);
   NS_DispatchToCurrentThread(ev);
 }
@@ -517,30 +519,32 @@ imgStatusTracker::SyncNotifyState(nsTObserverArray<imgRequestProxy*>& proxies,
   }
 }
 
-void
-imgStatusTracker::SyncAndSyncNotifyDifference(imgStatusTracker* other)
+imgStatusTracker::StatusDiff
+imgStatusTracker::CalculateAndApplyDifference(imgStatusTracker* other)
 {
-  LOG_SCOPE(GetImgLog(), "imgStatusTracker::SyncAndSyncNotifyDifference");
+  LOG_SCOPE(GetImgLog(), "imgStatusTracker::SyncAndCalculateDifference");
 
   // We must not modify or notify for the start-load state, which happens from Necko callbacks.
   uint32_t loadState = mState & stateRequestStarted;
-  uint32_t diffState = ~mState & other->mState & ~stateRequestStarted;
-  bool unblockedOnload = mState & stateBlockingOnload && !(other->mState & stateBlockingOnload);
-  bool foundError = (mImageStatus != imgIRequest::STATUS_ERROR) && (other->mImageStatus == imgIRequest::STATUS_ERROR);
+
+  StatusDiff diff;
+  diff.mDiffState = ~mState & other->mState & ~stateRequestStarted;
+  diff.mUnblockedOnload = mState & stateBlockingOnload && !(other->mState & stateBlockingOnload);
+  diff.mFoundError = (mImageStatus != imgIRequest::STATUS_ERROR) && (other->mImageStatus == imgIRequest::STATUS_ERROR);
 
   // Now that we've calculated the difference in state, synchronize our state
   // with the other tracker.
 
   // First, actually synchronize our state.
-  mInvalidRect = mInvalidRect.Union(other->mInvalidRect);
-  mState |= diffState | loadState;
-  if (unblockedOnload) {
+  mState |= diff.mDiffState | loadState;
+  if (diff.mUnblockedOnload) {
     mState &= ~stateBlockingOnload;
   }
   mImageStatus = other->mImageStatus;
   mIsMultipart = other->mIsMultipart;
   mHadLastPart = other->mHadLastPart;
   mImageStatus |= other->mImageStatus;
+  mHasBeenDecoded = mHasBeenDecoded || other->mHasBeenDecoded;
 
   // The error state is sticky and overrides all other bits.
   if (mImageStatus & imgIRequest::STATUS_ERROR) {
@@ -552,9 +556,31 @@ imgStatusTracker::SyncAndSyncNotifyDifference(imgStatusTracker* other)
     }
   }
 
-  SyncNotifyState(mConsumers, !!mImage, diffState, mInvalidRect, mHadLastPart);
+  // Only record partial invalidations if we haven't been decoded before.
+  // When images are re-decoded after discarding, we don't want to display
+  // partially decoded versions to the user.
+  bool doInvalidations  = !mHasBeenDecoded
+                       || mImageStatus & imgIRequest::STATUS_ERROR
+                       || mImageStatus & imgIRequest::STATUS_DECODE_COMPLETE;
 
-  if (unblockedOnload) {
+  // Record the invalid rectangles and reset them for another go.
+  if (doInvalidations) {
+    diff.mInvalidRect = mInvalidRect.Union(other->mInvalidRect);
+    other->mInvalidRect.SetEmpty();
+    mInvalidRect.SetEmpty();
+  }
+
+  return diff;
+}
+
+void
+imgStatusTracker::SyncNotifyDifference(imgStatusTracker::StatusDiff diff)
+{
+  LOG_SCOPE(GetImgLog(), "imgStatusTracker::SyncNotifyDifference");
+
+  SyncNotifyState(mConsumers, !!mImage, diff.mDiffState, diff.mInvalidRect, mHadLastPart);
+
+  if (diff.mUnblockedOnload) {
     nsTObserverArray<imgRequestProxy*>::ForwardIterator iter(mConsumers);
     while (iter.HasMore()) {
       // Hold on to a reference to this proxy, since notifying the state can
@@ -567,11 +593,7 @@ imgStatusTracker::SyncAndSyncNotifyDifference(imgStatusTracker* other)
     }
   }
 
-  // Reset the invalid rectangles for another go.
-  other->mInvalidRect.SetEmpty();
-  mInvalidRect.SetEmpty();
-
-  if (foundError) {
+  if (diff.mFoundError) {
     FireFailureNotification();
   }
 }
@@ -758,6 +780,7 @@ imgStatusTracker::RecordStopDecode(nsresult aStatus)
   if (NS_SUCCEEDED(aStatus) && mImageStatus != imgIRequest::STATUS_ERROR) {
     mImageStatus |= imgIRequest::STATUS_DECODE_COMPLETE;
     mImageStatus &= ~imgIRequest::STATUS_DECODE_STARTED;
+    mHasBeenDecoded = true;
   // If we weren't successful, clear all success status bits and set error.
   } else {
     mImageStatus = imgIRequest::STATUS_ERROR;

@@ -45,8 +45,8 @@ NS_DEFINE_STATIC_IID_ACCESSOR(nsIScriptContextPrincipal,
                               NS_ISCRIPTCONTEXTPRINCIPAL_IID)
 
 #define NS_ISCRIPTCONTEXT_IID \
-{ 0xf5af1c3c, 0xebad, 0x4d00, \
-  { 0xa2, 0xa4, 0x12, 0x2e, 0x27, 0x16, 0x59, 0x01 } }
+{ 0x5eb84406, 0x118f, 0x4eb5, \
+ { 0xab, 0xd5, 0xdd, 0xc9, 0x14, 0xfe, 0xfe, 0xe4 } }
 
 /* This MUST match JSVERSION_DEFAULT.  This version stuff if we don't
    know what language we have is a little silly... */
@@ -122,22 +122,6 @@ public:
    */
   virtual nsresult ExecuteScript(JSScript* aScriptObject,
                                  JSObject* aScopeObject) = 0;
-
-  /**
-   * Call the function object with given args and return its boolean result,
-   * or true if the result isn't boolean.
-   *
-   * @param aTarget the event target
-   * @param aScript an object telling the scope in which to call the compiled
-   *        event handler function.
-   * @param aHandler function object (function and static scope) to invoke.
-   * @param argv array of arguments.  Note each element is assumed to
-   *        be an nsIVariant.
-   * @param rval out parameter returning result
-   **/
-  virtual nsresult CallEventHandler(nsISupports* aTarget,
-                                    JSObject* aScope, JSObject* aHandler,
-                                    nsIArray *argv, nsIVariant **rval) = 0;
 
   /**
    * Bind an already-compiled event handler function to the given
@@ -278,15 +262,6 @@ public:
    * Tell the context we're done reinitializing it.
    */
   virtual void DidInitializeContext() = 0;
-
-  /* Memory managment for script objects.  Used by the implementation of
-   * nsScriptObjectHolder to manage the lifetimes of the held script objects.
-   *
-   * See also nsIScriptRuntime, which has identical methods and is useful
-   * in situations when you do not have an nsIScriptContext.
-   */
-  virtual nsresult DropScriptObject(void *object) = 0;
-  virtual nsresult HoldScriptObject(void *object) = 0;
 
   virtual void EnterModalState() = 0;
   virtual void LeaveModalState() = 0;

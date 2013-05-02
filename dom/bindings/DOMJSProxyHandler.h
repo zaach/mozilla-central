@@ -36,15 +36,16 @@ public:
   {
   }
 
-  bool getPropertyDescriptor(JSContext* cx, JSObject* proxy, jsid id, JSPropertyDescriptor* desc,
-                             unsigned flags) MOZ_OVERRIDE;
-  bool defineProperty(JSContext* cx, JSObject* proxy, jsid id,
+  bool preventExtensions(JSContext *cx, JS::Handle<JSObject*> proxy) MOZ_OVERRIDE;
+  bool getPropertyDescriptor(JSContext* cx, JS::Handle<JSObject*> proxy, JS::Handle<jsid> id,
+                            JSPropertyDescriptor* desc, unsigned flags) MOZ_OVERRIDE;
+  bool defineProperty(JSContext* cx, JS::Handle<JSObject*> proxy, JS::Handle<jsid> id,
                       JSPropertyDescriptor* desc) MOZ_OVERRIDE;
-  bool delete_(JSContext* cx, JSObject* proxy, jsid id, bool* bp) MOZ_OVERRIDE;
-  bool enumerate(JSContext* cx, JSObject* proxy, JS::AutoIdVector& props) MOZ_OVERRIDE;
-  bool fix(JSContext* cx, JSObject* proxy, JS::Value* vp);
-  bool has(JSContext* cx, JSObject* proxy, jsid id, bool* bp) MOZ_OVERRIDE;
-  using js::BaseProxyHandler::obj_toString;
+  bool delete_(JSContext* cx, JS::Handle<JSObject*> proxy,
+               JS::Handle<jsid> id, bool* bp) MOZ_OVERRIDE;
+  bool enumerate(JSContext* cx, JS::Handle<JSObject*> proxy, JS::AutoIdVector& props) MOZ_OVERRIDE;
+  bool has(JSContext* cx, JS::Handle<JSObject*> proxy, JS::Handle<jsid> id, bool* bp) MOZ_OVERRIDE;
+  bool isExtensible(JSObject *proxy) MOZ_OVERRIDE;
 
   static JSObject* GetExpandoObject(JSObject* obj)
   {
@@ -52,13 +53,12 @@ public:
     JS::Value v = js::GetProxyExtra(obj, JSPROXYSLOT_EXPANDO);
     return v.isUndefined() ? NULL : v.toObjectOrNull();
   }
+  static JSObject* GetAndClearExpandoObject(JSObject* obj);
   static JSObject* EnsureExpandoObject(JSContext* cx, JSObject* obj);
 
   const DOMClass& mClass;
 
 protected:
-  static JSString* obj_toString(JSContext* cx, const char* className);
-
   // Append the property names in "names" that don't live on our proto
   // chain to "props"
   bool AppendNamedPropertyIds(JSContext* cx, JSObject* proxy,
@@ -111,13 +111,13 @@ FillPropertyDescriptor(JSPropertyDescriptor* desc, JSObject* obj, bool readonly)
 }
 
 inline void
-FillPropertyDescriptor(JSPropertyDescriptor* desc, JSObject* obj, jsval v, bool readonly)
+FillPropertyDescriptor(JSPropertyDescriptor* desc, JSObject* obj, JS::Value v, bool readonly)
 {
   desc->value = v;
   FillPropertyDescriptor(desc, obj, readonly);
 }
 
-JSObject* 
+JSObject*
 EnsureExpandoObject(JSContext* cx, JSObject* obj);
 
 } // namespace dom

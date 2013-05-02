@@ -26,11 +26,11 @@ import android.text.InputType;
 import android.text.TextUtils;
 import android.text.format.DateFormat;
 import android.util.Log;
-import android.view.inputmethod.InputMethodManager;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewGroup.LayoutParams;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.AdapterView;
 import android.widget.AdapterView.OnItemClickListener;
 import android.widget.ArrayAdapter;
@@ -46,10 +46,10 @@ import android.widget.TextView;
 import android.widget.TimePicker;
 
 import java.text.SimpleDateFormat;
-import java.util.concurrent.SynchronousQueue;
-import java.util.concurrent.TimeUnit;
 import java.util.Calendar;
 import java.util.GregorianCalendar;
+import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.TimeUnit;
 
 public class PromptService implements OnClickListener, OnCancelListener, OnItemClickListener, GeckoEventResponder {
     private static final String LOGTAG = "GeckoPromptService";
@@ -203,7 +203,7 @@ public class PromptService implements OnClickListener, OnCancelListener, OnItemC
                 try {
                     String[] listitems = getStringArray(mJSONInput, "values");
                     if (listitems.length > 0) {
-                        ArrayAdapter<String> adapter = new ArrayAdapter<String>(GeckoApp.mAppContext, android.R.layout.simple_dropdown_item_1line, listitems);
+                        ArrayAdapter<String> adapter = new ArrayAdapter<String>(GeckoApp.mAppContext, R.layout.simple_dropdown_item_1line, listitems);
                         spinner.setAdapter(adapter);
                         int selectedIndex = getSafeInt(mJSONInput, "selected");
                         spinner.setSelection(selectedIndex);
@@ -320,7 +320,7 @@ public class PromptService implements OnClickListener, OnCancelListener, OnItemC
                 if (aMultipleSelection) {
                     resourceId = R.layout.select_dialog_multichoice;
                 } else {
-                    resourceId = android.R.layout.select_dialog_singlechoice;
+                    resourceId = R.layout.select_dialog_singlechoice;
                 }
             }
             PromptListAdapter adapter = new PromptListAdapter(GeckoApp.mAppContext, resourceId, aMenuList);

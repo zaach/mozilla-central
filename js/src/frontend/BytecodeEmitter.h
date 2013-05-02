@@ -1,6 +1,5 @@
 /* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
- * vim: set ts=8 sw=4 et tw=79:
- *
+ * vim: set ts=8 sts=4 et sw=4 tw=99:
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -274,9 +273,8 @@ enum SrcNoteType {
     SRC_CONDSWITCH  = 12,       /* JSOP_CONDSWITCH, 1st offset points to end of
                                    switch, 2nd points to first JSOP_CASE */
 
-    SRC_PCDELTA     = 13,       /* distance forward from comma-operator to
-                                   next POP, or from CONDSWITCH to first CASE
-                                   opcode, etc. -- always a forward delta */
+    SRC_NEXTCASE    = 13,       /* distance forward from one CASE in a
+                                   CONDSWITCH to the next */
 
     SRC_ASSIGNOP    = 14,       /* += or another assign-op follows */
 

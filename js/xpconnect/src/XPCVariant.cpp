@@ -11,6 +11,8 @@
 
 #include "jsfriendapi.h"
 
+using namespace JS;
+
 NS_IMPL_CLASSINFO(XPCVariant, NULL, 0, XPCVARIANT_CID)
 NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION(XPCVariant)
   NS_INTERFACE_MAP_ENTRY(XPCVariant)
@@ -28,21 +30,20 @@ XPCVariant::XPCVariant(JSContext* cx, jsval aJSVal)
 {
     nsVariant::Initialize(&mData);
     if (!JSVAL_IS_PRIMITIVE(mJSVal)) {
+        // XXXbholley - The innerization here was from bug 638026. Blake says
+        // the basic problem was that we were storing the C++ inner but the JS
+        // outer, which meant that, after navigation, the JS inner could be
+        // collected, which would cause us to try to recreate the JS inner at
+        // some later point after teardown, which would crash. This is shouldn't
+        // be a problem anymore because SetParentToWindow will do the right
+        // thing, but I'm saving the cleanup here for another day. Blake thinks
+        // that we should just not store the WN if we're creating a variant for
+        // an outer window.
         JSObject *obj = JS_ObjectToInnerObject(cx, JSVAL_TO_OBJECT(mJSVal));
-
         mJSVal = OBJECT_TO_JSVAL(obj);
 
-        // If the incoming object is an XPCWrappedNative, then it could be a
-        // double-wrapped object, and we should return the double-wrapped
-        // object back out to script.
-
-        JSObject* proto;
-        XPCWrappedNative* wn =
-            XPCWrappedNative::GetWrappedNativeOfJSObject(cx,
-                                                         JSVAL_TO_OBJECT(mJSVal),
-                                                         nullptr,
-                                                         &proto);
-        mReturnRawObject = !wn && !proto;
+        JSObject *unwrapped = js::CheckedUnwrap(obj, /* stopAtOuter = */ false);
+        mReturnRawObject = !(unwrapped && IS_WN_WRAPPER(unwrapped));
     } else
         mReturnRawObject = false;
 }
@@ -66,9 +67,9 @@ void XPCTraceableVariant::TraceJS(JSTracer* trc)
 {
     jsval val = GetJSValPreserveColor();
 
-    NS_ASSERTION(JSVAL_IS_TRACEABLE(val), "Must be traceable");
+    MOZ_ASSERT(JSVAL_IS_TRACEABLE(val));
     JS_SET_TRACING_DETAILS(trc, GetTraceName, this, 0);
-    JS_CallTracer(trc, JSVAL_TO_TRACEABLE(val), JSVAL_TRACE_KIND(val));
+    JS_CallValueTracer(trc, val, "XPCTraceableVariant::mJSVal");
 }
 
 // static
@@ -150,7 +151,7 @@ private:
     static const Type StateTable[tTypeCount][tTypeCount-1];
 
 public:
-    static JSBool GetTypeForArray(JSContext* cx, JSObject* array,
+    static JSBool GetTypeForArray(JSContext* cx, HandleObject array,
                                   uint32_t length,
                                   nsXPTType* resultType, nsID* resultID);
 };
@@ -175,16 +176,17 @@ XPCArrayHomogenizer::StateTable[tTypeCount][tTypeCount-1] = {
 
 // static
 JSBool
-XPCArrayHomogenizer::GetTypeForArray(JSContext* cx, JSObject* array,
+XPCArrayHomogenizer::GetTypeForArray(JSContext* cx, HandleObject array,
                                      uint32_t length,
                                      nsXPTType* resultType, nsID* resultID)
 {
     Type state = tUnk;
     Type type;
 
+    RootedValue val(cx);
+    RootedObject jsobj(cx);
     for (uint32_t i = 0; i < length; i++) {
-        JS::Value val;
-        if (!JS_GetElement(cx, array, i, &val))
+        if (!JS_GetElement(cx, array, i, val.address()))
             return false;
 
         if (val.isInt32()) {
@@ -193,7 +195,7 @@ XPCArrayHomogenizer::GetTypeForArray(JSContext* cx, JSObject* array,
             type = tDbl;
         } else if (val.isBoolean()) {
             type = tBool;
-        } else if (val.isUndefined()) { 
+        } else if (val.isUndefined()) {
             state = tVar;
             break;
         } else if (val.isNull()) {
@@ -202,7 +204,7 @@ XPCArrayHomogenizer::GetTypeForArray(JSContext* cx, JSObject* array,
             type = tStr;
         } else {
             NS_ASSERTION(val.isObject(), "invalid type of jsval!");
-            JSObject* jsobj = &val.toObject();
+            jsobj = &val.toObject();
             if (JS_IsArrayObject(cx, jsobj))
                 type = tArr;
             else if (xpc_JSObjectIsID(cx, jsobj))
@@ -268,7 +270,7 @@ JSBool XPCVariant::InitializeData(JSContext* cx)
 {
     JS_CHECK_RECURSION(cx, return false);
 
-    JS::Value val = GetJSVal();
+    RootedValue val(cx, GetJSVal());
 
     if (val.isInt32())
         return NS_SUCCEEDED(nsVariant::SetFromInt32(&mData, val.toInt32()));
@@ -310,7 +312,7 @@ JSBool XPCVariant::InitializeData(JSContext* cx)
     // leaving only JSObject...
     NS_ASSERTION(val.isObject(), "invalid type of jsval!");
 
-    JSObject* jsobj = &val.toObject();
+    RootedObject jsobj(cx, &val.toObject());
 
     // Let's see if it is a xpcJSID.
 
@@ -379,16 +381,16 @@ XPCVariant::VariantDataToJS(XPCLazyCallContext& lccx,
     if (NS_FAILED(variant->GetDataType(&type)))
         return false;
 
-    jsval realVal;
-    nsresult rv = variant->GetAsJSVal(&realVal);
+    JSContext *cx = lccx.GetJSContext();
+    RootedValue realVal(cx);
+    nsresult rv = variant->GetAsJSVal(realVal.address());
 
     if (NS_SUCCEEDED(rv) &&
         (JSVAL_IS_PRIMITIVE(realVal) ||
          type == nsIDataType::VTYPE_ARRAY ||
          type == nsIDataType::VTYPE_EMPTY_ARRAY ||
          type == nsIDataType::VTYPE_ID)) {
-        JSContext *cx = lccx.GetJSContext();
-        if (!JS_WrapValue(cx, &realVal))
+        if (!JS_WrapValue(cx, realVal.address()))
             return false;
         *pJSVal = realVal;
         return true;
@@ -400,8 +402,7 @@ XPCVariant::VariantDataToJS(XPCLazyCallContext& lccx,
                      type == nsIDataType::VTYPE_INTERFACE_IS,
                      "Weird variant");
 
-        JSContext *cx = lccx.GetJSContext();
-        if (!JS_WrapValue(cx, &realVal))
+        if (!JS_WrapValue(cx, realVal.address()))
             return false;
         *pJSVal = realVal;
         return true;
@@ -426,7 +427,6 @@ XPCVariant::VariantDataToJS(XPCLazyCallContext& lccx,
     xpctvar.flags = 0;
     JSBool success;
 
-    JSContext* cx = lccx.GetJSContext();
     NS_ABORT_IF_FALSE(js::IsObjectInContextCompartment(lccx.GetScopeForNewJSObjects(), cx),
                       "bad scope for new JSObjects");
 

@@ -83,8 +83,8 @@ static bool EnsureGLContext()
 {
   if (!sPluginContext) {
     gfxIntSize dummySize(16, 16);
-    GLContext::SurfaceCaps dummyCaps;
-    sPluginContext = GLContextProvider::CreateOffscreen(dummySize, dummyCaps);
+    sPluginContext = GLContextProvider::CreateOffscreen(dummySize,
+                                                        GLContext::SurfaceCaps::Any());
   }
 
   return sPluginContext != nullptr;
@@ -354,10 +354,9 @@ nsNPAPIPluginInstance::GetDOMWindow()
   if (!doc)
     return nullptr;
 
-  nsPIDOMWindow *window = doc->GetWindow();
-  NS_IF_ADDREF(window);
+  nsRefPtr<nsPIDOMWindow> window = doc->GetWindow();
 
-  return window;
+  return window.forget();
 }
 
 nsresult
@@ -1171,7 +1170,7 @@ nsNPAPIPluginInstance::IsWindowless(bool* isWindowless)
   return NS_OK;
 }
 
-class NS_STACK_CLASS AutoPluginLibraryCall
+class MOZ_STACK_CLASS AutoPluginLibraryCall
 {
 public:
   AutoPluginLibraryCall(nsNPAPIPluginInstance* aThis)

@@ -153,7 +153,7 @@ NS_IMPL_THREADSAFE_ISUPPORTS2(VibratorRunnable, nsIRunnable, nsIObserver);
 
 bool VibratorRunnable::sShuttingDown = false;
 
-static nsRefPtr<VibratorRunnable> sVibratorRunnable;
+static StaticRefPtr<VibratorRunnable> sVibratorRunnable;
 
 NS_IMETHODIMP
 VibratorRunnable::Run()
@@ -355,43 +355,6 @@ DisableBatteryNotifications()
       NewRunnableFunction(UnregisterBatteryObserverIOThread));
 }
 
-// See bug 819016 about moving the ReadSysFile functions to a
-// central location.
-static bool
-ReadSysFile(const char *aFilename, char *aBuf, size_t aBufSize,
-            size_t *aBytesRead = NULL)
-{
-  int fd = TEMP_FAILURE_RETRY(open(aFilename, O_RDONLY));
-  if (fd < 0) {
-    HAL_LOG(("Unable to open file '%s' for reading", aFilename));
-    return false;
-  }
-  ScopedClose autoClose(fd);
-  ssize_t bytesRead = TEMP_FAILURE_RETRY(read(fd, aBuf, aBufSize - 1));
-  if (bytesRead < 0) {
-    HAL_LOG(("Unable to read from file '%s'", aFilename));
-    return false;
-  }
-  if (bytesRead && (aBuf[bytesRead - 1] == '\n')) {
-    bytesRead--;
-  }
-  aBuf[bytesRead] = '\0';
-  if (aBytesRead) {
-    *aBytesRead = bytesRead;
-  }
-  return true;
-}
-
-static bool
-ReadSysFile(const char *aFilename, int *aVal)
-{
-  char valBuf[20];
-  if (!ReadSysFile(aFilename, valBuf, sizeof(valBuf))) {
-    return false;
-  }
-  return sscanf(valBuf, "%d", aVal) == 1;
-}
-
 static bool
 GetCurrentBatteryCharge(int* aCharge)
 {
@@ -403,7 +366,7 @@ GetCurrentBatteryCharge(int* aCharge)
 
   #ifdef DEBUG
   if ((*aCharge < 0) || (*aCharge > 100)) {
-    HAL_LOG(("charge level containes unknown value: %d", *aCharge));
+    HAL_LOG(("charge level contains unknown value: %d", *aCharge));
   }
   #endif
 
@@ -440,14 +403,12 @@ GetCurrentBatteryCharging(int* aCharging)
   // Otoro device support
 
   char chargingSrcString[16];
-  size_t chargingSrcLen;
 
   success = ReadSysFile("/sys/class/power_supply/battery/status",
-                        chargingSrcString, sizeof(chargingSrcString),
-                        &chargingSrcLen);
+                        chargingSrcString, sizeof(chargingSrcString));
   if (success) {
-    *aCharging = !memcmp(chargingSrcString, "Charging", chargingSrcLen) ||
-                 !memcmp(chargingSrcString, "Full", chargingSrcLen);
+    *aCharging = strcmp(chargingSrcString, "Charging") == 0 ||
+                 strcmp(chargingSrcString, "Full") == 0;
     return true;
   }
 
@@ -1100,6 +1061,83 @@ EnsureKernelLowMemKillerParamsSet()
   }
 }
 
+static void
+SetNiceForPid(int aPid, int aNice)
+{
+  errno = 0;
+  int origProcPriority = getpriority(PRIO_PROCESS, aPid);
+  if (errno) {
+    LOG("Unable to get nice for pid=%d; error %d.  SetNiceForPid bailing.",
+        aPid, errno);
+    return;
+  }
+
+  int rv = setpriority(PRIO_PROCESS, aPid, aNice);
+  if (rv) {
+    LOG("Unable to set nice for pid=%d; error %d.  SetNiceForPid bailing.",
+        aPid, errno);
+    return;
+  }
+
+  // On Linux, setpriority(aPid) modifies the priority only of the main
+  // thread of that process.  We have to modify the priorities of all of the
+  // process's threads as well, so iterate over all the threads and increase
+  // each of their priorites by aNice - origProcPriority (and also ensure that
+  // none of the tasks has a lower priority than the main thread).
+  //
+  // This is horribly racy.
+
+  DIR* tasksDir = opendir(nsPrintfCString("/proc/%d/task/", aPid).get());
+  if (!tasksDir) {
+    LOG("Unable to open /proc/%d/task.  SetNiceForPid bailing.", aPid);
+    return;
+  }
+
+  // Be careful not to leak tasksDir; after this point, we must call closedir().
+
+  while (struct dirent* de = readdir(tasksDir)) {
+    char* endptr = nullptr;
+    long tidlong = strtol(de->d_name, &endptr, /* base */ 10);
+    if (*endptr || tidlong < 0 || tidlong > INT32_MAX || tidlong == aPid) {
+      // if dp->d_name was not an integer, was negative (?!) or too large, or
+      // was the same as aPid, we're not interested.
+      //
+      // (The |tidlong == aPid| check is very important; without it, we'll
+      // renice aPid twice, and the second renice will be relative to the
+      // priority set by the first renice.)
+      continue;
+    }
+
+    int tid = static_cast<int>(tidlong);
+
+    errno = 0;
+    // Get and set the task's new priority.
+    int origtaskpriority = getpriority(PRIO_PROCESS, tid);
+    if (errno) {
+      LOG("Unable to get nice for tid=%d (pid=%d); error %d.  This isn't "
+          "necessarily a problem; it could be a benign race condition.",
+          tid, aPid, errno);
+      continue;
+    }
+
+    int newtaskpriority =
+      std::max(origtaskpriority + aNice - origProcPriority, origProcPriority);
+    rv = setpriority(PRIO_PROCESS, tid, newtaskpriority);
+
+    if (rv) {
+      LOG("Unable to set nice for tid=%d (pid=%d); error %d.  This isn't "
+          "necessarily a problem; it could be a benign race condition.",
+          tid, aPid, errno);
+      continue;
+    }
+  }
+
+  LOG("Changed nice for pid %d from %d to %d.",
+      aPid, origProcPriority, aNice);
+
+  closedir(tasksDir);
+}
+
 void
 SetProcessPriority(int aPid, ProcessPriority aPriority)
 {
@@ -1180,10 +1218,7 @@ SetProcessPriority(int aPid, ProcessPriority aPriority)
   if (NS_SUCCEEDED(rv)) {
     HAL_LOG(("Setting nice for pid %d to %d", aPid, nice));
 
-    int success = setpriority(PRIO_PROCESS, aPid, nice);
-    if (success != 0) {
-      HAL_LOG(("Failed to set nice for pid %d to %d", aPid, nice));
-    }
+    SetNiceForPid(aPid, nice);
   }
 }
 

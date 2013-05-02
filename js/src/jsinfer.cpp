@@ -1,42 +1,34 @@
-/* -*- Mode: C++; c-basic-offset: 4; tab-width: 4; indent-tabs-mode: nil -*- */
-/* vim: set ts=4 sw=4 et tw=99: */
-/* This Source Code Form is subject to the terms of the Mozilla Public
+/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
+ * vim: set ts=8 sts=4 et sw=4 tw=99:
+ * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#include "jsinfer.h"
+
 #include "mozilla/DebugOnly.h"
+#include "mozilla/PodOperations.h"
 
 #include "jsapi.h"
 #include "jsautooplen.h"
-#include "jsbool.h"
-#include "jscntxt.h"
-#include "jsdate.h"
-#include "jsexn.h"
 #include "jsfriendapi.h"
 #include "jsgc.h"
-#include "jsinfer.h"
-#include "jsmath.h"
-#include "jsnum.h"
 #include "jsobj.h"
 #include "jsscript.h"
 #include "jscntxt.h"
 #include "jsstr.h"
-#include "jsiter.h"
 #include "jsworkers.h"
 
 #ifdef JS_ION
+#include "ion/BaselineJIT.h"
 #include "ion/Ion.h"
 #include "ion/IonCompartment.h"
 #endif
-#include "frontend/TokenStream.h"
 #include "gc/Marking.h"
 #include "js/MemoryMetrics.h"
 #include "methodjit/MethodJIT.h"
 #include "methodjit/Retcon.h"
 #include "vm/Shape.h"
-#ifdef JS_METHODJIT
-# include "assembler/assembler/MacroAssembler.h"
-#endif
 
 #include "jsatominlines.h"
 #include "jsgcinlines.h"
@@ -56,6 +48,9 @@ using namespace js::types;
 using namespace js::analyze;
 
 using mozilla::DebugOnly;
+using mozilla::PodArrayZero;
+using mozilla::PodCopy;
+using mozilla::PodZero;
 
 static inline jsid
 id_prototype(JSContext *cx) {
@@ -321,6 +316,25 @@ types::TypeFailure(JSContext *cx, const char *fmt, ...)
 // TypeSet
 /////////////////////////////////////////////////////////////////////
 
+TypeSet::TypeSet(Type type)
+  : flags(0), objectSet(NULL), constraintList(NULL)
+{
+    if (type.isUnknown()) {
+        flags |= TYPE_FLAG_BASE_MASK;
+    } else if (type.isPrimitive()) {
+        flags = PrimitiveTypeFlag(type.primitive());
+        if (flags == TYPE_FLAG_DOUBLE)
+            flags |= TYPE_FLAG_INT32;
+    } else if (type.isAnyObject()) {
+        flags |= TYPE_FLAG_ANYOBJECT;
+    } else  if (type.isTypeObject() && type.typeObject()->unknownProperties()) {
+        flags |= TYPE_FLAG_ANYOBJECT;
+    } else {
+        setBaseObjectCount(1);
+        objectSet = reinterpret_cast<TypeObjectKey**>(type.objectKey());
+    }
+}
+
 bool
 TypeSet::isSubset(TypeSet *other)
 {
@@ -357,6 +371,42 @@ TypeSet::isSubsetIgnorePrimitives(TypeSet *other)
             if (!obj)
                 continue;
             if (!other->hasType(Type::ObjectType(obj)))
+                return false;
+        }
+    }
+
+    return true;
+}
+
+bool
+TypeSet::intersectionEmpty(TypeSet *other)
+{
+    // For unknown/unknownObject there is no reason they couldn't intersect.
+    // I.e. we eagerly return their intersection isn't empty.
+    // That's ok, since we can't make predictions that can be checked to not hold.
+    if (unknown() || other->unknown())
+        return false;
+
+    if (unknownObject() && other->unknownObject())
+        return false;
+
+    if (unknownObject() && other->getObjectCount() > 0)
+        return false;
+
+    if (other->unknownObject() && getObjectCount() > 0)
+        return false;
+
+    // Test if there is an intersection in the baseFlags
+    if ((baseFlags() & other->baseFlags()) != 0)
+        return false;
+
+    // Test if there are object that are in both TypeSets
+    if (!unknownObject()) {
+        for (unsigned i = 0; i < getObjectCount(); i++) {
+            TypeObjectKey *obj = getObject(i);
+            if (!obj)
+                continue;
+            if (other->hasType(Type::ObjectType(obj)))
                 return false;
         }
     }
@@ -500,7 +550,7 @@ StackTypeSet::make(JSContext *cx, const char *name)
     return res;
 }
 
-const StackTypeSet *
+StackTypeSet *
 TypeSet::clone(LifoAlloc *alloc) const
 {
     unsigned objectCount = baseObjectCount();
@@ -520,6 +570,55 @@ TypeSet::clone(LifoAlloc *alloc) const
 
     res->flags = this->flags;
     res->objectSet = capacity ? newSet : this->objectSet;
+
+    return res;
+}
+
+bool
+TypeSet::addObject(TypeObjectKey *key, LifoAlloc *alloc)
+{
+    JS_ASSERT(!constraintList);
+
+    uint32_t objectCount = baseObjectCount();
+    TypeObjectKey **pentry = HashSetInsert<TypeObjectKey *,TypeObjectKey,TypeObjectKey>
+                                 (*alloc, objectSet, objectCount, key);
+    if (!pentry)
+        return false;
+    if (*pentry)
+        return true;
+    *pentry = key;
+
+    setBaseObjectCount(objectCount);
+
+    if (objectCount == TYPE_FLAG_OBJECT_COUNT_LIMIT) {
+        flags |= TYPE_FLAG_ANYOBJECT;
+        clearObjects();
+    }
+
+    return true;
+}
+
+/* static */ StackTypeSet *
+TypeSet::unionSets(TypeSet *a, TypeSet *b, LifoAlloc *alloc)
+{
+    StackTypeSet *res = alloc->new_<StackTypeSet>();
+    if (!res)
+        return NULL;
+
+    res->flags = a->baseFlags() | b->baseFlags();
+
+    if (!res->unknownObject()) {
+        for (size_t i = 0; i < a->getObjectCount() && !res->unknownObject(); i++) {
+            TypeObjectKey *key = a->getObject(i);
+            if (key && !res->addObject(key, alloc))
+                return NULL;
+        }
+        for (size_t i = 0; i < b->getObjectCount() && !res->unknownObject(); i++) {
+            TypeObjectKey *key = b->getObject(i);
+            if (key && !res->addObject(key, alloc))
+                return NULL;
+        }
+    }
 
     return res;
 }
@@ -731,7 +830,6 @@ class TypeConstraintCall : public TypeConstraint
     const char *kind() { return "call"; }
 
     void newType(JSContext *cx, TypeSet *source, Type type);
-    bool newCallee(JSContext *cx, HandleFunction callee, HandleScript script);
 };
 
 void
@@ -815,7 +913,6 @@ class TypeConstraintPropagateThis : public TypeConstraint
     const char *kind() { return "propagatethis"; }
 
     void newType(JSContext *cx, TypeSet *source, Type type);
-    bool newCallee(JSContext *cx, HandleFunction callee);
 };
 
 void
@@ -1367,6 +1464,17 @@ TypeConstraintCall::newType(JSContext *cx, TypeSet *source, Type type)
                 }
             }
 
+            if (native == intrinsic_UnsafeSetElement) {
+                // UnsafeSetElement(arr0, idx0, elem0, ..., arrN, idxN, elemN)
+                // is (basically) equivalent to arri[idxi] = elemi for i = 0...N
+                JS_ASSERT((callsite->argumentCount % 3) == 0);
+                for (size_t i = 0; i < callsite->argumentCount; i += 3) {
+                    StackTypeSet *arr = callsite->argumentTypes[i];
+                    StackTypeSet *elem = callsite->argumentTypes[i+2];
+                    arr->addSetProperty(cx, script, pc, elem, JSID_VOID);
+                }
+            }
+
             if (native == js::array_pop || native == js::array_shift)
                 callsite->thisTypes->addGetProperty(cx, script, pc, callsite->returnTypes, JSID_VOID);
 
@@ -1416,35 +1524,14 @@ TypeConstraintCall::newType(JSContext *cx, TypeSet *source, Type type)
      * and the clone.
      */
     if (callee->nonLazyScript()->shouldCloneAtCallsite) {
-        RootedFunction clone(cx, CloneCallee(cx, callee, script, pc));
-        if (!clone)
+        callee = CloneCallee(cx, callee, script, pc);
+        if (!callee)
             return;
-        if (!newCallee(cx, clone, script))
-            return;
-        if (!newCallee(cx, callee, script))
-            return;
-
-        /*
-         * When cloning a callee, we must flow the more specific argument
-         * types of the clone to that of the original, lest we install type
-         * barriers when propagating the original where none is required.
-         */
-        for (unsigned i = 0; i < callsite->argumentCount && i < callee->nargs; i++) {
-            StackTypeSet *cloneTypes = TypeScript::ArgTypes(clone->nonLazyScript(), i);
-            StackTypeSet *originalTypes = TypeScript::ArgTypes(callee->nonLazyScript(), i);
-            cloneTypes->addSubset(cx, originalTypes);
-        }
-    } else {
-        newCallee(cx, callee, script);
     }
-}
 
-bool
-TypeConstraintCall::newCallee(JSContext *cx, HandleFunction callee, HandleScript script)
-{
     RootedScript calleeScript(cx, callee->nonLazyScript());
     if (!calleeScript->ensureHasTypes(cx))
-        return false;
+        return;
 
     unsigned nargs = callee->nargs;
 
@@ -1484,8 +1571,6 @@ TypeConstraintCall::newCallee(JSContext *cx, HandleFunction callee, HandleScript
          */
         returnTypes->addSubset(cx, callsite->returnTypes);
     }
-
-    return true;
 }
 
 void
@@ -1529,29 +1614,19 @@ TypeConstraintPropagateThis::newType(JSContext *cx, TypeSet *source, Type type)
      * and the clone.
      */
     if (callee->nonLazyScript()->shouldCloneAtCallsite) {
-        RootedFunction clone(cx, CloneCallee(cx, callee, script, callpc));
-        if (!clone)
-            return;
-        if (!newCallee(cx, clone))
+        callee = CloneCallee(cx, callee, script, callpc);
+        if (!callee)
             return;
     }
 
-    newCallee(cx, callee);
-}
-
-bool
-TypeConstraintPropagateThis::newCallee(JSContext *cx, HandleFunction callee)
-{
     if (!callee->nonLazyScript()->ensureHasTypes(cx))
-        return false;
+        return;
 
     TypeSet *thisTypes = TypeScript::ThisTypes(callee->nonLazyScript());
     if (this->types)
         this->types->addSubset(cx, thisTypes);
     else
         thisTypes->addType(cx, this->type);
-
-    return true;
 }
 
 void
@@ -1770,6 +1845,18 @@ HeapTypeSet::getKnownTypeTag(JSContext *cx)
     JS_ASSERT_IF(empty, type == JSVAL_TYPE_UNKNOWN);
 
     return type;
+}
+
+bool
+StackTypeSet::mightBeType(JSValueType type)
+{
+    if (unknown())
+        return true;
+
+    if (type == JSVAL_TYPE_OBJECT)
+        return unknownObject() || baseObjectCount() != 0;
+
+    return baseFlags() & PrimitiveTypeFlag(type);
 }
 
 /* Constraint which triggers recompilation if an object acquires particular flags. */
@@ -2367,27 +2454,6 @@ class TypeConstraintFreezeStack : public TypeConstraint
 // TypeCompartment
 /////////////////////////////////////////////////////////////////////
 
-static inline bool
-TypeInferenceSupported()
-{
-#ifdef JS_METHODJIT
-    // JM+TI will generate FPU instructions with TI enabled. As a workaround,
-    // we disable TI to prevent this on platforms which do not have FPU
-    // support.
-    JSC::MacroAssembler masm;
-    if (!masm.supportsFloatingPoint())
-        return false;
-#endif
-
-#if WTF_ARM_ARCH_VERSION == 6
-    // If building for ARMv6 targets, we can't be guaranteed an FPU,
-    // so we hardcode TI off for consistency (see bug 793740).
-    return false;
-#endif
-
-    return true;
-}
-
 TypeCompartment::TypeCompartment()
 {
     PodZero(this);
@@ -2399,7 +2465,7 @@ TypeZone::init(JSContext *cx)
 {
     if (!cx ||
         !cx->hasOption(JSOPTION_TYPE_INFERENCE) ||
-        !TypeInferenceSupported())
+        !cx->runtime->jitSupportsFloatingPoint)
     {
         return;
     }
@@ -2449,6 +2515,9 @@ static inline jsbytecode *
 FindPreviousInnerInitializer(HandleScript script, jsbytecode *initpc)
 {
     if (!script->hasAnalysis())
+        return NULL;
+
+    if (!script->analysis()->maybeCode(initpc))
         return NULL;
 
     /*
@@ -2685,7 +2754,10 @@ types::TypeCanHaveExtraIndexedProperties(JSContext *cx, StackTypeSet *types)
 {
     Class *clasp = types->getKnownClass();
 
-    if (!clasp || ClassCanHaveExtraProperties(clasp))
+    // Note: typed arrays have indexed properties not accounted for by type
+    // information, though these are all in bounds and will be accounted for
+    // by JIT paths.
+    if (!clasp || (ClassCanHaveExtraProperties(clasp) && !IsTypedArrayClass(clasp)))
         return true;
 
     if (types->hasObjectFlags(cx, types::OBJECT_FLAG_SPARSE_INDEXES))
@@ -2744,6 +2816,17 @@ TypeCompartment::processPendingRecompiles(FreeOp *fop)
             break;
           case CompilerOutput::Ion:
           case CompilerOutput::ParallelIon:
+# ifdef JS_THREADSAFE
+            /*
+             * If we are inside transitive compilation, which is a worklist
+             * fixpoint algorithm, we need to be re-add invalidated scripts to
+             * the worklist.
+             */
+            if (transitiveCompilationWorklist) {
+                transitiveCompilationWorklist->insert(transitiveCompilationWorklist->begin(),
+                                                      co.script);
+            }
+# endif
             break;
         }
     }
@@ -2905,6 +2988,10 @@ TypeCompartment::addPendingRecompile(JSContext *cx, RawScript script, jsbytecode
 
 # ifdef JS_ION
     CancelOffThreadIonCompile(cx->compartment, script);
+
+    // Let the script warm up again before attempting another compile.
+    if (ion::IsBaselineEnabled(cx))
+        script->resetUseCount();
 
     if (script->hasIonScript())
         addPendingRecompile(cx, script->ionScript()->recompileInfo());
@@ -4108,7 +4195,6 @@ ScriptAnalysis::analyzeTypesBytecode(JSContext *cx, unsigned offset, TypeInferen
       case JSOP_TABLESWITCH:
       case JSOP_TRY:
       case JSOP_LABEL:
-      case JSOP_LINKASMJS:
         break;
 
         /* Bytecodes pushing values of known type. */
@@ -4854,11 +4940,7 @@ ScriptAnalysis::analyzeTypes(JSContext *cx)
         result = result->next;
     }
 
-    if (!script_->hasFreezeConstraints) {
-        RootedScript script(cx, script_);
-        TypeScript::AddFreezeConstraints(cx, script);
-        script_->hasFreezeConstraints = true;
-    }
+    TypeScript::AddFreezeConstraints(cx, script_);
 }
 
 bool
@@ -5074,6 +5156,18 @@ AnalyzeNewScriptProperties(JSContext *cx, TypeObject *type, HandleFunction fun,
         SSAValue thisv = SSAValue::PushedValue(offset, 0);
         SSAUseChain *uses = analysis->useChain(thisv);
 
+        /*
+         * If offset >= the offset at the top of the pending stack, we either
+         * encountered the end of a compound inline assignment or a 'this' was
+         * immediately popped and used. In either case, handle the use.
+         */
+        if (!pendingPoppedThis.empty() &&
+            offset >= pendingPoppedThis.back()->offset) {
+            lastThisPopped = pendingPoppedThis[0]->offset;
+            if (!AnalyzePoppedThis(cx, &pendingPoppedThis, type, fun, state))
+                return false;
+        }
+
         JS_ASSERT(uses);
         if (uses->next || !uses->popped) {
             /* 'this' value popped in more than one place. */
@@ -5086,18 +5180,6 @@ AnalyzeNewScriptProperties(JSContext *cx, TypeObject *type, HandleFunction fun,
         if (!poppedCode || !poppedCode->unconditional) {
             entirelyAnalyzed = false;
             break;
-        }
-
-        /*
-         * If offset >= the offset at the top of the pending stack, we either
-         * encountered the end of a compound inline assignment or a 'this' was
-         * immediately popped and used. In either case, handle the use.
-         */
-        if (!pendingPoppedThis.empty() &&
-            offset >= pendingPoppedThis.back()->offset) {
-            lastThisPopped = pendingPoppedThis[0]->offset;
-            if (!AnalyzePoppedThis(cx, &pendingPoppedThis, type, fun, state))
-                return false;
         }
 
         if (!pendingPoppedThis.append(uses)) {
@@ -5889,6 +5971,25 @@ JSScript::makeTypes(JSContext *cx)
             types->setConstraintsPurged();
     }
 
+    if (isCallsiteClone) {
+        /*
+         * For callsite clones, flow the types from the specific clone back to
+         * the original function.
+         */
+        JS_ASSERT(function());
+        JS_ASSERT(originalFunction());
+        JS_ASSERT(function()->nargs == originalFunction()->nargs);
+
+        RawScript original = originalFunction()->nonLazyScript();
+        if (!original->ensureHasTypes(cx))
+            return false;
+
+        TypeScript::ReturnTypes(this)->addSubset(cx, TypeScript::ReturnTypes(original));
+        TypeScript::ThisTypes(this)->addSubset(cx, TypeScript::ThisTypes(original));
+        for (unsigned i = 0; i < function()->nargs; i++)
+            TypeScript::ArgTypes(this, i)->addSubset(cx, TypeScript::ArgTypes(original, i));
+    }
+
 #ifdef DEBUG
     for (unsigned i = 0; i < nTypeSets; i++)
         InferSpew(ISpewOps, "typeSet: %sT%p%s bytecode%u #%u",
@@ -5972,48 +6073,6 @@ JSFunction::setTypeForScriptedFunction(JSContext *cx, HandleFunction fun, bool s
 
     return true;
 }
-
-#ifdef DEBUG
-
-/* static */ void
-TypeScript::CheckBytecode(JSContext *cx, HandleScript script, jsbytecode *pc, const js::Value *sp)
-{
-    AutoEnterAnalysis enter(cx);
-
-    if (js_CodeSpec[*pc].format & JOF_DECOMPOSE)
-        return;
-
-    if (!script->hasAnalysis() || !script->analysis()->ranInference())
-        return;
-    ScriptAnalysis *analysis = script->analysis();
-
-    int defCount = GetDefCount(script, pc - script->code);
-
-    for (int i = 0; i < defCount; i++) {
-        const js::Value &val = sp[-defCount + i];
-        TypeSet *types = analysis->pushedTypes(pc, i);
-        if (IgnorePushed(pc, i))
-            continue;
-
-        /*
-         * Ignore undefined values, these may have been inserted by Ion to
-         * substitute for dead values.
-         */
-        if (val.isUndefined())
-            continue;
-
-        Type type = GetValueType(cx, val);
-
-        if (!types->hasType(type)) {
-            /* Display fine-grained debug information first */
-            fprintf(stderr, "Missing type at #%u:%05u pushed %u: %s\n",
-                    script->id(), unsigned(pc - script->code), i, TypeString(type));
-            TypeFailure(cx, "Missing type pushed %u: %s", i, TypeString(type));
-        }
-    }
-}
-
-#endif
 
 /////////////////////////////////////////////////////////////////////
 // JSObject
@@ -6730,8 +6789,12 @@ TypeScript::destroy()
 }
 
 /* static */ void
-TypeScript::AddFreezeConstraints(JSContext *cx, HandleScript script)
+TypeScript::AddFreezeConstraints(JSContext *cx, JSScript *script)
 {
+    if (script->hasFreezeConstraints)
+        return;
+    script->hasFreezeConstraints = true;
+
     /*
      * Adding freeze constraints to a script ensures that code for the script
      * will be recompiled any time any type set for stack values in the script

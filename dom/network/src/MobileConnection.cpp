@@ -228,7 +228,8 @@ MobileConnection::GetCardLock(const nsAString& aLockType, nsIDOMDOMRequest** aDo
 }
 
 NS_IMETHODIMP
-MobileConnection::UnlockCardLock(const jsval& aInfo, nsIDOMDOMRequest** aDomRequest)
+MobileConnection::UnlockCardLock(const JS::Value& aInfo,
+                                 nsIDOMDOMRequest** aDomRequest)
 {
   *aDomRequest = nullptr;
 
@@ -240,7 +241,8 @@ MobileConnection::UnlockCardLock(const jsval& aInfo, nsIDOMDOMRequest** aDomRequ
 }
 
 NS_IMETHODIMP
-MobileConnection::SetCardLock(const jsval& aInfo, nsIDOMDOMRequest** aDomRequest)
+MobileConnection::SetCardLock(const JS::Value& aInfo,
+                              nsIDOMDOMRequest** aDomRequest)
 {
   *aDomRequest = nullptr;
 
@@ -296,6 +298,31 @@ MobileConnection::SetCallForwardingOption(nsIDOMMozMobileCFInfo* aCFInfo,
   }
 
   return mProvider->SetCallForwardingOption(GetOwner(), aCFInfo, aRequest);
+}
+
+NS_IMETHODIMP
+MobileConnection::GetCallWaitingOption(nsIDOMDOMRequest** aRequest)
+{
+  *aRequest = nullptr;
+
+  if (!mProvider) {
+    return NS_ERROR_FAILURE;
+  }
+
+  return mProvider->GetCallWaitingOption(GetOwner(), aRequest);
+}
+
+NS_IMETHODIMP
+MobileConnection::SetCallWaitingOption(bool aEnabled,
+                                       nsIDOMDOMRequest** aRequest)
+{
+  *aRequest = nullptr;
+
+  if (!mProvider) {
+    return NS_ERROR_FAILURE;
+  }
+
+  return mProvider->SetCallWaitingOption(GetOwner(), aEnabled, aRequest);
 }
 
 // nsIMobileConnectionListener

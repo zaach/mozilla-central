@@ -1,6 +1,5 @@
 /* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
- * vim: set ts=8 sw=4 et tw=99:
- *
+ * vim: set ts=8 sts=4 et sw=4 tw=99:
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -86,19 +85,6 @@ frontend::CompileScript(JSContext *cx, HandleObject scopeChain,
 {
     RootedString source(cx, source_);
 
-    class ProbesManager
-    {
-        const char* filename;
-        unsigned lineno;
-
-      public:
-        ProbesManager(const char *f, unsigned l) : filename(f), lineno(l) {
-            Probes::compileScriptBegin(filename, lineno);
-        }
-        ~ProbesManager() { Probes::compileScriptEnd(filename, lineno); }
-    };
-    ProbesManager probesManager(options.filename, options.lineno);
-
     /*
      * The scripted callerFrame can only be given for compile-and-go scripts
      * and non-zero static level requires callerFrame.
@@ -136,7 +122,7 @@ frontend::CompileScript(JSContext *cx, HandleObject scopeChain,
 
     GlobalSharedContext globalsc(cx, scopeChain, StrictModeFromContext(cx));
 
-    ParseContext<FullParseHandler> pc(&parser, &globalsc, staticLevel, /* bodyid = */ 0);
+    ParseContext<FullParseHandler> pc(&parser, NULL, &globalsc, staticLevel, /* bodyid = */ 0);
     if (!pc.init())
         return NULL;
 
@@ -297,7 +283,7 @@ frontend::ParseScript(JSContext *cx, HandleObject scopeChain,
 
     GlobalSharedContext globalsc(cx, scopeChain, StrictModeFromContext(cx));
 
-    ParseContext<SyntaxParseHandler> pc(&parser, &globalsc, 0, /* bodyid = */ 0);
+    ParseContext<SyntaxParseHandler> pc(&parser, NULL, &globalsc, 0, /* bodyid = */ 0);
     if (!pc.init()) {
         cx->clearPendingException();
         return false;
@@ -325,8 +311,9 @@ frontend::ParseScript(JSContext *cx, HandleObject scopeChain,
 // Compile a JS function body, which might appear as the value of an event
 // handler attribute in an HTML <INPUT> tag, or in a Function() constructor.
 bool
-frontend::CompileFunctionBody(JSContext *cx, HandleFunction fun, CompileOptions options,
-                              const AutoNameVector &formals, const jschar *chars, size_t length)
+frontend::CompileFunctionBody(JSContext *cx, MutableHandleFunction fun, CompileOptions options,
+                              const AutoNameVector &formals, const jschar *chars, size_t length,
+                              bool isAsmJSRecompile)
 {
     if (!CheckLength(cx, length))
         return false;
@@ -378,7 +365,7 @@ frontend::CompileFunctionBody(JSContext *cx, HandleFunction fun, CompileOptions 
     // If the context is strict, immediately parse the body in strict
     // mode. Otherwise, we parse it normally. If we see a "use strict"
     // directive, we backup and reparse it as strict.
-    TokenStream::Position start;
+    TokenStream::Position start(parser.keepAtoms);
     parser.tokenStream.tell(&start);
     bool initiallyStrict = StrictModeFromContext(cx);
     bool becameStrict;
@@ -397,12 +384,6 @@ frontend::CompileFunctionBody(JSContext *cx, HandleFunction fun, CompileOptions 
             return false;
     }
 
-    BytecodeEmitter funbce(/* parent = */ NULL, &parser, funbox, script,
-                           /* evalCaller = */ NullPtr(),
-                           /* hasGlobalScope = */ false, options.lineno);
-    if (!funbce.init())
-        return false;
-
     if (!NameFunctions(cx, pn))
         return false;
 
@@ -413,19 +394,36 @@ frontend::CompileFunctionBody(JSContext *cx, HandleFunction fun, CompileOptions 
         pn = fn->pn_body;
     }
 
+    bool generateBytecode = true;
 #ifdef JS_ION
-    /*
-     * Do asm.js compilation once the parse tree has been fully assembled but
-     * before emitting since we need to know whether to emit JSOP_LINKASMJS.
-     */
-    if (fn->pn_funbox->useAsm && !CompileAsmJS(cx, parser.tokenStream, fn, script))
-        return false;
+    JS_ASSERT_IF(isAsmJSRecompile, fn->pn_funbox->useAsm);
+    if (fn->pn_funbox->useAsm && !isAsmJSRecompile) {
+        RootedFunction moduleFun(cx);
+        if (!CompileAsmJS(cx, parser.tokenStream, fn, options,
+                          ss, /* bufStart = */ 0, /* bufEnd = */ length,
+                          &moduleFun))
+            return false;
+
+        if (moduleFun) {
+            funbox->object = moduleFun;
+            fun.set(moduleFun); // replace the existing function with the LinkAsmJS native
+            generateBytecode = false;
+        }
+    }
 #endif
 
-    if (!SetSourceMap(cx, parser.tokenStream, ss, script))
-        return false;
+    if (generateBytecode) {
+        BytecodeEmitter funbce(/* parent = */ NULL, &parser, funbox, script,
+                               /* evalCaller = */ NullPtr(),
+                               /* hasGlobalScope = */ false, options.lineno);
+        if (!funbce.init())
+            return false;
 
-    if (!EmitFunctionScript(cx, &funbce, pn))
+        if (!EmitFunctionScript(cx, &funbce, pn))
+            return false;
+    }
+
+    if (!SetSourceMap(cx, parser.tokenStream, ss, script))
         return false;
 
     if (!sct.complete())

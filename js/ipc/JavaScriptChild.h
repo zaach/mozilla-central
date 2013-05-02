@@ -54,6 +54,10 @@ class JavaScriptChild
     bool AnswerObjectClassIs(const uint32_t &objId,
                              const uint32_t &classValue,
                              bool *result);
+    bool AnswerIsExtensible(const uint32_t &objId,
+                            bool *result);
+    bool AnswerPreventExtensions(const uint32_t &objId,
+                                 ReturnStatus *rs);
 
     ObjectId Send(JSContext *cx, JSObject *obj);
 

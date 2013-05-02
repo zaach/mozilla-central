@@ -933,8 +933,7 @@ nsDocumentViewer::InitInternal(nsIWidget* aParentWidget,
                             getter_AddRefs(window));
 
     if (window) {
-      nsCOMPtr<nsIDocument> curDoc =
-        do_QueryInterface(window->GetExtantDocument());
+      nsCOMPtr<nsIDocument> curDoc = window->GetExtantDoc();
       if (aForceSetNewDocument || curDoc != mDocument) {
         window->SetNewDocument(mDocument, aState, false);
         nsJSContext::LoadStart();
@@ -1018,15 +1017,15 @@ nsDocumentViewer::LoadComplete(nsresult aStatus)
 
     docShell->GetRestoringDocument(&restoring);
     if (!restoring) {
-      MOZ_ASSERT(mDocument->IsXUL() || // readyState for XUL is bogus
-                 mDocument->GetReadyStateEnum() ==
-                   nsIDocument::READYSTATE_INTERACTIVE ||
-                 // test_stricttransportsecurity.html has old-style
-                 // docshell-generated about:blank docs reach this code!
-                 (mDocument->GetReadyStateEnum() ==
-                    nsIDocument::READYSTATE_UNINITIALIZED &&
-                  NS_IsAboutBlank(mDocument->GetDocumentURI())),
-                 "Bad readystate");
+      NS_ASSERTION(mDocument->IsXUL() || // readyState for XUL is bogus
+                   mDocument->GetReadyStateEnum() ==
+                     nsIDocument::READYSTATE_INTERACTIVE ||
+                   // test_stricttransportsecurity.html has old-style
+                   // docshell-generated about:blank docs reach this code!
+                   (mDocument->GetReadyStateEnum() ==
+                      nsIDocument::READYSTATE_UNINITIALIZED &&
+                    NS_IsAboutBlank(mDocument->GetDocumentURI())),
+                   "Bad readystate");
       nsCOMPtr<nsIDocument> d = mDocument;
       mDocument->SetReadyStateInternal(nsIDocument::READYSTATE_COMPLETE);
 
@@ -1564,14 +1563,8 @@ nsDocumentViewer::Destroy()
 
     // This is after Hide() so that the user doesn't see the inputs clear.
     if (mDocument) {
-      nsresult rv = mDocument->Sanitize();
-      if (NS_FAILED(rv)) {
-        // If we failed to sanitize, don't save presentation.
-        // XXX Shouldn't we run all the stuff after the |if (mSHEntry)| then?
-        savePresentation = false;
-      }
+      mDocument->Sanitize();
     }
-
 
     // Reverse ownership. Do this *after* calling sanitize so that sanitize
     // doesn't cause mutations that make the SHEntry drop the presentation
@@ -3349,7 +3342,7 @@ nsDocumentViewer::GetPopupNode(nsIDOMNode** aNode)
     if (!node) {
       nsPIDOMWindow* rootWindow = root->GetWindow();
       if (rootWindow) {
-        nsCOMPtr<nsIDocument> rootDoc = do_QueryInterface(rootWindow->GetExtantDocument());
+        nsCOMPtr<nsIDocument> rootDoc = rootWindow->GetExtantDoc();
         if (rootDoc) {
           nsXULPopupManager* pm = nsXULPopupManager::GetInstance();
           if (pm) {

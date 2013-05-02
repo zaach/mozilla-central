@@ -10,8 +10,19 @@
  * liability, trademark and document use rules apply.
  */
 
+enum ChannelCountMode {
+    "max",
+    "clamped-max",
+    "explicit"
+};
+
+enum ChannelInterpretation {
+    "speakers",
+    "discrete"
+};
+
 [PrefControlled]
-interface AudioNode {
+interface AudioNode : EventTarget {
 
     [Throws]
     void connect(AudioNode destination, optional unsigned long output = 0, optional unsigned long input = 0);
@@ -25,6 +36,11 @@ interface AudioNode {
     readonly attribute AudioContext context;
     readonly attribute unsigned long numberOfInputs;
     readonly attribute unsigned long numberOfOutputs;
+
+    // Channel up-mixing and down-mixing rules for all inputs.
+    attribute unsigned long channelCount;
+    attribute ChannelCountMode channelCountMode;
+    attribute ChannelInterpretation channelInterpretation;
 
 };
 

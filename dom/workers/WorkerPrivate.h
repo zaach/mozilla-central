@@ -41,6 +41,7 @@ class nsIURI;
 class nsPIDOMWindow;
 class nsITimer;
 class nsIXPCScriptNotify;
+namespace JS { class RuntimeStats; }
 
 BEGIN_WORKERS_NAMESPACE
 
@@ -284,6 +285,7 @@ private:
   bool mPrincipalIsSystem;
   bool mMainThreadObjectsForgotten;
   bool mEvalAllowed;
+  bool mReportCSPViolations;
 
 protected:
   WorkerPrivateParent(JSContext* aCx, JSObject* aObject, WorkerPrivate* aParent,
@@ -295,7 +297,8 @@ protected:
                       nsCOMPtr<nsIPrincipal>& aPrincipal,
                       nsCOMPtr<nsIChannel>& aChannel,
                       nsCOMPtr<nsIContentSecurityPolicy>& aCSP,
-                      bool aEvalAllowed);
+                      bool aEvalAllowed,
+                      bool aReportCSPViolations);
 
   ~WorkerPrivateParent();
 
@@ -560,6 +563,12 @@ public:
     mEvalAllowed = aEvalAllowed;
   }
 
+  bool
+  GetReportCSPViolations() const
+  {
+    return mReportCSPViolations;
+  }
+
   LocationInfo&
   GetLocationInfo()
   {
@@ -813,7 +822,7 @@ public:
   ScheduleDeletion(bool aWasPending);
 
   bool
-  BlockAndCollectRuntimeStats(bool aIsQuick, void* aData);
+  BlockAndCollectRuntimeStats(JS::RuntimeStats* aRtStats);
 
   bool
   XHRParamsAllowed() const
@@ -894,7 +903,7 @@ private:
                 nsCOMPtr<nsIURI>& aBaseURI, nsCOMPtr<nsIPrincipal>& aPrincipal,
                 nsCOMPtr<nsIChannel>& aChannel,
                 nsCOMPtr<nsIContentSecurityPolicy>& aCSP, bool aEvalAllowed,
-                bool aXHRParamsAllowed);
+                bool aReportCSPViolations, bool aXHRParamsAllowed);
 
   static bool
   GetContentSecurityPolicy(JSContext *aCx,

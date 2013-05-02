@@ -19,7 +19,6 @@ static const unsigned short SVG_ZOOMANDPAN_MAGNIFY = 2;
 typedef nsSVGElement SVGViewElementBase;
 
 class nsSVGOuterSVGFrame;
-class nsIDOMSVGStringList;
 
 nsresult NS_NewSVGViewElement(nsIContent **aResult,
                               already_AddRefed<nsINodeInfo> aNodeInfo);
@@ -30,8 +29,7 @@ class SVGFragmentIdentifier;
 namespace dom {
 class SVGSVGElement;
 
-class SVGViewElement : public SVGViewElementBase,
-                       public nsIDOMSVGElement
+class SVGViewElement : public SVGViewElementBase
 {
 protected:
   friend class mozilla::SVGFragmentIdentifier;
@@ -40,29 +38,18 @@ protected:
   SVGViewElement(already_AddRefed<nsINodeInfo> aNodeInfo);
   friend nsresult (::NS_NewSVGViewElement(nsIContent **aResult,
                                           already_AddRefed<nsINodeInfo> aNodeInfo));
-  virtual JSObject* WrapNode(JSContext *cx, JSObject *scope) MOZ_OVERRIDE;
+  virtual JSObject* WrapNode(JSContext *cx,
+                             JS::Handle<JSObject*> scope) MOZ_OVERRIDE;
 
 public:
-  // interfaces:
-
-  NS_DECL_ISUPPORTS_INHERITED
-
-  // xxx If xpcom allowed virtual inheritance we wouldn't need to
-  // forward here :-(
-  NS_FORWARD_NSIDOMNODE_TO_NSINODE
-  NS_FORWARD_NSIDOMELEMENT_TO_GENERIC
-  NS_FORWARD_NSIDOMSVGELEMENT(SVGViewElementBase::)
-
   virtual nsresult Clone(nsINodeInfo *aNodeInfo, nsINode **aResult) const;
-
-  virtual nsIDOMNode* AsDOMNode() { return this; }
 
   // WebIDL
   uint16_t ZoomAndPan() { return mEnumAttributes[ZOOMANDPAN].GetAnimValue(); }
   void SetZoomAndPan(uint16_t aZoomAndPan, ErrorResult& rv);
   already_AddRefed<nsIDOMSVGAnimatedRect> ViewBox();
   already_AddRefed<DOMSVGAnimatedPreserveAspectRatio> PreserveAspectRatio();
-  already_AddRefed<nsIDOMSVGStringList> ViewTarget();
+  already_AddRefed<DOMSVGStringList> ViewTarget();
 
 private:
 

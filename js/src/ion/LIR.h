@@ -1,6 +1,5 @@
-/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*-
- * vim: set ts=4 sw=4 et tw=99:
- *
+/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
+ * vim: set ts=8 sts=4 et sw=4 tw=99:
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -16,7 +15,6 @@
 #include "InlineList.h"
 #include "FixedArityList.h"
 #include "LOpcodes.h"
-#include "TypeOracle.h"
 #include "Registers.h"
 #include "MIR.h"
 #include "MIRGraph.h"
@@ -609,6 +607,12 @@ class LInstruction
           default:
             return "Invalid";
         }
+    }
+
+    // Hook for opcodes to add extra high level detail about what code will be
+    // emitted for the op.
+    virtual const char *extraName() const {
+        return NULL;
     }
 
   public:
@@ -1308,7 +1312,7 @@ class LIRGraph
         localSlotCount_ = localSlotCount;
     }
     uint32_t localSlotCount() const {
-        return localSlotCount_;
+        return AlignBytes(localSlotCount_, StackAlignment / STACK_SLOT_SIZE);
     }
     void setArgumentSlotCount(uint32_t argumentSlotCount) {
         argumentSlotCount_ = argumentSlotCount;

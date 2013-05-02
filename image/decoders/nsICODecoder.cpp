@@ -213,11 +213,6 @@ nsICODecoder::WriteInternal(const char* aBuffer, uint32_t aCount)
 {
   NS_ABORT_IF_FALSE(!HasError(), "Shouldn't call WriteInternal after error!");
 
-  if (IsSizeDecode() && HasSize()) {
-    // More data came in since we found the size. We have nothing to do here.
-    return;
-  }
-
   if (!aCount) {
     if (mContainedDecoder) {
       WriteToContainedDecoder(aBuffer, aCount);
@@ -247,6 +242,17 @@ nsICODecoder::WriteInternal(const char* aBuffer, uint32_t aCount)
     return; // Nothing to do.
 
   uint16_t colorDepth = 0;
+  nsIntSize prefSize = mImage.GetRequestedResolution();
+  if (prefSize.width == 0 && prefSize.height == 0) {
+    prefSize.SizeTo(PREFICONSIZE, PREFICONSIZE);
+  }
+
+  // A measure of the difference in size between the entry we've found
+  // and the requested size. We will choose the smallest image that is
+  // >= requested size (i.e. we assume it's better to downscale a larger
+  // icon than to upscale a smaller one).
+  int32_t diff = INT_MIN;
+
   // Loop through each entry's dir entry
   while (mCurrIcon < mNumIcons) { 
     if (mPos >= DIRENTRYOFFSET + (mCurrIcon * sizeof(mDirEntryArray)) && 
@@ -270,11 +276,15 @@ nsICODecoder::WriteInternal(const char* aBuffer, uint32_t aCount)
       mCurrIcon++;
       ProcessDirEntry(e);
       // We can't use GetRealWidth and GetRealHeight here because those operate
-      // on mDirEntry, here we are going through each item in the directory
-      if (((e.mWidth == 0 ? 256 : e.mWidth) == PREFICONSIZE && 
-           (e.mHeight == 0 ? 256 : e.mHeight) == PREFICONSIZE && 
-           (e.mBitCount >= colorDepth)) ||
-          (mCurrIcon == mNumIcons && mImageOffset == 0)) {
+      // on mDirEntry, here we are going through each item in the directory.
+      // Calculate the delta between this image's size and the desired size,
+      // so we can see if it is better than our current-best option.
+      // In the case of several equally-good images, we use the last one.
+      int32_t delta = (e.mWidth == 0 ? 256 : e.mWidth) - prefSize.width +
+                      (e.mHeight == 0 ? 256 : e.mHeight) - prefSize.height;
+      if (e.mBitCount >= colorDepth &&
+          ((diff < 0 && delta >= diff) || (delta >= 0 && delta <= diff))) {
+        diff = delta;
         mImageOffset = e.mImageOffset;
 
         // ensure mImageOffset is >= size of the direntry headers (bug #245631)
@@ -339,7 +349,7 @@ nsICODecoder::WriteInternal(const char* aBuffer, uint32_t aCount)
       return;
     }
 
-    if (mContainedDecoder->HasSize()) {
+    if (!HasSize() && mContainedDecoder->HasSize()) {
       PostSize(mContainedDecoder->GetImageMetadata().GetWidth(),
                mContainedDecoder->GetImageMetadata().GetHeight());
     }
@@ -603,7 +613,9 @@ nsresult
 nsICODecoder::AllocateFrame()
 {
   if (mContainedDecoder) {
-    return mContainedDecoder->AllocateFrame();
+    nsresult rv = mContainedDecoder->AllocateFrame();
+    mCurrentFrame = mContainedDecoder->GetCurrentFrame();
+    return rv;
   }
 
   return Decoder::AllocateFrame();

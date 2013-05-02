@@ -42,8 +42,13 @@ class nsCycleCollectionParticipant;
 #define DOM_PROTO_INSTANCE_CLASS_SLOT 0
 
 // Interface objects store a number of reserved slots equal to
-// DOM_INTERFACE_BASE_SLOTS + number of named constructors.
+// DOM_INTERFACE_SLOTS_BASE + number of named constructors.
 #define DOM_INTERFACE_SLOTS_BASE (DOM_XRAY_EXPANDO_SLOT + 1)
+
+// Interface prototype objects store a number of reserved slots equal to
+// DOM_INTERFACE_PROTO_SLOTS_BASE or DOM_INTERFACE_PROTO_SLOTS_BASE + 1 if a
+// slot for the unforgeable holder is needed.
+#define DOM_INTERFACE_PROTO_SLOTS_BASE (DOM_XRAY_EXPANDO_SLOT + 1)
 
 MOZ_STATIC_ASSERT(DOM_PROTO_INSTANCE_CLASS_SLOT != DOM_XRAY_EXPANDO_SLOT,
                   "Interface prototype object use both of these, so they must "
@@ -70,7 +75,7 @@ typedef bool (*PropertyEnabled)(JSContext* cx, JSObject* global);
 
 template<typename T>
 struct Prefable {
-  inline bool isEnabled(JSContext* cx, JSObject* obj) {
+  inline bool isEnabled(JSContext* cx, JSObject* obj) const {
     return enabled &&
       (!enabledFunc ||
        enabledFunc(cx, js::GetGlobalForObjectCrossCompartment(obj)));
@@ -85,29 +90,29 @@ struct Prefable {
   // Array of specs, terminated in whatever way is customary for T.
   // Null to indicate a end-of-array for Prefable, when such an
   // indicator is needed.
-  T* specs;
+  const T* specs;
 };
 
 struct NativeProperties
 {
-  Prefable<JSFunctionSpec>* staticMethods;
+  const Prefable<const JSFunctionSpec>* staticMethods;
   jsid* staticMethodIds;
-  JSFunctionSpec* staticMethodsSpecs;
-  Prefable<JSPropertySpec>* staticAttributes;
+  const JSFunctionSpec* staticMethodsSpecs;
+  const Prefable<const JSPropertySpec>* staticAttributes;
   jsid* staticAttributeIds;
-  JSPropertySpec* staticAttributeSpecs;
-  Prefable<JSFunctionSpec>* methods;
+  const JSPropertySpec* staticAttributeSpecs;
+  const Prefable<const JSFunctionSpec>* methods;
   jsid* methodIds;
-  JSFunctionSpec* methodsSpecs;
-  Prefable<JSPropertySpec>* attributes;
+  const JSFunctionSpec* methodsSpecs;
+  const Prefable<const JSPropertySpec>* attributes;
   jsid* attributeIds;
-  JSPropertySpec* attributeSpecs;
-  Prefable<JSPropertySpec>* unforgeableAttributes;
+  const JSPropertySpec* attributeSpecs;
+  const Prefable<const JSPropertySpec>* unforgeableAttributes;
   jsid* unforgeableAttributeIds;
-  JSPropertySpec* unforgeableAttributeSpecs;
-  Prefable<ConstantSpec>* constants;
+  const JSPropertySpec* unforgeableAttributeSpecs;
+  const Prefable<const ConstantSpec>* constants;
   jsid* constantIds;
-  ConstantSpec* constantSpecs;
+  const ConstantSpec* constantSpecs;
 };
 
 struct NativePropertiesHolder
@@ -151,7 +156,7 @@ enum DOMObjectType {
   eInterfacePrototype
 };
 
-typedef JSObject* (*ParentGetter)(JSContext* aCx, JSObject* aObj);
+typedef JSObject* (*ParentGetter)(JSContext* aCx, JS::Handle<JSObject*> aObj);
 typedef JSObject* (*ProtoGetter)(JSContext* aCx, JSObject* aGlobal);
 
 struct DOMClass

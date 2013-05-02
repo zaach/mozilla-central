@@ -26,9 +26,8 @@
 #include "nsContentList.h"
 #include "nsContentUtils.h"
 #include "nsCycleCollectionParticipant.h"
-#include "nsCycleCollector.h"
 #include "nsDocument.h"
-#include "nsDOMAttribute.h"
+#include "mozilla/dom/Attr.h"
 #include "nsDOMAttributeMap.h"
 #include "nsDOMCID.h"
 #include "nsDOMCSSAttrDeclaration.h"
@@ -62,7 +61,6 @@
 #include "nsIEditor.h"
 #include "nsIEditorIMESupport.h"
 #include "nsIFrame.h"
-#include "nsIJSContextStack.h"
 #include "nsILinkHandler.h"
 #include "nsINameSpaceManager.h"
 #include "nsINodeInfo.h"
@@ -1044,6 +1042,29 @@ nsINode::AddEventListener(const nsAString& aType,
   return NS_OK;
 }
 
+void
+nsINode::AddEventListener(const nsAString& aType,
+                          nsIDOMEventListener* aListener,
+                          bool aUseCapture,
+                          const Nullable<bool>& aWantsUntrusted,
+                          ErrorResult& aRv)
+{
+  bool wantsUntrusted;
+  if (aWantsUntrusted.IsNull()) {
+    wantsUntrusted = !nsContentUtils::IsChromeDoc(OwnerDoc());
+  } else {
+    wantsUntrusted = aWantsUntrusted.Value();
+  }
+
+  nsEventListenerManager* listener_manager = GetListenerManager(true);
+  if (!listener_manager) {
+    aRv.Throw(NS_ERROR_UNEXPECTED);
+    return;
+  }
+  listener_manager->AddEventListener(aType, aListener, aUseCapture,
+                                     wantsUntrusted);
+}
+
 NS_IMETHODIMP
 nsINode::AddSystemEventListener(const nsAString& aType,
                                 nsIDOMEventListener *aListener,
@@ -1371,6 +1392,21 @@ nsINode::doInsertChildAt(nsIContent* aKid, uint32_t aIndex,
 }
 
 void
+nsINode::Remove()
+{
+  nsCOMPtr<nsINode> parent = GetParentNode();
+  if (!parent) {
+    return;
+  }
+  int32_t index = parent->IndexOf(this);
+  if (index < 0) {
+    NS_WARNING("Ignoring call to nsINode::Remove on anonymous child.");
+    return;
+  }
+  parent->RemoveChildAt(uint32_t(index), true);
+}
+
+void
 nsINode::doRemoveChildAt(uint32_t aIndex, bool aNotify,
                          nsIContent* aKid, nsAttrAndChildArray& aChildArray)
 {
@@ -1420,8 +1456,10 @@ bool IsAllowedAsChild(nsIContent* aNewChild, nsINode* aParent,
   // actually equal to each other.  Fast-path that case, since aParent
   // could be pretty deep in the DOM tree.
   if (aNewChild == aParent ||
-      (aNewChild->GetFirstChild() &&
-       nsContentUtils::ContentIsDescendantOf(aParent, aNewChild))) {
+      ((aNewChild->GetFirstChild() ||
+        aNewChild->Tag() == nsGkAtoms::_template) &&
+       nsContentUtils::ContentIsHostIncludingDescendantOf(aParent,
+                                                          aNewChild))) {
     return false;
   }
 
@@ -2056,26 +2094,17 @@ nsINode::SizeOfExcludingThis(nsMallocSizeOfFun aMallocSizeOf) const
       error.Throw(NS_ERROR_OUT_OF_MEMORY);                                   \
     }                                                                        \
   }                                                                          \
-  NS_IMETHODIMP nsINode::GetOn##name_(JSContext *cx, jsval *vp) {            \
+  NS_IMETHODIMP nsINode::GetOn##name_(JSContext *cx, JS::Value *vp) {        \
     EventHandlerNonNull* h = GetOn##name_();                                 \
     vp->setObjectOrNull(h ? h->Callable() : nullptr);                        \
     return NS_OK;                                                            \
   }                                                                          \
-  NS_IMETHODIMP nsINode::SetOn##name_(JSContext *cx, const jsval &v) {       \
-    JSObject *obj = GetWrapper();                                            \
-    if (!obj) {                                                              \
-      /* Just silently do nothing */                                         \
-      return NS_OK;                                                          \
-    }                                                                        \
+  NS_IMETHODIMP nsINode::SetOn##name_(JSContext *cx, const JS::Value &v) {   \
     nsRefPtr<EventHandlerNonNull> handler;                                   \
     JSObject *callable;                                                      \
     if (v.isObject() &&                                                      \
         JS_ObjectIsCallable(cx, callable = &v.toObject())) {                 \
-      bool ok;                                                               \
-      handler = new EventHandlerNonNull(cx, obj, callable, &ok);             \
-      if (!ok) {                                                             \
-        return NS_ERROR_OUT_OF_MEMORY;                                       \
-      }                                                                      \
+      handler = new EventHandlerNonNull(callable);                           \
     }                                                                        \
     ErrorResult rv;                                                          \
     SetOn##name_(handler, rv);                                               \
@@ -2346,7 +2375,7 @@ nsINode::QuerySelectorAll(const nsAString& aSelector, ErrorResult& aResult)
 }
 
 JSObject*
-nsINode::WrapObject(JSContext *aCx, JSObject *aScope)
+nsINode::WrapObject(JSContext *aCx, JS::Handle<JSObject*> aScope)
 {
   MOZ_ASSERT(IsDOMBinding());
 

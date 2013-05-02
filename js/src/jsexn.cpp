@@ -1,6 +1,5 @@
 /* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
- * vim: set ts=8 sw=4 et tw=78:
- *
+ * vim: set ts=8 sts=4 et sw=4 tw=99:
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -8,43 +7,37 @@
 /*
  * JS standard exception implementation.
  */
+#include "jsexn.h"
+
 #include <stdlib.h>
 #include <string.h>
 
+#include "mozilla/PodOperations.h"
 #include "mozilla/Util.h"
 
 #include "jstypes.h"
 #include "jsutil.h"
-#include "jsprf.h"
 #include "jsapi.h"
 #include "jscntxt.h"
 #include "jsversion.h"
-#include "jsexn.h"
 #include "jsfun.h"
-#include "jsgc.h"
-#include "jsinterp.h"
 #include "jsnum.h"
 #include "jsobj.h"
-#include "jsopcode.h"
 #include "jsscript.h"
-#include "jswrapper.h"
 
 #include "gc/Marking.h"
 #include "vm/GlobalObject.h"
-#include "vm/Shape.h"
 #include "vm/StringBuffer.h"
 
-#include "jsinferinlines.h"
 #include "jsobjinlines.h"
-
-#include "vm/Stack-inl.h"
-#include "vm/String-inl.h"
 
 using namespace js;
 using namespace js::gc;
 using namespace js::types;
 
 using mozilla::ArrayLength;
+using mozilla::PodArrayZero;
+using mozilla::PodZero;
 
 /* Forward declarations for ErrorClass's initializer. */
 static JSBool
@@ -65,7 +58,7 @@ Class js::ErrorClass = {
     JSCLASS_HAS_PRIVATE | JSCLASS_IMPLEMENTS_BARRIERS | JSCLASS_NEW_RESOLVE |
     JSCLASS_HAS_CACHED_PROTO(JSProto_Error),
     JS_PropertyStub,         /* addProperty */
-    JS_PropertyStub,         /* delProperty */
+    JS_DeletePropertyStub,   /* delProperty */
     JS_PropertyStub,         /* getProperty */
     JS_StrictPropertyStub,   /* setProperty */
     JS_EnumerateStub,
@@ -763,7 +756,7 @@ exn_toSource(JSContext *cx, unsigned argc, Value *vp)
 }
 #endif
 
-static JSFunctionSpec exception_methods[] = {
+static const JSFunctionSpec exception_methods[] = {
 #if JS_HAS_TOSOURCE
     JS_FN(js_toSource_str,   exn_toSource,           0,0),
 #endif

@@ -8,10 +8,12 @@
 
 #include "AudioSegment.h"
 #include "mozilla/dom/AudioParam.h"
+#include "mozilla/Mutex.h"
 
 namespace mozilla {
 
 namespace dom {
+class AudioNode;
 struct ThreeDPoint;
 }
 
@@ -99,10 +101,12 @@ void AudioBlockAddChannelWithScale(const float aInput[WEBAUDIO_BLOCK_SIZE],
 
 /**
  * Pointwise copy-scaled operation. aScale == 1.0f should be optimized.
+ *
+ * Buffer size is implicitly assumed to be WEBAUDIO_BLOCK_SIZE.
  */
-void AudioBlockCopyChannelWithScale(const float aInput[WEBAUDIO_BLOCK_SIZE],
+void AudioBlockCopyChannelWithScale(const float* aInput,
                                     float aScale,
-                                    float aOutput[WEBAUDIO_BLOCK_SIZE]);
+                                    float* aOutput);
 
 /**
  * Vector copy-scaled operation.
@@ -112,13 +116,52 @@ void AudioBlockCopyChannelWithScale(const float aInput[WEBAUDIO_BLOCK_SIZE],
                                     float aOutput[WEBAUDIO_BLOCK_SIZE]);
 
 /**
+ * In place gain. aScale == 1.0f should be optimized.
+ */
+void AudioBlockInPlaceScale(float aBlock[WEBAUDIO_BLOCK_SIZE],
+                            uint32_t aChannelCount,
+                            float aScale);
+
+/**
+ * Upmix a mono input to a stereo output, scaling the two output channels by two
+ * different gain value.
+ * This algorithm is specified in the WebAudio spec.
+ */
+void
+AudioBlockPanMonoToStereo(const float aInput[WEBAUDIO_BLOCK_SIZE],
+                          float aGainL, float aGainR,
+                          float aOutputL[WEBAUDIO_BLOCK_SIZE],
+                          float aOutputR[WEBAUDIO_BLOCK_SIZE]);
+/**
+ * Pan a stereo source according to right and left gain, and the position
+ * (whether the listener is on the left of the source or not).
+ * This algorithm is specified in the WebAudio spec.
+ */
+void
+AudioBlockPanStereoToStereo(const float aInputL[WEBAUDIO_BLOCK_SIZE],
+                            const float aInputR[WEBAUDIO_BLOCK_SIZE],
+                            float aGainL, float aGainR, bool aIsOnTheLeft,
+                            float aOutputL[WEBAUDIO_BLOCK_SIZE],
+                            float aOutputR[WEBAUDIO_BLOCK_SIZE]);
+
+/**
  * All methods of this class and its subclasses are called on the
  * MediaStreamGraph thread.
  */
 class AudioNodeEngine {
 public:
-  AudioNodeEngine() {}
-  virtual ~AudioNodeEngine() {}
+  explicit AudioNodeEngine(dom::AudioNode* aNode)
+    : mNode(aNode)
+    , mNodeMutex("AudioNodeEngine::mNodeMutex")
+  {
+    MOZ_ASSERT(mNode, "The engine is constructed with a null node");
+    MOZ_COUNT_CTOR(AudioNodeEngine);
+  }
+  virtual ~AudioNodeEngine()
+  {
+    MOZ_ASSERT(!mNode, "The node reference must be already cleared");
+    MOZ_COUNT_DTOR(AudioNodeEngine);
+  }
 
   virtual void SetStreamTimeParameter(uint32_t aIndex, TrackTicks aParam)
   {
@@ -164,6 +207,32 @@ public:
   {
     *aOutput = aInput;
   }
+
+  Mutex& NodeMutex() { return mNodeMutex;}
+
+  dom::AudioNode* Node() const
+  {
+    mNodeMutex.AssertCurrentThreadOwns();
+    return mNode;
+  }
+
+  dom::AudioNode* NodeMainThread() const
+  {
+    MOZ_ASSERT(NS_IsMainThread());
+    return mNode;
+  }
+
+  void ClearNode()
+  {
+    MOZ_ASSERT(NS_IsMainThread());
+    MOZ_ASSERT(mNode != nullptr);
+    mNodeMutex.AssertCurrentThreadOwns();
+    mNode = nullptr;
+  }
+
+private:
+  dom::AudioNode* mNode;
+  Mutex mNodeMutex;
 };
 
 }

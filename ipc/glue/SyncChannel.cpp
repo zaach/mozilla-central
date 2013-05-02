@@ -206,9 +206,9 @@ SyncChannel::OnDispatchMessage(const Message& msg)
     mProcessingSyncMessage = true;
     Result rv;
     if (msg.is_sync())
-        rv = static_cast<SyncListener*>(mListener)->OnMessageReceived(msg, reply);
+        rv = static_cast<SyncListener*>(mListener.get())->OnMessageReceived(msg, reply);
     else
-        rv = static_cast<RPCChannel::RPCListener*>(mListener)->OnCallReceived(msg, reply);
+        rv = static_cast<RPCChannel::RPCListener*>(mListener.get())->OnCallReceived(msg, reply);
     mProcessingSyncMessage = false;
 
     if (!MaybeHandleError(rv, "SyncChannel")) {
@@ -311,7 +311,7 @@ SyncChannel::ShouldContinueFromTimeout()
     bool cont;
     {
         MonitorAutoUnlock unlock(*mMonitor);
-        cont = static_cast<SyncListener*>(mListener)->OnReplyTimeout();
+        cont = static_cast<SyncListener*>(mListener.get())->OnReplyTimeout();
     }
 
     if (!cont) {

@@ -9,13 +9,10 @@
 #include "mozilla/DebugOnly.h"
 #include "mozilla/Likely.h"
 #include "nsIWidget.h"
-#include "nsWidgetsCID.h"
 #include "nsViewManager.h"
 #include "nsIFrame.h"
 #include "nsGUIEvent.h"
-#include "nsIComponentManager.h"
-#include "nsGfxCIID.h"
-#include "nsIInterfaceRequestor.h"
+#include "nsPresArena.h"
 #include "nsXULPopupManager.h"
 #include "nsIWidgetListener.h"
 
@@ -134,7 +131,16 @@ nsView* nsView::GetViewFor(nsIWidget* aWidget)
 
 void nsView::Destroy()
 {
-  delete this;
+  this->~nsView();
+
+  const uintptr_t POISON = nsPresArena::GetPoisonValue();
+  char* p = reinterpret_cast<char*>(this);
+  char* limit = p + sizeof(*this);
+  for (; p < limit; p += sizeof(uintptr_t)) {
+    *reinterpret_cast<uintptr_t*>(p) = POISON;
+  }
+
+  nsView::operator delete(this);
 }
 
 void nsView::SetPosition(nscoord aX, nscoord aY)
@@ -261,7 +267,24 @@ void nsView::DoResetWidgetBounds(bool aMoveOnly,
   // (bug 814434).
   nsRefPtr<nsDeviceContext> dx;
   mViewManager->GetDeviceContext(*getter_AddRefs(dx));
-  double invScale = dx->UnscaledAppUnitsPerDevPixel() / 60.0;
+  double invScale;
+
+  // Bug 861270: for correct widget manipulation at arbitrary scale factors,
+  // prefer to base scaling on mWindow->GetDefaultScale(). But only do this if
+  // it matches the view manager's device context scale after allowing for the
+  // quantization to app units, because of OS X multiscreen issues (where the
+  // only two scales are 1.0 or 2.0, and so the quantization doesn't actually
+  // cause problems anyhow).
+  // In the case of a mismatch, fall back to scaling based on the dev context's
+  // unscaledAppUnitsPerDevPixel value. On platforms where the device-pixel
+  // scale is uniform across all displays (currently all except OS X), we'll
+  // always use the precise value from mWindow->GetDefaultScale here.
+  double scale = mWindow->GetDefaultScale();
+  if (NSToIntRound(60.0 / scale) == dx->UnscaledAppUnitsPerDevPixel()) {
+    invScale = 1.0 / scale;
+  } else {
+    invScale = dx->UnscaledAppUnitsPerDevPixel() / 60.0;
+  }
 
   if (changedPos) {
     if (changedSize && !aMoveOnly) {

@@ -10,7 +10,9 @@ import org.mozilla.gecko.db.BrowserContract.Bookmarks;
 import org.mozilla.gecko.db.BrowserContract.Combined;
 import org.mozilla.gecko.db.BrowserDB;
 import org.mozilla.gecko.db.BrowserDB.URLColumns;
+import org.mozilla.gecko.util.GamepadUtils;
 import org.mozilla.gecko.util.ThreadUtils;
+import org.mozilla.gecko.widget.FaviconView;
 
 import android.app.Activity;
 import android.content.Context;
@@ -25,7 +27,6 @@ import android.view.MenuInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.AdapterView;
-import android.widget.ImageView;
 import android.widget.ListView;
 import android.widget.SimpleCursorAdapter;
 import android.widget.TextView;
@@ -58,7 +59,7 @@ public class BookmarksTab extends AwesomeBarTab {
     @Override
     public View getView() {
         if (mView == null) {
-            mView = (LayoutInflater.from(mContext).inflate(R.layout.awesomebar_list, null));
+            mView = new ListView(mContext, null);
             ((Activity)mContext).registerForContextMenu(mView);
             mView.setTag(TAG);
             mView.setOnTouchListener(mListListener);
@@ -73,6 +74,7 @@ public class BookmarksTab extends AwesomeBarTab {
                     handleItemClick(parent, view, position, id);
                 }
             });
+            list.setOnKeyListener(GamepadUtils.getListItemClickDispatcher());
 
             if (mShowReadingList) {
                 String title = getResources().getString(R.string.bookmarks_folder_reading_list);
@@ -91,14 +93,21 @@ public class BookmarksTab extends AwesomeBarTab {
 
     @Override
     public void destroy() {
-        BookmarksListAdapter adapter = getCursorAdapter();
-        if (adapter == null) {
-            return;
+        // Can't use getters for adapter. It will create one if null.
+        if (mCursorAdapter != null && mView != null) {
+            ListView list = (ListView)mView;
+            list.setAdapter(null);
+            final Cursor cursor = mCursorAdapter.getCursor();
+            // Gingerbread locks the DB when closing a cursor, so do it in the
+            // background.
+            ThreadUtils.postToBackgroundThread(new Runnable() {
+                @Override
+                public void run() {
+                    if (cursor != null && !cursor.isClosed())
+                        cursor.close();
+                }
+            });
         }
-
-        Cursor cursor = adapter.getCursor();
-        if (cursor != null)
-            cursor.close();
     }
 
     @Override
@@ -316,7 +325,7 @@ public class BookmarksTab extends AwesomeBarTab {
 
                 viewHolder = new AwesomeEntryViewHolder();
                 viewHolder.titleView = (TextView) convertView.findViewById(R.id.title);
-                viewHolder.faviconView = (ImageView) convertView.findViewById(R.id.favicon);
+                viewHolder.faviconView = (FaviconView) convertView.findViewById(R.id.favicon);
 
                 if (viewType == VIEW_TYPE_ITEM)
                     viewHolder.urlView = (TextView) convertView.findViewById(R.id.url);

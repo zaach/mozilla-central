@@ -465,17 +465,7 @@ var gPluginHandler = {
     }
 
     if (overlay) {
-      overlay.addEventListener("click", function(aEvent) {
-        // Have to check that the target is not the link to update the plugin
-        if (!(aEvent.originalTarget instanceof HTMLAnchorElement) &&
-            (aEvent.originalTarget.getAttribute('anonid') != 'closeIcon') &&
-            aEvent.button == 0 && aEvent.isTrusted) {
-          gPluginHandler.activateSinglePlugin(aEvent.target.ownerDocument.defaultView.top, aPlugin);
-          aEvent.stopPropagation();
-          aEvent.preventDefault();
-        }
-      }, true);
-
+      overlay.addEventListener("click", gPluginHandler._overlayClickListener, true);
       let closeIcon = doc.getAnonymousElementByAttribute(aPlugin, "anonid", "closeIcon");
       closeIcon.addEventListener("click", function(aEvent) {
         if (aEvent.button == 0 && aEvent.isTrusted)
@@ -484,6 +474,40 @@ var gPluginHandler = {
     }
 
     gPluginHandler._showClickToPlayNotification(browser);
+  },
+
+  _overlayClickListener: {
+    handleEvent: function PH_handleOverlayClick(aEvent) {
+      let plugin = document.getBindingParent(aEvent.target);
+      let contentWindow = plugin.ownerDocument.defaultView.top;
+      // gBrowser.getBrowserForDocument does not exist in the case where we
+      // drag-and-dropped a tab from a window containing only that tab. In
+      // that case, the window gets destroyed.
+      let browser = gBrowser.getBrowserForDocument ?
+                      gBrowser.getBrowserForDocument(contentWindow.document) :
+                      null;
+      // If browser is null here, we've been drag-and-dropped from another
+      // window, and this is the wrong click handler.
+      if (!browser) {
+        aEvent.target.removeEventListener("click", gPluginHandler._overlayClickListener, true);
+        return;
+      }
+      let objLoadingContent = plugin.QueryInterface(Ci.nsIObjectLoadingContent);
+      // Have to check that the target is not the link to update the plugin
+      if (!(aEvent.originalTarget instanceof HTMLAnchorElement) &&
+          (aEvent.originalTarget.getAttribute('anonid') != 'closeIcon') &&
+          aEvent.button == 0 && aEvent.isTrusted) {
+        if (objLoadingContent.pluginFallbackType ==
+              Ci.nsIObjectLoadingContent.PLUGIN_VULNERABLE_UPDATABLE ||
+            objLoadingContent.pluginFallbackType ==
+              Ci.nsIObjectLoadingContent.PLUGIN_VULNERABLE_NO_UPDATE)
+          gPluginHandler._showClickToPlayNotification(browser, true);
+        else
+          gPluginHandler.activateSinglePlugin(contentWindow, plugin);
+        aEvent.stopPropagation();
+        aEvent.preventDefault();
+      }
+    }
   },
 
   _handlePlayPreviewEvent: function PH_handlePlayPreviewEvent(aPlugin) {
@@ -540,8 +564,23 @@ var gPluginHandler = {
 
   reshowClickToPlayNotification: function PH_reshowClickToPlayNotification() {
     let browser = gBrowser.selectedBrowser;
-    if (gPluginHandler._pluginNeedsActivationExceptThese([]))
-      gPluginHandler._showClickToPlayNotification(browser);
+    if (!browser._clickToPlayPluginsActivated)
+      browser._clickToPlayPluginsActivated = new Map();
+    if (!browser._pluginScriptedState)
+      browser._pluginScriptedState = gPluginHandler.PLUGIN_SCRIPTED_STATE_NONE;
+    let contentWindow = browser.contentWindow;
+    let cwu = contentWindow.QueryInterface(Ci.nsIInterfaceRequestor)
+                           .getInterface(Ci.nsIDOMWindowUtils);
+    let doc = contentWindow.document;
+    let plugins = cwu.plugins;
+    for (let plugin of plugins) {
+      let overlay = doc.getAnonymousElementByAttribute(plugin, "class", "mainBox");
+      if (overlay)
+        overlay.removeEventListener("click", gPluginHandler._overlayClickListener, true);
+      let objLoadingContent = plugin.QueryInterface(Ci.nsIObjectLoadingContent);
+      if (gPluginHandler.canActivatePlugin(objLoadingContent))
+        gPluginHandler._handleClickToPlayEvent(plugin);
+    }
   },
 
   // returns true if there is a plugin on this page that needs activation
@@ -648,7 +687,7 @@ var gPluginHandler = {
     }
   },
 
-  _showClickToPlayNotification: function PH_showClickToPlayNotification(aBrowser) {
+  _showClickToPlayNotification: function PH_showClickToPlayNotification(aBrowser, aForceOpenNotification) {
     let contentWindow = aBrowser.contentWindow;
     let messageString = gNavigatorBundle.getString("activatePluginsMessage.message");
     let mainAction = {
@@ -689,7 +728,7 @@ var gPluginHandler = {
     let notification = PopupNotifications.getNotification("click-to-play-plugins", aBrowser);
     let dismissed = notification ? notification.dismissed : true;
     // Always show the doorhanger if the anchor is not available.
-    if (!isElementVisible(gURLBar))
+    if (!isElementVisible(gURLBar) || aForceOpenNotification)
       dismissed = false;
     let options = { dismissed: dismissed, centerActions: centerActions };
     let icon = haveVulnerablePlugin ? "blocked-plugins-notification-icon" : "plugins-notification-icon"

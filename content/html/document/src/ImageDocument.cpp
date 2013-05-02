@@ -88,7 +88,7 @@ public:
   virtual void SetScriptGlobalObject(nsIScriptGlobalObject* aScriptGlobalObject);
   virtual void Destroy();
   virtual void OnPageShow(bool aPersisted,
-                          nsIDOMEventTarget* aDispatchStartTarget);
+                          EventTarget* aDispatchStartTarget);
 
   NS_DECL_NSIIMAGEDOCUMENT
   NS_DECL_IMGINOTIFICATIONOBSERVER
@@ -113,8 +113,8 @@ protected:
   nsresult ScrollImageTo(int32_t aX, int32_t aY, bool restoreImage);
 
   float GetRatio() {
-    return std::min((float)mVisibleWidth / mImageWidth,
-                  (float)mVisibleHeight / mImageHeight);
+    return std::min(mVisibleWidth / mImageWidth,
+                    mVisibleHeight / mImageHeight);
   }
 
   void ResetZoomLevel();
@@ -132,8 +132,8 @@ protected:
 
   nsCOMPtr<nsIContent>          mImageContent;
 
-  int32_t                       mVisibleWidth;
-  int32_t                       mVisibleHeight;
+  float                         mVisibleWidth;
+  float                         mVisibleHeight;
   int32_t                       mImageWidth;
   int32_t                       mImageHeight;
 
@@ -297,7 +297,7 @@ ImageDocument::Destroy()
 {
   if (mImageContent) {
     // Remove our event listener from the image content.
-    nsCOMPtr<nsIDOMEventTarget> target = do_QueryInterface(mImageContent);
+    nsCOMPtr<EventTarget> target = do_QueryInterface(mImageContent);
     target->RemoveEventListener(NS_LITERAL_STRING("click"), this, false);
 
     // Break reference cycle with mImageContent, if we have one
@@ -324,7 +324,7 @@ ImageDocument::SetScriptGlobalObject(nsIScriptGlobalObject* aScriptGlobalObject)
 {
   // If the script global object is changing, we need to unhook our event
   // listeners on the window.
-  nsCOMPtr<nsIDOMEventTarget> target;
+  nsCOMPtr<EventTarget> target;
   if (mScriptGlobalObject &&
       aScriptGlobalObject != mScriptGlobalObject) {
     target = do_QueryInterface(mScriptGlobalObject);
@@ -354,10 +354,12 @@ ImageDocument::SetScriptGlobalObject(nsIScriptGlobalObject* aScriptGlobalObject)
     target->AddEventListener(NS_LITERAL_STRING("resize"), this, false);
     target->AddEventListener(NS_LITERAL_STRING("keypress"), this, false);
 
-    if (!nsContentUtils::IsChildOfSameType(this) &&
-        GetReadyStateEnum() != nsIDocument::READYSTATE_COMPLETE) {
-      LinkStylesheet(NS_LITERAL_STRING("resource://gre/res/TopLevelImageDocument.css"));
-      LinkStylesheet(NS_LITERAL_STRING("chrome://global/skin/media/TopLevelImageDocument.css"));
+    if (GetReadyStateEnum() != nsIDocument::READYSTATE_COMPLETE) {
+      LinkStylesheet(NS_LITERAL_STRING("resource://gre/res/ImageDocument.css"));
+      if (!nsContentUtils::IsChildOfSameType(this)) {
+        LinkStylesheet(NS_LITERAL_STRING("resource://gre/res/TopLevelImageDocument.css"));
+        LinkStylesheet(NS_LITERAL_STRING("chrome://global/skin/media/TopLevelImageDocument.css"));
+      }
     }
     BecomeInteractive();
   }
@@ -365,7 +367,7 @@ ImageDocument::SetScriptGlobalObject(nsIScriptGlobalObject* aScriptGlobalObject)
 
 void
 ImageDocument::OnPageShow(bool aPersisted,
-                          nsIDOMEventTarget* aDispatchStartTarget)
+                          EventTarget* aDispatchStartTarget)
 {
   if (aPersisted) {
     mOriginalZoomLevel =
@@ -650,30 +652,6 @@ ImageDocument::CreateSyntheticDocument()
   nsresult rv = MediaDocument::CreateSyntheticDocument();
   NS_ENSURE_SUCCESS(rv, rv);
 
-  // We must declare the image as a block element. If we stay as
-  // an inline element, our parent LineBox will be inline too and
-  // ignore the available height during reflow.
-  // This is bad during printing, it means tall image frames won't know
-  // the size of the paper and cannot break into continuations along
-  // multiple pages.
-  Element* head = GetHeadElement();
-  NS_ENSURE_TRUE(head, NS_ERROR_FAILURE);
-
-  nsCOMPtr<nsINodeInfo> nodeInfo;
-  if (nsContentUtils::IsChildOfSameType(this)) {
-    nodeInfo = mNodeInfoManager->GetNodeInfo(nsGkAtoms::style, nullptr,
-                                             kNameSpaceID_XHTML,
-                                             nsIDOMNode::ELEMENT_NODE);
-    NS_ENSURE_TRUE(nodeInfo, NS_ERROR_OUT_OF_MEMORY);
-    nsRefPtr<nsGenericHTMLElement> styleContent = NS_NewHTMLStyleElement(nodeInfo.forget());
-    NS_ENSURE_TRUE(styleContent, NS_ERROR_OUT_OF_MEMORY);
-
-    ErrorResult error;
-    styleContent->SetTextContent(NS_LITERAL_STRING("img { display: block; }"),
-                                 error);
-    head->AppendChildTo(styleContent, false);
-  }
-
   // Add the image element
   Element* body = GetBodyElement();
   if (!body) {
@@ -681,10 +659,10 @@ ImageDocument::CreateSyntheticDocument()
     return NS_ERROR_FAILURE;
   }
 
+  nsCOMPtr<nsINodeInfo> nodeInfo;
   nodeInfo = mNodeInfoManager->GetNodeInfo(nsGkAtoms::img, nullptr,
                                            kNameSpaceID_XHTML,
                                            nsIDOMNode::ELEMENT_NODE);
-  NS_ENSURE_TRUE(nodeInfo, NS_ERROR_OUT_OF_MEMORY);
 
   mImageContent = NS_NewHTMLImageElement(nodeInfo.forget());
   if (!mImageContent) {
@@ -730,8 +708,8 @@ ImageDocument::CheckOverflowing(bool changeState)
     nsPresContext *context = shell->GetPresContext();
     nsRect visibleArea = context->GetVisibleArea();
 
-    mVisibleWidth = nsPresContext::AppUnitsToIntCSSPixels(visibleArea.width);
-    mVisibleHeight = nsPresContext::AppUnitsToIntCSSPixels(visibleArea.height);
+    mVisibleWidth = nsPresContext::AppUnitsToFloatCSSPixels(visibleArea.width);
+    mVisibleHeight = nsPresContext::AppUnitsToFloatCSSPixels(visibleArea.height);
   }
 
   bool imageWasOverflowing = mImageIsOverflowing;

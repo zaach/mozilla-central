@@ -11,6 +11,7 @@
 #include "xpcprivate.h"
 #include "jsfriendapi.h"
 
+using namespace JS;
 using namespace mozilla;
 using namespace mozilla::jsipc;
 
@@ -299,7 +300,7 @@ JavaScriptChild::AnswerCallHook(const ObjectId &objId,
 
     MOZ_ASSERT(argv.Length() >= 2);
 
-    jsval objv;
+    RootedValue objv(cx);
     if (!toValue(cx, argv[0], &objv))
         return fail(cx, rs);
 
@@ -322,7 +323,7 @@ JavaScriptChild::AnswerCallHook(const ObjectId &objId,
             if (!vals.append(OBJECT_TO_JSVAL(obj)))
                 return fail(cx, rs);
         } else {
-            jsval v;
+            RootedValue v(cx);
             if (!toValue(cx, argv[i].get_JSVariant(), &v))
                 return fail(cx, rs);
             if (!vals.append(v))
@@ -391,7 +392,7 @@ JavaScriptChild::AnswerInstanceOf(const ObjectId &objId,
     SafeAutoJSContext cx;
     JSAutoRequest request(cx);
 
-    JSObject *obj = objects_.find(objId);
+    RootedObject obj(cx, objects_.find(objId));
     if (!obj)
         return false;
 
@@ -456,3 +457,32 @@ JavaScriptChild::AnswerObjectClassIs(const uint32_t &objId,
     return true;
 }
 
+bool
+JavaScriptChild::AnswerIsExtensible(const uint32_t &objId,
+                                    bool *result)
+{
+    JSObject *obj = objects_.find(objId);
+    if (!obj)
+        return false;
+
+    *result = JS_IsExtensible(obj);
+    return true;
+}
+
+bool
+JavaScriptChild::AnswerPreventExtensions(const uint32_t &objId,
+                                         ReturnStatus *rs)
+{
+    SafeAutoJSContext cx;
+    JSAutoRequest request(cx);
+
+    JS::RootedObject obj(cx, objects_.find(objId));
+    if (!obj)
+        return false;
+
+    JSAutoCompartment comp(cx, obj);
+    if (!JS_PreventExtensions(cx, obj))
+        return fail(cx, rs);
+
+    return ok(rs);
+}

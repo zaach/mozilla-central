@@ -1,8 +1,8 @@
 /* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
- */
-/* This Source Code Form is subject to the terms of the Mozilla Public
- * License, v. 2.0. If a copy of the MPL was not distributed with this file,
- * You can obtain one at http://mozilla.org/MPL/2.0/. */
+ * vim: set ts=8 sts=4 et sw=4 tw=99:
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #ifndef js_heap_api_h___
 #define js_heap_api_h___
@@ -47,6 +47,7 @@ const size_t CellMask = CellSize - 1;
 /* These are magic constants derived from actual offsets in gc/Heap.h. */
 const size_t ChunkMarkBitmapOffset = 1032368;
 const size_t ChunkMarkBitmapBits = 129024;
+const size_t ChunkRuntimeOffset = ChunkSize - sizeof(void*);
 
 /*
  * Live objects are marked black. How many other additional colors are available
@@ -91,6 +92,15 @@ GetGCThingMarkBitmap(const void *thing)
     addr &= ~js::gc::ChunkMask;
     addr |= js::gc::ChunkMarkBitmapOffset;
     return reinterpret_cast<uintptr_t *>(addr);
+}
+
+static JS_ALWAYS_INLINE JS::shadow::Runtime *
+GetGCThingRuntime(const void *thing)
+{
+    uintptr_t addr = uintptr_t(thing);
+    addr &= ~js::gc::ChunkMask;
+    addr |= js::gc::ChunkRuntimeOffset;
+    return *reinterpret_cast<JS::shadow::Runtime **>(addr);
 }
 
 static JS_ALWAYS_INLINE void
@@ -141,8 +151,10 @@ GCThingIsMarkedGray(void *thing)
 }
 
 static JS_ALWAYS_INLINE bool
-IsIncrementalBarrierNeededOnGCThing(void *thing, JSGCTraceKind kind)
+IsIncrementalBarrierNeededOnGCThing(shadow::Runtime *rt, void *thing, JSGCTraceKind kind)
 {
+    if (!rt->needsBarrier_)
+        return false;
     JS::Zone *zone = GetGCThingZone(thing);
     return reinterpret_cast<shadow::Zone *>(zone)->needsBarrier_;
 }

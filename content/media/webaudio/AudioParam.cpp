@@ -20,19 +20,12 @@ NS_IMPL_CYCLE_COLLECTION_UNROOT_NATIVE(AudioParam, Release)
 
 AudioParam::AudioParam(AudioNode* aNode,
                        AudioParam::CallbackType aCallback,
-                       float aDefaultValue,
-                       float aMinValue,
-                       float aMaxValue)
+                       float aDefaultValue)
   : AudioParamTimeline(aDefaultValue)
   , mNode(aNode)
   , mCallback(aCallback)
   , mDefaultValue(aDefaultValue)
-  , mMinValue(aMinValue)
-  , mMaxValue(aMaxValue)
 {
-  MOZ_ASSERT(aDefaultValue >= aMinValue);
-  MOZ_ASSERT(aDefaultValue <= aMaxValue);
-  MOZ_ASSERT(aMinValue < aMaxValue);
   SetIsDOMBinding();
 }
 
@@ -41,7 +34,7 @@ AudioParam::~AudioParam()
 }
 
 JSObject*
-AudioParam::WrapObject(JSContext* aCx, JSObject* aScope)
+AudioParam::WrapObject(JSContext* aCx, JS::Handle<JSObject*> aScope)
 {
   return AudioParamBinding::Wrap(aCx, aScope, this);
 }

@@ -1,6 +1,5 @@
-/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*-
- * vim: set ts=4 sw=4 et tw=99:
- *
+/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
+ * vim: set ts=8 sts=4 et sw=4 tw=99:
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -92,9 +91,15 @@ struct IonOptions
     bool parallelCompilation;
 
     // How many invocations or loop iterations are needed before functions
+    // are compiled with the baseline compiler.
+    //
+    // Default: 10
+    uint32_t baselineUsesBeforeCompile;
+
+    // How many invocations or loop iterations are needed before functions
     // are compiled.
     //
-    // Default: 10,240
+    // Default: 1,000
     uint32_t usesBeforeCompile;
 
     // How many invocations or loop iterations are needed before functions
@@ -108,6 +113,18 @@ struct IonOptions
     //
     // Default: .125
     double usesBeforeInliningFactor;
+
+    // How many times we will try to enter a script via OSR before
+    // invalidating the script.
+    //
+    // Default: 6,000
+    uint32_t osrPcMismatchesBeforeRecompile;
+
+    // Number of bailouts without invalidation before we set
+    // JSScript::hadFrequentBailouts and invalidate.
+    //
+    // Default: 10
+    uint32_t frequentBailoutThreshold;
 
     // How many actual arguments are accepted on the C stack.
     //
@@ -159,18 +176,6 @@ struct IonOptions
     // Default: false
     bool eagerCompilation;
 
-    // If a function has attempted to make this many calls to
-    // functions that are marked "uncompileable", then
-    // stop running this function in IonMonkey. (default 512)
-    uint32_t slowCallLimit;
-
-    // When caller runs in IM, but callee not, we take a slow path to the interpreter.
-    // This has a significant overhead. In order to decrease the number of times this happens,
-    // the useCount gets incremented faster to compile this function in IM and use the fastpath.
-    //
-    // Default: 5
-    uint32_t slowCallIncUseCount;
-
     // How many uses of a parallel kernel before we attempt compilation.
     //
     // Default: 1
@@ -179,6 +184,7 @@ struct IonOptions
     void setEagerCompilation() {
         eagerCompilation = true;
         usesBeforeCompile = usesBeforeCompileNoJaeger = 0;
+        baselineUsesBeforeCompile = 0;
 
         parallelCompilation = false;
     }
@@ -196,9 +202,12 @@ struct IonOptions
         uce(true),
         eaa(true),
         parallelCompilation(false),
-        usesBeforeCompile(10240),
+        baselineUsesBeforeCompile(10),
+        usesBeforeCompile(1000),
         usesBeforeCompileNoJaeger(40),
         usesBeforeInliningFactor(.125),
+        osrPcMismatchesBeforeRecompile(6000),
+        frequentBailoutThreshold(10),
         maxStackArgs(4096),
         maxInlineDepth(3),
         smallFunctionMaxInlineDepth(10),
@@ -207,8 +216,6 @@ struct IonOptions
         inlineMaxTotalBytecodeLength(1000),
         inlineUseCountRatio(128),
         eagerCompilation(false),
-        slowCallLimit(512),
-        slowCallIncUseCount(5),
         usesBeforeCompileParallel(1)
     {
     }
@@ -268,9 +275,13 @@ IonContext *GetIonContext();
 
 bool SetIonContext(IonContext *ctx);
 
+bool CanIonCompileScript(JSContext *cx, HandleScript script, bool osr);
+
 MethodStatus CanEnterAtBranch(JSContext *cx, JSScript *script,
                               AbstractFramePtr fp, jsbytecode *pc, bool isConstructing);
 MethodStatus CanEnter(JSContext *cx, JSScript *script, AbstractFramePtr fp, bool isConstructing);
+MethodStatus CompileFunctionForBaseline(JSContext *cx, HandleScript script, AbstractFramePtr fp,
+                                        bool isConstructing);
 MethodStatus CanEnterUsingFastInvoke(JSContext *cx, HandleScript script, uint32_t numActualArgs);
 
 enum IonExecStatus
@@ -317,9 +328,14 @@ void ToggleBarriers(JS::Zone *zone, bool needs);
 
 class IonBuilder;
 class MIRGenerator;
+class LIRGraph;
 class CodeGenerator;
 
+bool OptimizeMIR(MIRGenerator *mir);
+LIRGraph *GenerateLIR(MIRGenerator *mir);
+CodeGenerator *GenerateCode(MIRGenerator *mir, LIRGraph *lir, MacroAssembler *maybeMasm = NULL);
 CodeGenerator *CompileBackEnd(MIRGenerator *mir, MacroAssembler *maybeMasm = NULL);
+
 void AttachFinishedCompilations(JSContext *cx);
 void FinishOffThreadBuilder(IonBuilder *builder);
 
@@ -333,7 +349,7 @@ void ForbidCompilation(JSContext *cx, RawScript script, ExecutionMode mode);
 uint32_t UsesBeforeIonRecompile(RawScript script, jsbytecode *pc);
 
 void PurgeCaches(RawScript script, JS::Zone *zone);
-size_t MemoryUsed(RawScript script, JSMallocSizeOfFun mallocSizeOf);
+size_t SizeOfIonData(RawScript script, JSMallocSizeOfFun mallocSizeOf);
 void DestroyIonScripts(FreeOp *fop, RawScript script);
 void TraceIonScripts(JSTracer* trc, RawScript script);
 

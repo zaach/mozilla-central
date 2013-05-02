@@ -320,7 +320,7 @@
         <getter>
         <![CDATA[
           if (!this._webNavigation)
-            this._webBrowserFind = this.docShell.QueryInterface(Components.interfaces.nsIInterfaceRequestor).getInterface(Components.interfaces.nsIWebBrowserFind);
+            this._webNavigation = this.isRemoteBrowser ? this._remoteWebNavigation : this.docShell.QueryInterface(Components.interfaces.nsIWebNavigation);
           return this._webNavigation;
         ]]>
         </getter>
@@ -407,6 +407,10 @@
 
       <property name="contentTitle"
                 onget="return this.contentDocument.title;"
+                readonly="true"/>
+
+      <property name="characterSet"
+                onget="return this.contentDocument.characterSet;"
                 readonly="true"/>
 
       <property name="contentPrincipal"
@@ -619,7 +623,7 @@
           <![CDATA[
             // Bug 666809 - SecurityUI support for e10s
             if (!this.docShell)
-	      return null;
+              return null;
 
             if (!this.docShell.securityUI) {
               const SECUREBROWSERUI_CONTRACTID = "@mozilla.org/secure_browser_ui;1";

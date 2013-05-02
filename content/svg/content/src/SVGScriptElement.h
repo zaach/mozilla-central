@@ -10,8 +10,9 @@
 #include "nsSVGElement.h"
 #include "nsCOMPtr.h"
 #include "nsSVGString.h"
-#include "nsIDocument.h"
 #include "nsScriptElement.h"
+
+class nsIDocument;
 
 nsresult NS_NewSVGScriptElement(nsIContent **aResult,
                                 already_AddRefed<nsINodeInfo> aNodeInfo,
@@ -23,7 +24,6 @@ namespace dom {
 typedef nsSVGElement SVGScriptElementBase;
 
 class SVGScriptElement MOZ_FINAL : public SVGScriptElementBase,
-                                   public nsIDOMSVGElement,
                                    public nsScriptElement
 {
 protected:
@@ -33,18 +33,13 @@ protected:
   SVGScriptElement(already_AddRefed<nsINodeInfo> aNodeInfo,
                    FromParser aFromParser);
 
-  virtual JSObject* WrapNode(JSContext *aCx, JSObject *aScope) MOZ_OVERRIDE;
+  virtual JSObject* WrapNode(JSContext *aCx,
+                             JS::Handle<JSObject*> aScope) MOZ_OVERRIDE;
 
 public:
   // interfaces:
 
   NS_DECL_ISUPPORTS_INHERITED
-
-  // xxx If xpcom allowed virtual inheritance we wouldn't need to
-  // forward here :-(
-  NS_FORWARD_NSIDOMNODE_TO_NSINODE
-  NS_FORWARD_NSIDOMELEMENT_TO_GENERIC
-  NS_FORWARD_NSIDOMSVGELEMENT(SVGScriptElementBase::)
 
   // nsIScriptElement
   virtual void GetScriptType(nsAString& type);
@@ -68,8 +63,6 @@ public:
                               nsAttrValue& aResult);
 
   virtual nsresult Clone(nsINodeInfo *aNodeInfo, nsINode **aResult) const;
-
-  virtual nsIDOMNode* AsDOMNode() { return this; }
 
   // WebIDL
   void GetType(nsAString & aType);

@@ -20,7 +20,7 @@ function RemoteWebProgressRequest(spec)
 RemoteWebProgressRequest.prototype = {
   QueryInterface : XPCOMUtils.generateQI([Ci.nsIChannel]),
 
-  get URI() { return this.uri; }
+  get URI() { return this.uri.clone(); }
 };
 
 function RemoteWebProgress(browser)

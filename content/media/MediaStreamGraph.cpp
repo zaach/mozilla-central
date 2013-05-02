@@ -925,7 +925,7 @@ MediaStreamGraphImpl::ProduceDataForStreamsBlockByBlock(uint32_t aStreamIndex,
   while (t < aTo) {
     GraphTime next = RoundUpToAudioBlock(t + 1);
     for (uint32_t i = aStreamIndex; i < mStreams.Length(); ++i) {
-      ProcessedMediaStream* ps = mStreams[i]->AsProcessedStream();
+      nsRefPtr<ProcessedMediaStream> ps = mStreams[i]->AsProcessedStream();
       if (ps) {
         ps->ProduceOutput(t, next);
       }
@@ -1748,6 +1748,7 @@ SourceMediaStream::AdvanceKnownTracksTime(StreamTime aKnownTime)
 void
 SourceMediaStream::FinishWithLockHeld()
 {
+  mMutex.AssertCurrentThreadOwns();
   mUpdateFinished = true;
   if (!mDestroyed) {
     GraphImpl()->EnsureNextIteration();
@@ -1757,12 +1758,10 @@ SourceMediaStream::FinishWithLockHeld()
 void
 SourceMediaStream::EndAllTrackAndFinish()
 {
-  {
-    MutexAutoLock lock(mMutex);
-    for (uint32_t i = 0; i < mUpdateTracks.Length(); ++i) {
-      SourceMediaStream::TrackData* data = &mUpdateTracks[i];
-      data->mCommands |= TRACK_END;
-    }
+  MutexAutoLock lock(mMutex);
+  for (uint32_t i = 0; i < mUpdateTracks.Length(); ++i) {
+    SourceMediaStream::TrackData* data = &mUpdateTracks[i];
+    data->mCommands |= TRACK_END;
   }
   FinishWithLockHeld();
   // we will call NotifyFinished() to let GetUserMedia know
@@ -2013,10 +2012,14 @@ AudioNodeStream*
 MediaStreamGraph::CreateAudioNodeStream(AudioNodeEngine* aEngine,
                                         AudioNodeStreamKind aKind)
 {
+  MOZ_ASSERT(NS_IsMainThread());
   AudioNodeStream* stream = new AudioNodeStream(aEngine, aKind);
   NS_ADDREF(stream);
   MediaStreamGraphImpl* graph = static_cast<MediaStreamGraphImpl*>(this);
   stream->SetGraphImpl(graph);
+  stream->SetChannelMixingParametersImpl(aEngine->NodeMainThread()->ChannelCount(),
+                                         aEngine->NodeMainThread()->ChannelCountModeValue(),
+                                         aEngine->NodeMainThread()->ChannelInterpretationValue());
   graph->AppendMessage(new CreateMessage(stream));
   return stream;
 }

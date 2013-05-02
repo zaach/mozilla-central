@@ -14,9 +14,9 @@ namespace IPC {
 
 //Defined in TCPSocketChild.cpp
 extern bool
-DeserializeUint8Array(JSRawObject aObj,
-                      const InfallibleTArray<uint8_t>& aBuffer,
-                      jsval* aVal);
+DeserializeArrayBuffer(JSObject* aObj,
+                       const InfallibleTArray<uint8_t>& aBuffer,
+                       JS::Value* aVal);
 
 }
 
@@ -96,8 +96,8 @@ TCPSocketParent::RecvData(const SendableData& aData)
   nsresult rv;
   switch (aData.type()) {
     case SendableData::TArrayOfuint8_t: {
-      jsval val;
-      IPC::DeserializeUint8Array(mIntermediaryObj, aData.get_ArrayOfuint8_t(), &val);
+      JS::Value val;
+      IPC::DeserializeArrayBuffer(mIntermediaryObj, aData.get_ArrayOfuint8_t(), &val);
       rv = mIntermediary->SendArrayBuffer(val);
       NS_ENSURE_SUCCESS(rv, true);
       break;
@@ -109,7 +109,7 @@ TCPSocketParent::RecvData(const SendableData& aData)
       break;
 
     default:
-      MOZ_NOT_REACHED();
+      MOZ_NOT_REACHED("unexpected SendableData type");
       return false;
   }
   return true;
@@ -149,10 +149,9 @@ TCPSocketParent::SendCallback(const nsAString& aType, const JS::Value& aDataVal,
 
   } else if (aDataVal.isObject()) {
     JSObject* obj = &aDataVal.toObject();
-    if (JS_IsTypedArrayObject(obj)) {
-      NS_ENSURE_TRUE(JS_IsUint8Array(obj), NS_ERROR_FAILURE);
-      uint32_t nbytes = JS_GetTypedArrayByteLength(obj);
-      uint8_t* buffer = JS_GetUint8ArrayData(obj);
+    if (JS_IsArrayBufferObject(obj)) {
+      uint32_t nbytes = JS_GetArrayBufferByteLength(obj);
+      uint8_t* buffer = JS_GetArrayBufferData(obj);
       if (!buffer) {
         FireInteralError(this, __LINE__);
         return NS_ERROR_OUT_OF_MEMORY;
@@ -171,7 +170,7 @@ TCPSocketParent::SendCallback(const nsAString& aType, const JS::Value& aDataVal,
       uint32_t lineNumber = 0;
       uint32_t columnNumber = 0;
 
-      jsval val;
+      JS::Value val;
       if (!JS_GetProperty(aCx, obj, "message", &val)) {
         NS_ERROR("No message property on supposed error object");
       } else if (JSVAL_IS_STRING(val)) {

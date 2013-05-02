@@ -1,6 +1,5 @@
 /* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
- * vim: set ts=8 sw=4 et tw=78:
- *
+ * vim: set ts=8 sts=4 et sw=4 tw=99:
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -8,6 +7,8 @@
 /*
  * JS date methods.
  */
+
+#include "jsdate.h"
 
 #include "mozilla/FloatingPoint.h"
 #include "mozilla/Util.h"
@@ -24,7 +25,6 @@
 #include <ctype.h>
 #include <locale.h>
 #include <math.h>
-#include <stdlib.h>
 #include <string.h>
 
 #include "jstypes.h"
@@ -34,12 +34,10 @@
 #include "jsapi.h"
 #include "jsversion.h"
 #include "jscntxt.h"
-#include "jsdate.h"
 #include "jsinterp.h"
 #include "jsnum.h"
 #include "jsobj.h"
 #include "jsstr.h"
-#include "jslibmath.h"
 
 #include "vm/DateTime.h"
 #include "vm/GlobalObject.h"
@@ -47,10 +45,7 @@
 #include "vm/String.h"
 #include "vm/StringBuffer.h"
 
-#include "jsinferinlines.h"
 #include "jsobjinlines.h"
-
-#include "vm/Stack-inl.h"
 
 using namespace js;
 using namespace js::types;
@@ -59,7 +54,7 @@ using mozilla::ArrayLength;
 
 /*
  * The JS 'Date' object is patterned after the Java 'Date' object.
- * Here is an script:
+ * Here is a script:
  *
  *    today = new Date();
  *
@@ -511,7 +506,7 @@ Class js::DateClass = {
     JSCLASS_HAS_RESERVED_SLOTS(JSObject::DATE_CLASS_RESERVED_SLOTS) |
     JSCLASS_HAS_CACHED_PROTO(JSProto_Date),
     JS_PropertyStub,         /* addProperty */
-    JS_PropertyStub,         /* delProperty */
+    JS_DeletePropertyStub,   /* delProperty */
     JS_PropertyStub,         /* getProperty */
     JS_StrictPropertyStub,   /* setProperty */
     JS_EnumerateStub,
@@ -2584,7 +2579,7 @@ date_toJSON(JSContext *cx, unsigned argc, Value *vp)
     return true;
 }
 
-/* for Date.toLocaleString; interface to PRMJTime date struct.
+/* for Date.toLocaleFormat; interface to PRMJTime date struct.
  */
 static void
 new_explode(double timeval, PRMJTime *split, DateTimeInfo *dtInfo)
@@ -2726,7 +2721,7 @@ date_format(JSContext *cx, double date, formatspec format, MutableHandleValue rv
 }
 
 static bool
-ToLocaleHelper(JSContext *cx, HandleObject obj, const char *format, MutableHandleValue rval)
+ToLocaleFormatHelper(JSContext *cx, HandleObject obj, const char *format, MutableHandleValue rval)
 {
     double utctime = obj->getDateUTCTime().toNumber();
 
@@ -2762,7 +2757,7 @@ ToLocaleHelper(JSContext *cx, HandleObject obj, const char *format, MutableHandl
     }
 
     if (cx->runtime->localeCallbacks && cx->runtime->localeCallbacks->localeToUnicode)
-        return cx->runtime->localeCallbacks->localeToUnicode(cx, buf, rval.address());
+        return cx->runtime->localeCallbacks->localeToUnicode(cx, buf, rval);
 
     RawString str = JS_NewStringCopyZ(cx, buf);
     if (!str)
@@ -2771,6 +2766,7 @@ ToLocaleHelper(JSContext *cx, HandleObject obj, const char *format, MutableHandl
     return true;
 }
 
+#if !ENABLE_INTL_API
 static bool
 ToLocaleStringHelper(JSContext *cx, HandleObject thisObj, MutableHandleValue rval)
 {
@@ -2778,7 +2774,7 @@ ToLocaleStringHelper(JSContext *cx, HandleObject thisObj, MutableHandleValue rva
      * Use '%#c' for windows, because '%c' is backward-compatible and non-y2k
      * with msvc; '%#c' requests that a full year be used in the result string.
      */
-    return ToLocaleHelper(cx, thisObj,
+    return ToLocaleFormatHelper(cx, thisObj,
 #if defined(_WIN32) && !defined(__MWERKS__)
                           "%#c"
 #else
@@ -2823,7 +2819,7 @@ date_toLocaleDateString_impl(JSContext *cx, CallArgs args)
                                    ;
 
     RootedObject thisObj(cx, &args.thisv().toObject());
-    return ToLocaleHelper(cx, thisObj, format, args.rval());
+    return ToLocaleFormatHelper(cx, thisObj, format, args.rval());
 }
 
 static JSBool
@@ -2840,7 +2836,7 @@ date_toLocaleTimeString_impl(JSContext *cx, CallArgs args)
     JS_ASSERT(IsDate(args.thisv()));
 
     RootedObject thisObj(cx, &args.thisv().toObject());
-    return ToLocaleHelper(cx, thisObj, "%X", args.rval());
+    return ToLocaleFormatHelper(cx, thisObj, "%X", args.rval());
 }
 
 static JSBool
@@ -2849,6 +2845,7 @@ date_toLocaleTimeString(JSContext *cx, unsigned argc, Value *vp)
     CallArgs args = CallArgsFromVp(argc, vp);
     return CallNonGenericMethod<IsDate, date_toLocaleTimeString_impl>(cx, args);
 }
+#endif
 
 JS_ALWAYS_INLINE bool
 date_toLocaleFormat_impl(JSContext *cx, CallArgs args)
@@ -2857,8 +2854,19 @@ date_toLocaleFormat_impl(JSContext *cx, CallArgs args)
 
     RootedObject thisObj(cx, &args.thisv().toObject());
 
-    if (args.length() == 0)
-        return ToLocaleStringHelper(cx, thisObj, args.rval());
+    if (args.length() == 0) {
+        /*
+         * Use '%#c' for windows, because '%c' is backward-compatible and non-y2k
+         * with msvc; '%#c' requests that a full year be used in the result string.
+         */
+        return ToLocaleFormatHelper(cx, thisObj,
+#if defined(_WIN32) && !defined(__MWERKS__)
+                              "%#c"
+#else
+                              "%c"
+#endif
+                             , args.rval());
+    }
 
     RootedString fmt(cx, ToString<CanGC>(cx, args[0]));
     if (!fmt)
@@ -2868,7 +2876,7 @@ date_toLocaleFormat_impl(JSContext *cx, CallArgs args)
     if (!fmtbytes)
         return false;
 
-    return ToLocaleHelper(cx, thisObj, fmtbytes.ptr(), args.rval());
+    return ToLocaleFormatHelper(cx, thisObj, fmtbytes.ptr(), args.rval());
 }
 
 static JSBool
@@ -2974,14 +2982,14 @@ date_valueOf(JSContext *cx, unsigned argc, Value *vp)
     return CallNonGenericMethod<IsDate, date_valueOf_impl>(cx, args);
 }
 
-static JSFunctionSpec date_static_methods[] = {
+static const JSFunctionSpec date_static_methods[] = {
     JS_FN("UTC",                 date_UTC,                MAXARGS,0),
     JS_FN("parse",               date_parse,              1,0),
     JS_FN("now",                 date_now,                0,0),
     JS_FS_END
 };
 
-static JSFunctionSpec date_methods[] = {
+static const JSFunctionSpec date_methods[] = {
     JS_FN("getTime",             date_getTime,            0,0),
     JS_FN("getTimezoneOffset",   date_getTimezoneOffset,  0,0),
     JS_FN("getYear",             date_getYear,            0,0),
@@ -3018,10 +3026,16 @@ static JSFunctionSpec date_methods[] = {
     JS_FN("setMilliseconds",     date_setMilliseconds,    1,0),
     JS_FN("setUTCMilliseconds",  date_setUTCMilliseconds, 1,0),
     JS_FN("toUTCString",         date_toGMTString,        0,0),
+    JS_FN("toLocaleFormat",      date_toLocaleFormat,     0,0),
+#if ENABLE_INTL_API
+         {js_toLocaleString_str, {NULL, NULL},            0,0, "Date_toLocaleString"},
+         {"toLocaleDateString",  {NULL, NULL},            0,0, "Date_toLocaleDateString"},
+         {"toLocaleTimeString",  {NULL, NULL},            0,0, "Date_toLocaleTimeString"},
+#else
     JS_FN(js_toLocaleString_str, date_toLocaleString,     0,0),
     JS_FN("toLocaleDateString",  date_toLocaleDateString, 0,0),
     JS_FN("toLocaleTimeString",  date_toLocaleTimeString, 0,0),
-    JS_FN("toLocaleFormat",      date_toLocaleFormat,     0,0),
+#endif
     JS_FN("toDateString",        date_toDateString,       0,0),
     JS_FN("toTimeString",        date_toTimeString,       0,0),
     JS_FN("toISOString",         date_toISOString,        0,0),
@@ -3261,9 +3275,6 @@ static const NativeImpl sReadOnlyDateMethods[] = {
     date_getTimezoneOffset_impl,
     date_toGMTString_impl,
     date_toISOString_impl,
-    date_toLocaleString_impl,
-    date_toLocaleDateString_impl,
-    date_toLocaleTimeString_impl,
     date_toLocaleFormat_impl,
     date_toTimeString_impl,
     date_toDateString_impl,

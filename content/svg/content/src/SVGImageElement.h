@@ -24,7 +24,6 @@ namespace dom {
 class DOMSVGAnimatedPreserveAspectRatio;
 
 class SVGImageElement : public SVGImageElementBase,
-                        public nsIDOMSVGElement,
                         public nsImageLoadingContent
 {
   friend class ::nsSVGImageFrame;
@@ -32,7 +31,8 @@ class SVGImageElement : public SVGImageElementBase,
 protected:
   SVGImageElement(already_AddRefed<nsINodeInfo> aNodeInfo);
   virtual ~SVGImageElement();
-  virtual JSObject* WrapNode(JSContext *aCx, JSObject *aScope) MOZ_OVERRIDE;
+  virtual JSObject* WrapNode(JSContext *aCx,
+                             JS::Handle<JSObject*> aScope) MOZ_OVERRIDE;
   friend nsresult (::NS_NewSVGImageElement(nsIContent **aResult,
                                            already_AddRefed<nsINodeInfo> aNodeInfo));
 
@@ -40,11 +40,6 @@ public:
   // interfaces:
 
   NS_DECL_ISUPPORTS_INHERITED
-
-  // xxx I wish we could use virtual inheritance
-  NS_FORWARD_NSIDOMNODE_TO_NSINODE
-  NS_FORWARD_NSIDOMELEMENT_TO_GENERIC
-  NS_FORWARD_NSIDOMSVGELEMENT(SVGImageElementBase::)
 
   // nsIContent interface
   virtual nsresult AfterSetAttr(int32_t aNamespaceID, nsIAtom* aName,
@@ -71,8 +66,6 @@ public:
   void MaybeLoadSVGImage();
 
   bool IsImageSrcSetDisabled() const;
-
-  virtual nsIDOMNode* AsDOMNode() { return this; }
 
   // WebIDL
   already_AddRefed<SVGAnimatedLength> X();

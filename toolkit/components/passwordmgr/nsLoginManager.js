@@ -298,6 +298,7 @@ LoginManager.prototype = {
 
             switch (event.type) {
                 case "DOMContentLoaded":
+                    event.target.removeEventListener(event.type, this, false);
                     this._pwmgr._fillDocument(event.target);
                     return;
 
@@ -496,6 +497,14 @@ LoginManager.prototype = {
      */
     get uiBusy() {
         return this._storage.uiBusy;
+    },
+
+
+    /*
+     * isLoggedIn
+     */
+    get isLoggedIn() {
+        return this._storage.isLoggedIn;
     },
 
 

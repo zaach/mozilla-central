@@ -141,6 +141,7 @@ OmxDecoder::OmxDecoder(MediaResource *aResource,
   mVideoBuffer(nullptr),
   mAudioBuffer(nullptr),
   mIsVideoSeeking(false),
+  mPaused(false),
   mAudioMetadataRead(false)
 {
 }
@@ -332,7 +333,12 @@ bool OmxDecoder::Init() {
   // To reliably get the channel and sample rate data we need to read from the
   // audio source until we get a INFO_FORMAT_CHANGE status
   if (mAudioSource.get()) {
-    if (mAudioSource->read(&mAudioBuffer) != INFO_FORMAT_CHANGED) {
+    status_t err = mAudioSource->read(&mAudioBuffer);
+    if (err != INFO_FORMAT_CHANGED) {
+      if (err != OK) {
+        NS_WARNING("Couldn't read audio buffer from OMX decoder");
+        return false;
+      }
       sp<MetaData> meta = mAudioSource->getFormat();
       if (!meta->findInt32(kKeyChannelCount, &mAudioChannels) ||
           !meta->findInt32(kKeySampleRate, &mAudioSampleRate)) {
@@ -529,7 +535,14 @@ bool OmxDecoder::ReadVideo(VideoFrame *aFrame, int64_t aTimeUs,
     }
 
     if (descriptor) {
-      aFrame->mGraphicBuffer = new mozilla::layers::VideoGraphicBuffer(this, mVideoBuffer, descriptor);
+      // Change the descriptor's size to video's size. There are cases that
+      // GraphicBuffer's size and actual video size is different.
+      // See Bug 850566.
+      const mozilla::layers::SurfaceDescriptorGralloc& grallocDesc = descriptor->get_SurfaceDescriptorGralloc();
+      mozilla::layers::SurfaceDescriptor newDescriptor = mozilla::layers::SurfaceDescriptorGralloc(grallocDesc.bufferParent(),
+                                                               grallocDesc.bufferChild(), nsIntSize(mVideoWidth, mVideoHeight), grallocDesc.external());
+
+      aFrame->mGraphicBuffer = new mozilla::layers::VideoGraphicBuffer(this, mVideoBuffer, &newDescriptor);
       aFrame->mRotation = mVideoRotation;
       aFrame->mTimeUs = timeUs;
       aFrame->mEndTimeUs = timeUs + durationUs;
@@ -653,4 +666,33 @@ void OmxDecoder::ReleaseAllPendingVideoBuffersLocked()
     buffer->release();
   }
   mPendingVideoBuffers.clear();
+}
+
+nsresult OmxDecoder::Play() {
+  if (!mPaused) {
+    return NS_OK;
+  }
+  if (mVideoSource.get() && mVideoSource->start() != OK) {
+    return NS_ERROR_UNEXPECTED;
+  }
+
+  if (mAudioSource.get()&& mAudioSource->start() != OK) {
+    return NS_ERROR_UNEXPECTED;
+  }
+  mPaused = false;
+  return NS_OK;
+}
+
+void OmxDecoder::Pause() {
+  if (mPaused) {
+    return;
+  }
+  if (mVideoSource.get()) {
+    mVideoSource->pause();
+  }
+
+  if (mAudioSource.get()) {
+    mAudioSource->pause();
+  }
+  mPaused = true;
 }

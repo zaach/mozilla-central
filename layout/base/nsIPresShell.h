@@ -228,7 +228,7 @@ public:
 #ifdef DEBUG
     mPresArenaAllocCount--;
 #endif
-    if (PRESARENA_MUST_FREE_DURING_DESTROY || !mIsDestroying)
+    if (!mIsDestroying)
       mFrameArena.FreeByFrameID(aID, aPtr);
   }
 
@@ -253,7 +253,7 @@ public:
 #ifdef DEBUG
     mPresArenaAllocCount--;
 #endif
-    if (PRESARENA_MUST_FREE_DURING_DESTROY || !mIsDestroying)
+    if (!mIsDestroying)
       mFrameArena.FreeByObjectID(aID, aPtr);
   }
 
@@ -279,7 +279,7 @@ public:
 #ifdef DEBUG
     mPresArenaAllocCount--;
 #endif
-    if (PRESARENA_MUST_FREE_DURING_DESTROY || !mIsDestroying)
+    if (!mIsDestroying)
       mFrameArena.FreeBySize(aSize, aPtr);
   }
 
@@ -1514,12 +1514,5 @@ protected:
   // width will be wrapped. A value of 0 indicates that no limit is enforced.
   nscoord mMaxLineBoxWidth;
 };
-
-/**
- * Create a new empty presentation shell. Upon success, call Init
- * before attempting to use the shell.
- */
-nsresult
-NS_NewPresShell(nsIPresShell** aInstancePtrResult);
 
 #endif /* nsIPresShell_h___ */

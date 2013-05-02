@@ -1,6 +1,5 @@
-/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*-
- * vim: set ts=8 sw=4 et tw=99 ft=cpp:
- *
+/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
+ * vim: set ts=8 sts=4 et sw=4 tw=99:
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -134,7 +133,7 @@ class SPSProfiler
     uint32_t             *size_;
     uint32_t             max_;
     bool                 slowAssertions;
-    bool                 enabled_;
+    uint32_t             enabled_;
 
     const char *allocProfileString(JSContext *cx, RawScript script,
                                    RawFunction function);
@@ -174,6 +173,10 @@ class SPSProfiler
             stack_[*size_ - 1].setPC(pc);
         }
     }
+
+    /* Enter a C++ function. */
+    void enterNative(const char *string, void *sp);
+    void exitNative() { pop(); }
 
 #ifdef JS_METHODJIT
     struct ICInfo
@@ -254,6 +257,10 @@ class SPSProfiler
     /* meant to be used for testing, not recommended to call in normal code */
     size_t stringsCount() { return strings.count(); }
     void stringsReset() { strings.clear(); }
+
+    uint32_t *addressOfEnabled() {
+        return &enabled_;
+    }
 };
 
 /*

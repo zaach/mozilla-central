@@ -7,11 +7,11 @@
 #include "mozilla/FloatingPoint.h"
 
 #include "Key.h"
-#include "nsIStreamBufferAccess.h"
 #include "jsfriendapi.h"
 #include "nsAlgorithm.h"
 #include "nsJSUtils.h"
 #include "xpcpublic.h"
+#include "mozilla/Endian.h"
 #include <algorithm>
 
 USING_INDEXEDDB_NAMESPACE
@@ -392,12 +392,13 @@ Key::EncodeNumber(double aFloat, uint8_t aType)
 
   Float64Union pun;
   pun.d = aFloat;
+  // Note: The subtraction from 0 below is necessary to fix
+  // MSVC build warning C4146 (negating an unsigned value).
   uint64_t number = pun.u & PR_UINT64(0x8000000000000000) ?
-                    -pun.u :
+                    (0 - pun.u) :
                     (pun.u | PR_UINT64(0x8000000000000000));
 
-  number = NS_SWAP64(number);
-  memcpy(buffer, &number, sizeof(number));
+  mozilla::BigEndian::writeUint64(buffer, number);
 }
 
 // static
@@ -411,14 +412,16 @@ Key::DecodeNumber(const unsigned char*& aPos, const unsigned char* aEnd)
 
   uint64_t number = 0;
   memcpy(&number, aPos, std::min<size_t>(sizeof(number), aEnd - aPos));
-  number = NS_SWAP64(number);
+  number = mozilla::NativeEndian::swapFromBigEndian(number);
 
   aPos += sizeof(number);
 
   Float64Union pun;
+  // Note: The subtraction from 0 below is necessary to fix
+  // MSVC build warning C4146 (negating an unsigned value).
   pun.u = number & PR_UINT64(0x8000000000000000) ?
           (number & ~PR_UINT64(0x8000000000000000)) :
-          -number;
+          (0 - number);
 
   return pun.d;
 }

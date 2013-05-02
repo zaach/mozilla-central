@@ -18,10 +18,10 @@ const RIL_MMSSERVICE_CID = Components.ID("{217ddd76-75db-4210-955d-8806cd8d87f9}
 
 const DEBUG = false;
 
-const kMmsSendingObserverTopic           = "mms-sending";
-const kMmsSentObserverTopic              = "mms-sent";
-const kMmsFailedObserverTopic            = "mms-failed";
-const kMmsReceivedObserverTopic          = "mms-received";
+const kSmsSendingObserverTopic           = "sms-sending";
+const kSmsSentObserverTopic              = "sms-sent";
+const kSmsFailedObserverTopic            = "sms-failed";
+const kSmsReceivedObserverTopic          = "sms-received";
 
 const kNetworkInterfaceStateChangedTopic = "network-interface-state-changed";
 const kXpcomShutdownObserverTopic        = "xpcom-shutdown";
@@ -42,6 +42,7 @@ const TIME_TO_RELEASE_MMS_CONNECTION = 30000;
 const PREF_RETRIEVAL_MODE      = 'dom.mms.retrieval_mode';
 const RETRIEVAL_MODE_MANUAL    = "manual";
 const RETRIEVAL_MODE_AUTOMATIC = "automatic";
+const RETRIEVAL_MODE_AUTOMATIC_HOME = "automatic-home";
 const RETRIEVAL_MODE_NEVER     = "never";
 
 
@@ -56,9 +57,29 @@ const DELIVERY_STATUS_SUCCESS = "success";
 const DELIVERY_STATUS_PENDING = "pending";
 const DELIVERY_STATUS_ERROR   = "error";
 
+const PREF_SEND_RETRY_COUNT =
+  Services.prefs.getIntPref("dom.mms.sendRetryCount");
 
-const MAX_RETRY_COUNT = Services.prefs.getIntPref("dom.mms.retrievalRetryCount");
-const DELAY_TIME_TO_RETRY = Services.prefs.getIntPref("dom.mms.retrievalRetryInterval");
+const PREF_SEND_RETRY_INTERVAL =
+  Services.prefs.getIntPref("dom.mms.sendRetryInterval");
+
+const PREF_RETRIEVAL_RETRY_COUNT =
+  Services.prefs.getIntPref("dom.mms.retrievalRetryCount");
+
+const PREF_RETRIEVAL_RETRY_INTERVALS = (function () {
+  let intervals =
+    Services.prefs.getCharPref("dom.mms.retrievalRetryIntervals").split(",");
+  for (let i = 0; i < PREF_RETRIEVAL_RETRY_COUNT; ++i) {
+    intervals[i] = parseInt(intervals[i], 10);
+    // If one of the intervals isn't valid (e.g., 0 or NaN),
+    // assign a 10-minute interval to it as a default.
+    if (!intervals[i]) {
+      intervals[i] = 600000;
+    }
+  }
+  intervals.length = PREF_RETRIEVAL_RETRY_COUNT;
+  return intervals;
+})();
 
 XPCOMUtils.defineLazyServiceGetter(this, "gpps",
                                    "@mozilla.org/network/protocol-proxy-service;1",
@@ -79,6 +100,10 @@ XPCOMUtils.defineLazyServiceGetter(this, "gMobileMessageDatabaseService",
 XPCOMUtils.defineLazyServiceGetter(this, "gMobileMessageService",
                                    "@mozilla.org/mobilemessage/mobilemessageservice;1",
                                    "nsIMobileMessageService");
+
+XPCOMUtils.defineLazyServiceGetter(this, "gSystemMessenger",
+                                   "@mozilla.org/system-message-internal;1",
+                                   "nsISystemMessagesInternal");
 
 XPCOMUtils.defineLazyGetter(this, "MMS", function () {
   let MMS = {};
@@ -154,6 +179,19 @@ XPCOMUtils.defineLazyGetter(this, "gMmsConnection", function () {
               "available later.");
         this.clearMmsProxySettings();
       }
+      this.connected = gRIL.getDataCallStateByType("mms") ==
+        Ci.nsINetworkInterface.NETWORK_STATE_CONNECTED;
+    },
+
+    /**
+     * Return the roaming status of voice call.
+     *
+     * @return true if voice call is roaming.
+     */
+    isVoiceRoaming: function isVoiceRoaming() {
+      let isRoaming = gRIL.rilContext.voice.roaming;
+      debug("isVoiceRoaming = " + isRoaming);
+      return isRoaming;
     },
 
     /**
@@ -348,8 +386,7 @@ XPCOMUtils.defineLazyGetter(this, "gMmsTransactionHelper", function () {
      *        status, the other for wrapped PDU data for further parsing.
      */
     sendRequest: function sendRequest(method, url, istream, callback) {
-      // TODO: bug 810226 - Support of GPRS bearer for MMS transmission and
-      //                     reception
+      // TODO: bug 810226 - Support GPRS bearer for MMS transmission and reception.
 
       gMmsConnection.acquire((function (method, url, istream, callback,
                                         connected) {
@@ -591,14 +628,14 @@ RetrieveTransaction.prototype = {
     let that = this;
     this.retrieve((function retryCallback(mmsStatus, msg) {
       if (MMS.MMS_PDU_STATUS_DEFERRED == mmsStatus &&
-          that.retryCount < MAX_RETRY_COUNT) {
-        that.retryCount++;
+          that.retryCount < PREF_RETRIEVAL_RETRY_COUNT) {
         let timer = Cc["@mozilla.org/timer;1"].createInstance(Ci.nsITimer);
         timer.initWithCallback((function (){
                                  this.retrieve(retryCallback);
                                }).bind(that),
-                               DELAY_TIME_TO_RETRY,
+                               PREF_RETRIEVAL_RETRY_INTERVALS[that.retryCount],
                                Ci.nsITimer.TYPE_ONE_SHOT);
+        that.retryCount++;
         return;
       }
       if (callback) {
@@ -797,12 +834,12 @@ SendTransaction.prototype = {
     let retryCallback = (function (mmsStatus, msg) {
       if ((MMS.MMS_PDU_ERROR_TRANSIENT_FAILURE == mmsStatus ||
             MMS.MMS_PDU_ERROR_PERMANENT_FAILURE == mmsStatus) &&
-          this.retryCount < MAX_RETRY_COUNT) {
+          this.retryCount < PREF_SEND_RETRY_COUNT) {
         this.retryCount++;
 
         let timer = Cc["@mozilla.org/timer;1"].createInstance(Ci.nsITimer);
         timer.initWithCallback(this.send.bind(this, retryCallback),
-                               DELAY_TIME_TO_RETRY,
+                               PREF_SEND_RETRY_INTERVAL,
                                Ci.nsITimer.TYPE_ONE_SHOT);
         return;
       }
@@ -931,10 +968,11 @@ MmsService.prototype = {
     intermediate.deliveryStatus = [DELIVERY_STATUS_PENDING];
     intermediate.timestamp = Date.now();
     intermediate.sender = null;
+    intermediate.transactionId = intermediate.headers["x-mms-transaction-id"];
     if (intermediate.headers.from) {
       intermediate.sender = intermediate.headers.from.address;
     } else {
-      record.sender = "anonymous";
+      intermediate.sender = "anonymous";
     }
     intermediate.receivers = [];
     return intermediate;
@@ -995,13 +1033,187 @@ MmsService.prototype = {
    *        the other parsed MMS message.
    */
   retrieveMessage: function retrieveMessage(contentLocation, callback) {
-    // TODO: bug 839436 - make DB be able to save MMS messages
     // TODO: bug 810099 - support onretrieving event
-    // TODO: bug 809832 - support customizable max incoming/outgoing message
-    //                     size.
+    // TODO: bug 809832 - support customizable max incoming/outgoing message size.
 
     let transaction = new RetrieveTransaction(contentLocation);
     transaction.run(callback);
+  },
+
+  /**
+   * A helper to broadcast the system message to launch registered apps
+   * like Costcontrol, Notification and Message app... etc.
+   *
+   * @param aName
+   *        The system message name.
+   * @param aDomMessage
+   *        The nsIDOMMozMmsMessage object.
+   */
+  broadcastMmsSystemMessage: function broadcastMmsSystemMessage(aName, aDomMessage) {
+    debug("Broadcasting the MMS system message: " + aName);
+
+    // Sadly we cannot directly broadcast the aDomMessage object
+    // because the system message mechamism will rewrap the object
+    // based on the content window, which needs to know the properties.
+    gSystemMessenger.broadcastMessage(aName, {
+      type:           aDomMessage.type,
+      id:             aDomMessage.id,
+      delivery:       aDomMessage.delivery,
+      deliveryStatus: aDomMessage.deliveryStatus,
+      sender:         aDomMessage.sender,
+      receivers:      aDomMessage.receivers,
+      timestamp:      aDomMessage.timestamp.getTime(),
+      read:           aDomMessage.read,
+      subject:        aDomMessage.subject,
+      smil:           aDomMessage.smil,
+      attachments:    aDomMessage.attachments
+    });
+  },
+
+  /**
+   * A helper function to broadcast the mms sent system message and notify observers.
+   *
+   * @params aDomMessage
+   *         The nsIDOMMozMmsMessage object.
+   */
+  broadcastSentMessageEvent: function broadcastSentMessageEvent(aDomMessage) {
+    // Broadcasting a 'sms-sent' system message to open apps.
+    this.broadcastMmsSystemMessage("sms-sent", aDomMessage);
+
+    // Notifying observers an MMS message is sent.
+    Services.obs.notifyObservers(aDomMessage, kSmsSentObserverTopic, null);
+  },
+
+  /**
+   * A helper function to broadcast the mms received system message and notify observers.
+   *
+   * @params aDomMessage
+   *         The nsIDOMMozMmsMessage object.
+   */
+  broadcastReceivedMessageEvent :function broadcastReceivedMessageEvent(aDomMessage) {
+    // Broadcasting a 'sms-received' system message to open apps.
+    this.broadcastMmsSystemMessage("sms-received", aDomMessage);
+
+    // Notifying observers an MMS message is comming.
+    Services.obs.notifyObservers(aDomMessage, kSmsReceivedObserverTopic, null);
+  },
+
+  /**
+   * Callback for retrieveMessage.
+   */
+  retrieveMessageCallback: function retrieveMessageCallback(wish,
+                                                            savableMessage,
+                                                            mmsStatus,
+                                                            retrievedMessage) {
+    debug("retrievedMessage = " + JSON.stringify(retrievedMessage));
+
+    // The absence of the field does not indicate any default
+    // value. So we go check the same field in the retrieved
+    // message instead.
+    if (wish == null && retrievedMessage) {
+      wish = retrievedMessage.headers["x-mms-delivery-report"];
+    }
+
+    let reportAllowed = this.getReportAllowed(this.confSendDeliveryReport,
+                                              wish);
+    let transactionId = retrievedMessage.headers["x-mms-transaction-id"];
+
+    // If the mmsStatus isn't MMS_PDU_STATUS_RETRIEVED after retrieving,
+    // something must be wrong with MMSC, so stop updating the DB record.
+    // We could send a message to content to notify the user the MMS
+    // retrieving failed. The end user has to retrieve the MMS again.
+    if (MMS.MMS_PDU_STATUS_RETRIEVED !== mmsStatus) {
+      let transaction = new NotifyResponseTransaction(transactionId,
+                                                      mmsStatus,
+                                                      reportAllowed);
+      transaction.run();
+      return;
+    }
+
+    savableMessage = this.mergeRetrievalConfirmation(retrievedMessage,
+                                                     savableMessage);
+
+    gMobileMessageDatabaseService.saveReceivedMessage(savableMessage,
+        (function (rv, domMessage) {
+      let success = Components.isSuccessCode(rv);
+      let transaction =
+        new NotifyResponseTransaction(transactionId,
+                                      success ? MMS.MMS_PDU_STATUS_RETRIEVED
+                                              : MMS.MMS_PDU_STATUS_DEFERRED,
+                                      reportAllowed);
+      transaction.run();
+
+      if (!success) {
+        // At this point we could send a message to content to notify the user
+        // that storing an incoming MMS failed, most likely due to a full disk.
+        // The end user has to retrieve the MMS again.
+        debug("Could not store MMS " + domMessage.id +
+              ", error code " + rv);
+        return;
+      }
+
+      this.broadcastReceivedMessageEvent(domMessage);
+    }).bind(this));
+  },
+
+  /**
+   * Callback for saveReceivedMessage.
+   */
+  saveReceivedMessageCallback: function saveReceivedMessageCallback(savableMessage,
+                                                                    rv,
+                                                                    domMessage) {
+    let success = Components.isSuccessCode(rv);
+    if (!success) {
+      // At this point we could send a message to content to notify the
+      // user that storing an incoming MMS notification indication failed,
+      // ost likely due to a full disk.
+      debug("Could not store MMS " + JSON.stringify(savableMessage) +
+            ", error code " + rv);
+      // Because MMSC will resend the notification indication once we don't
+      // response the notification. Hope the end user will clean some space
+      // for the resent notification indication.
+      return;
+    }
+
+    // For X-Mms-Report-Allowed and X-Mms-Transaction-Id
+    let wish = savableMessage.headers["x-mms-delivery-report"];
+    let transactionId = savableMessage.headers["x-mms-transaction-id"];
+
+    this.broadcastReceivedMessageEvent(domMessage);
+
+    let retrievalMode = RETRIEVAL_MODE_MANUAL;
+    try {
+      retrievalMode = Services.prefs.getCharPref(PREF_RETRIEVAL_MODE);
+    } catch (e) {}
+
+    // In roaming environment, we send notify response only in
+    // automatic retrieval mode.
+    if ((retrievalMode !== RETRIEVAL_MODE_AUTOMATIC) &&
+        gMmsConnection.isVoiceRoaming()) {
+      return;
+    }
+
+    if (RETRIEVAL_MODE_MANUAL === retrievalMode ||
+        RETRIEVAL_MODE_NEVER === retrievalMode) {
+      let mmsStatus = RETRIEVAL_MODE_NEVER === retrievalMode
+                    ? MMS.MMS_PDU_STATUS_REJECTED
+                    : MMS.MMS_PDU_STATUS_DEFERRED;
+
+      // For X-Mms-Report-Allowed
+      let reportAllowed = this.getReportAllowed(this.confSendDeliveryReport,
+                                                wish);
+
+      let transaction = new NotifyResponseTransaction(transactionId,
+                                                      mmsStatus,
+                                                      reportAllowed);
+      transaction.run();
+      return;
+    }
+    let url = savableMessage.headers["x-mms-content-location"].uri;
+
+    // For RETRIEVAL_MODE_AUTOMATIC or RETRIEVAL_MODE_AUTOMATIC_HOME but not
+    // roaming, proceed to retrieve MMS.
+    this.retrieveMessage(url, this.retrieveMessageCallback.bind(this, wish, savableMessage));
   },
 
   /**
@@ -1011,110 +1223,22 @@ MmsService.prototype = {
    *        The parsed MMS message object.
    */
   handleNotificationIndication: function handleNotificationIndication(notification) {
-    // TODO: bug 839436 - make DB be able to save MMS messages
-
-    let url = notification.headers["x-mms-content-location"].uri;
-    // TODO: bug 810091 - don't download message twice on receiving duplicated
-    //                     notification
-
     let transactionId = notification.headers["x-mms-transaction-id"];
-    // For X-Mms-Report-Allowed
-    let wish = notification.headers["x-mms-delivery-report"];
+    gMobileMessageDatabaseService.getMessageRecordByTransactionId(transactionId,
+        (function (aRv, aMessageRecord) {
+      if (Ci.nsIMobileMessageCallback.SUCCESS_NO_ERROR === aRv
+          && aMessageRecord) {
+        debug("We already got the NotificationIndication with transactionId = "
+              + transactionId + " before.");
+        return;
+      }
 
-    let savableMessage = this.convertIntermediateToSavable(notification);
+      let savableMessage = this.convertIntermediateToSavable(notification);
 
-    gMobileMessageDatabaseService.saveReceivedMessage(savableMessage,
-      (function (rv, domMessage) {
-        let success = Components.isSuccessCode(rv);
-        if (!success) {
-          // At this point we could send a message to content to notify the
-          // user that storing an incoming MMS notify indication failed,
-          // ost likely due to a full disk.
-          debug("Could not store MMS " + JSON.stringify(savableMessage) +
-                ", error code " + rv);
-          // Because MMSC will resend the notification indication once we don't
-          // response the notification. Hope the end user will clean some space
-          // for the resended notification indication.
-          return;
-        }
-
-        // Notifing new comming notification indication through notifyObservers.
-        Services.obs.notifyObservers(domMessage, kMmsReceivedObserverTopic, null);
-
-        let retrievalMode = RETRIEVAL_MODE_MANUAL;
-        try {
-          retrievalMode = Services.prefs.getCharPref(PREF_RETRIEVAL_MODE);
-        } catch (e) {}
-
-        if (RETRIEVAL_MODE_AUTOMATIC !== retrievalMode) {
-          let mmsStatus = RETRIEVAL_MODE_NEVER === retrievalMode
-                        ? MMS.MMS_PDU_STATUS_REJECTED
-                        : MMS.MMS_PDU_STATUS_DEFERRED;
-
-          // For X-Mms-Report-Allowed
-          let reportAllowed = this.getReportAllowed(this.confSendDeliveryReport,
-                                                    wish);
-
-          let transaction = new NotifyResponseTransaction(transactionId,
-                                                          mmsStatus,
-                                                          reportAllowed);
-          transaction.run();
-          return;
-        }
-
-        this.retrieveMessage(url, (function responseNotify(mmsStatus,
-                                                           retrievedMessage) {
-          // `The absence of the field does not indicate any default
-          // value.` So we go checking the same field in retrieved
-          // message instead.
-          if ((wish == null) && retrievedMessage) {
-            wish = retrievedMessage.headers["x-mms-delivery-report"];
-          }
-          let reportAllowed = this.getReportAllowed(this.confSendDeliveryReport,
-                                                    wish);
-
-          // Should update the retrievedStatus in databse.
-          debug("retrievedMessage = " + JSON.stringify(retrievedMessage));
-
-          // If the mmsStatus is still MMS_PDU_STATUS_DEFERRED after retry, we
-          // should not store into database.
-          if (MMS.MMS_PDU_STATUS_RETRIEVED !== mmsStatus) {
-            let transaction =
-              new NotifyResponseTransaction(transactionId,
-                                            mmsStatus,
-                                            reportAllowed);
-            transaction.run();
-            return;
-          }
-
-          savableMessage = this.mergeRetrievalConfirmation(retrievedMessage,
-                                                           savableMessage);
-
-          gMobileMessageDatabaseService.saveReceivedMessage(savableMessage,
-            (function (rv, domMessage) {
-              let success = Components.isSuccessCode(rv);
-              if (!success) {
-                // At this point we could send a message to content to
-                // notify the user that storing an incoming MMS failed, most
-                // likely due to a full disk.
-                debug("Could not store MMS " + domMessage.id +
-                      ", error code " + rv);
-
-                let transaction =
-                  new NotifyResponseTransaction(transactionId,
-                                                MMS.MMS_PDU_STATUS_DEFERRED,
-                                                reportAllowed);
-                transaction.run();
-                return;
-              }
-
-              // Notifing new retrieved MMS message through notifyObservers.
-              Services.obs.notifyObservers(domMessage, kMmsReceivedObserverTopic, null);
-            }).bind(this)
-          );
-        }).bind(this));
-      }).bind(this)
-    );
+      gMobileMessageDatabaseService
+        .saveReceivedMessage(savableMessage,
+                             this.saveReceivedMessageCallback.bind(this, savableMessage));
+    }).bind(this));
   },
 
   /**
@@ -1248,13 +1372,15 @@ MmsService.prototype = {
                             aIsSentSuccess ? null : DELIVERY_STATUS_ERROR,
                             function notifySetDeliveryResult(aRv, aDomMessage) {
         debug("Marking the delivery state/staus is done. Notify sent or failed.");
+        // TODO bug 832140 handle !Components.isSuccessCode(aRv)
         if (!aIsSentSuccess) {
           aRequest.notifySendMessageFailed(Ci.nsIMobileMessageCallback.INTERNAL_ERROR);
-          Services.obs.notifyObservers(aDomMessage, kMmsFailedObserverTopic, null);
+          Services.obs.notifyObservers(aDomMessage, kSmsFailedObserverTopic, null);
           return;
         }
+
+        self.broadcastSentMessageEvent(domMessage);
         aRequest.notifyMessageSent(aDomMessage);
-        Services.obs.notifyObservers(aDomMessage, kMmsSentObserverTopic, null);
       });
     };
 
@@ -1263,7 +1389,8 @@ MmsService.prototype = {
       .saveSendingMessage(savableMessage,
                           function notifySendingResult(aRv, aDomMessage) {
       debug("Saving sending message is done. Start to send.");
-      Services.obs.notifyObservers(aDomMessage, kMmsSendingObserverTopic, null);
+      // TODO bug 832140 handle !Components.isSuccessCode(aRv)
+      Services.obs.notifyObservers(aDomMessage, kSmsSendingObserverTopic, null);
       let sendTransaction;
       try {
         sendTransaction = new SendTransaction(savableMessage);
@@ -1278,6 +1405,89 @@ MmsService.prototype = {
         sendTransactionCb(aDomMessage.id, isSentSuccess);
       });
     });
+  },
+
+  retrieve: function retrieve(id, aRequest) {
+    gMobileMessageDatabaseService.getMessageRecordById(id,
+        (function notifyResult(aRv, aMessageRecord) {
+      if (Ci.nsIMobileMessageCallback.SUCCESS_NO_ERROR != aRv) {
+        debug("Function getMessageRecordById() return error.");
+        aRequest.notifyGetMessageFailed(aRv);
+        return;
+      }
+      if ("mms" != aMessageRecord.type) {
+        debug("Type of message record is not mms");
+        aRequest.notifyGetMessageFailed(Ci.nsIMobileMessageCallback.INTERNAL_ERROR);
+        return;
+      }
+      if (!aMessageRecord.headers ||
+          !aMessageRecord.headers["x-mms-content-location"]) {
+        debug("Can't find mms content url in database.");
+        aRequest.notifyGetMessageFailed(Ci.nsIMobileMessageCallback.INTERNAL_ERROR);
+        return;
+      }
+
+      // Cite 6.2 "Multimedia Message Notification" in OMA-TS-MMS_ENC-V1_3-20110913-A:
+      //   The field has only one format, relative. The recipient client calculates this
+      //   length of time relative to the time it receives the notification.
+      let expiriedDate = aMessageRecord.timestamp +
+        aMessageRecord.headers["x-mms-expiry"] * 1000;
+      if (expiriedDate < Date.now()) {
+        aRequest.notifyGetMessageFailed(Ci.nsIMobileMessageCallback.NOT_FOUND_ERROR);
+        debug("This notification indication is expired.");
+        return;
+      }
+
+      let url =  aMessageRecord.headers["x-mms-content-location"].uri;
+      // For X-Mms-Report-Allowed
+      let wish = aMessageRecord.headers["x-mms-delivery-report"];
+      this.retrieveMessage(url, (function responseNotify(mmsStatus, retrievedMsg) {
+        // If the mmsStatus is still MMS_PDU_STATUS_DEFERRED after retry,
+        // we should not store it into database.
+        if (MMS.MMS_PDU_STATUS_RETRIEVED !== mmsStatus) {
+          debug("RetrieveMessage fail after retry.");
+          aRequest.notifyGetMessageFailed(Ci.nsIMobileMessageCallback.INTERNAL_ERROR);
+          return;
+        }
+        // In OMA-TS-MMS_ENC-V1_3, Table 5 in page 25. This header field
+        // (x-mms-transaction-id) SHALL be present when the MMS Proxy relay
+        // seeks an acknowledgement for the MM delivered though M-Retrieve.conf
+        // PDU during deferred retrieval. This transaction ID is used by the MMS
+        // Client and MMS Proxy-Relay to provide linkage between the originated
+        // M-Retrieve.conf and the response M-Acknowledge.ind PDUs.
+        let transactionId = retrievedMsg.headers["x-mms-transaction-id"];
+
+        // The absence of the field does not indicate any default
+        // value. So we go checking the same field in retrieved
+        // message instead.
+        if (wish == null && retrievedMsg) {
+          wish = retrievedMsg.headers["x-mms-delivery-report"];
+        }
+        let reportAllowed = this.getReportAllowed(this.confSendDeliveryReport,
+                                                  wish);
+
+        debug("retrievedMsg = " + JSON.stringify(retrievedMsg));
+        aMessageRecord = this.mergeRetrievalConfirmation(retrievedMsg, aMessageRecord);
+        gMobileMessageDatabaseService.saveReceivedMessage(aMessageRecord,
+                                                          (function (rv, domMessage) {
+          let success = Components.isSuccessCode(rv);
+          if (!success) {
+            // At this point we could send a message to content to
+            // notify the user that storing an incoming MMS failed, most
+            // likely due to a full disk.
+            debug("Could not store MMS " + domMessage.id +
+                  ", error code " + rv);
+            aRequest.notifyGetMessageFailed(Ci.nsIMobileMessageCallback.INTERNAL_ERROR);
+            return;
+          }
+          // Notifying observers a new MMS message is retrieved.
+          aRequest.notifyMessageGot(domMessage);
+          this.broadcastReceivedMessageEvent(domMessage);
+          let transaction = new AcknowledgeTransaction(transactionId, reportAllowed);
+          transaction.run();
+        }).bind(this));
+      }).bind(this));
+    }).bind(this));
   },
 
   // nsIWapPushApplication

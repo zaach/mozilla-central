@@ -34,6 +34,7 @@ namespace mozilla {
 
 namespace layers {
 struct FrameMetrics;
+struct TextureFactoryIdentifier;
 }
 
 namespace layout {
@@ -61,6 +62,20 @@ public:
     virtual ~TabParent();
     nsIDOMElement* GetOwnerElement() { return mFrameElement; }
     void SetOwnerElement(nsIDOMElement* aElement);
+
+    /**
+     * Get the mozapptype attribute from this TabParent's owner DOM element.
+     */
+    void GetAppType(nsAString& aOut);
+
+    /**
+     * Returns true iff this TabParent's nsIFrameLoader is visible.
+     *
+     * The frameloader's visibility can be independent of e.g. its docshell's
+     * visibility.
+     */
+    bool IsVisible();
+
     nsIBrowserDOMWindow *GetBrowserDOMWindow() { return mBrowserDOMWindow; }
     void SetBrowserDOMWindow(nsIBrowserDOMWindow* aBrowserDOMWindow) {
         mBrowserDOMWindow = aBrowserDOMWindow;
@@ -96,8 +111,7 @@ public:
     virtual bool RecvEvent(const RemoteDOMEvent& aEvent);
     virtual bool RecvPRenderFrameConstructor(PRenderFrameParent* actor,
                                              ScrollingBehavior* scrolling,
-                                             LayersBackend* backend,
-                                             int32_t* maxTextureSize,
+                                             TextureFactoryIdentifier* identifier,
                                              uint64_t* layersId);
     virtual bool RecvBrowserFrameOpenWindow(PBrowserParent* aOpener,
                                             const nsString& aURL,
@@ -191,7 +205,7 @@ public:
     virtual POfflineCacheUpdateParent* AllocPOfflineCacheUpdate(
             const URIParams& aManifestURI,
             const URIParams& aDocumentURI,
-            const bool& stickDocument);
+            const bool& stickDocument) MOZ_OVERRIDE;
     virtual bool DeallocPOfflineCacheUpdate(POfflineCacheUpdateParent* actor);
 
     NS_DECL_ISUPPORTS
@@ -253,8 +267,7 @@ protected:
     bool AllowContentIME();
 
     virtual PRenderFrameParent* AllocPRenderFrame(ScrollingBehavior* aScrolling,
-                                                  LayersBackend* aBackend,
-                                                  int32_t* aMaxTextureSize,
+                                                  TextureFactoryIdentifier* aTextureFactoryIdentifier,
                                                   uint64_t* aLayersId) MOZ_OVERRIDE;
     virtual bool DeallocPRenderFrame(PRenderFrameParent* aFrame) MOZ_OVERRIDE;
 

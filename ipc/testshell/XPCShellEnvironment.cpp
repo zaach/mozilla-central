@@ -26,7 +26,6 @@
 #include "nsIChannel.h"
 #include "nsIClassInfo.h"
 #include "nsIDirectoryService.h"
-#include "nsIJSContextStack.h"
 #include "nsIJSRuntimeService.h"
 #include "nsIPrincipal.h"
 #include "nsIScriptSecurityManager.h"
@@ -34,10 +33,13 @@
 #include "nsIXPConnect.h"
 #include "nsIXPCScriptable.h"
 
+#include "nsContentUtils.h"
 #include "nsJSUtils.h"
 #include "nsJSPrincipals.h"
 #include "nsThreadUtils.h"
 #include "nsXULAppAPI.h"
+
+#include "BackstagePass.h"
 
 #include "TestShellChild.h"
 #include "TestShellParent.h"
@@ -490,7 +492,7 @@ DumpHeap(JSContext *cx,
 
 #endif /* DEBUG */
 
-JSFunctionSpec gGlobalFunctions[] =
+const JSFunctionSpec gGlobalFunctions[] =
 {
     JS_FS("print",           Print,          0,0),
     JS_FS("load",            Load,           1,0),
@@ -527,7 +529,8 @@ ProcessFile(JSContext *cx,
             JSBool forceTTY)
 {
     XPCShellEnvironment* env = Environment(cx);
-    XPCShellEnvironment::AutoContextPusher pusher(env);
+    nsCxPusher pusher;
+    pusher.Push(env->GetContext());
 
     JSScript *script;
     JS::Value result;
@@ -880,26 +883,6 @@ XPCShellDirProvider::GetFile(const char *prop,
     return NS_ERROR_FAILURE;
 }
 
-XPCShellEnvironment::
-AutoContextPusher::AutoContextPusher(XPCShellEnvironment* aEnv)
-{
-    NS_ASSERTION(aEnv->mCx, "Null context?!");
-
-    if (NS_SUCCEEDED(aEnv->mCxStack->Push(aEnv->mCx))) {
-        mEnv = aEnv;
-    }
-}
-
-XPCShellEnvironment::
-AutoContextPusher::~AutoContextPusher()
-{
-    if (mEnv) {
-        JSContext* cx;
-        mEnv->mCxStack->Pop(&cx);
-        NS_ASSERTION(cx == mEnv->mCx, "Wrong context on the stack!");
-    }
-}
-
 // static
 XPCShellEnvironment*
 XPCShellEnvironment::CreateEnvironment()
@@ -935,8 +918,6 @@ XPCShellEnvironment::~XPCShellEnvironment()
 
         JSRuntime *rt = JS_GetRuntime(mCx);
         JS_GC(rt);
-
-        mCxStack = nullptr;
 
         if (mJSPrincipals) {
             JS_DropPrincipals(rt, mJSPrincipals);
@@ -1025,25 +1006,19 @@ XPCShellEnvironment::Init()
         fprintf(stderr, "+++ Failed to get ScriptSecurityManager service, running without principals");
     }
 
-    nsCOMPtr<nsIJSContextStack> cxStack =
-        do_GetService("@mozilla.org/js/xpc/ContextStack;1");
-    if (!cxStack) {
-        NS_ERROR("failed to get the nsThreadJSContextStack service!");
-        return false;
-    }
-    mCxStack = cxStack;
+    nsCxPusher pusher;
+    pusher.Push(mCx);
 
-    AutoContextPusher pusher(this);
-
-    nsCOMPtr<nsIXPCScriptable> backstagePass;
-    rv = rtsvc->GetBackstagePass(getter_AddRefs(backstagePass));
+    nsRefPtr<BackstagePass> backstagePass;
+    rv = NS_NewBackstagePass(getter_AddRefs(backstagePass));
     if (NS_FAILED(rv)) {
-        NS_ERROR("Failed to get backstage pass from rtsvc!");
+        NS_ERROR("Failed to create backstage pass!");
         return false;
     }
 
     nsCOMPtr<nsIXPConnectJSObjectHolder> holder;
-    rv = xpc->InitClassesWithNewWrappedGlobal(cx, backstagePass,
+    rv = xpc->InitClassesWithNewWrappedGlobal(cx,
+                                              static_cast<nsIGlobalObject *>(backstagePass),
                                               principal, 0,
                                               JS::SystemZone,
                                               getter_AddRefs(holder));
@@ -1059,6 +1034,7 @@ XPCShellEnvironment::Init()
         return false;
     }
 
+    backstagePass->SetGlobalObject(globalObj);
 
     {
         JSAutoRequest ar(cx);
@@ -1089,7 +1065,8 @@ XPCShellEnvironment::EvaluateString(const nsString& aString,
                                     nsString* aResult)
 {
   XPCShellEnvironment* env = Environment(mCx);
-  XPCShellEnvironment::AutoContextPusher pusher(env);
+  nsCxPusher pusher;
+  pusher.Push(env->GetContext());
 
   JSAutoRequest ar(mCx);
 

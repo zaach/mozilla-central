@@ -478,43 +478,52 @@ NS_SizeOfAtomTablesIncludingThis(nsMallocSizeOfFun aMallocSizeOf) {
 
 #define ATOM_HASHTABLE_INITIAL_SIZE  4096
 
-static inline bool
+static void HandleOOM()
+{
+  fputs("Out of memory allocating atom hashtable.\n", stderr);
+  MOZ_CRASH();
+  MOZ_NOT_REACHED();
+}
+
+static inline void
 EnsureTableExists()
 {
-  if (gAtomTable.ops) {
-    return true;
+  if (!gAtomTable.ops &&
+      !PL_DHashTableInit(&gAtomTable, &AtomTableOps, 0,
+                         sizeof(AtomTableEntry), ATOM_HASHTABLE_INITIAL_SIZE)) {
+    // Initialization failed.
+    HandleOOM();
   }
-  if (PL_DHashTableInit(&gAtomTable, &AtomTableOps, 0,
-                        sizeof(AtomTableEntry), ATOM_HASHTABLE_INITIAL_SIZE)) {
-    return true;
-  }
-  // Initialization failed.
-  gAtomTable.ops = nullptr;
-  return false;
 }
 
 static inline AtomTableEntry*
 GetAtomHashEntry(const char* aString, uint32_t aLength)
 {
   MOZ_ASSERT(NS_IsMainThread(), "wrong thread");
-  if (!EnsureTableExists()) {
-    return nullptr;
-  }
+  EnsureTableExists();
   AtomTableKey key(aString, aLength);
-  return static_cast<AtomTableEntry*>
-                    (PL_DHashTableOperate(&gAtomTable, &key, PL_DHASH_ADD));
+  AtomTableEntry* e =
+    static_cast<AtomTableEntry*>
+               (PL_DHashTableOperate(&gAtomTable, &key, PL_DHASH_ADD));
+  if (!e) {
+    HandleOOM();
+  }
+  return e;
 }
 
 static inline AtomTableEntry*
 GetAtomHashEntry(const PRUnichar* aString, uint32_t aLength)
 {
   MOZ_ASSERT(NS_IsMainThread(), "wrong thread");
-  if (!EnsureTableExists()) {
-    return nullptr;
-  }
+  EnsureTableExists();
   AtomTableKey key(aString, aLength);
-  return static_cast<AtomTableEntry*>
-                    (PL_DHashTableOperate(&gAtomTable, &key, PL_DHASH_ADD));
+  AtomTableEntry* e =
+    static_cast<AtomTableEntry*>
+               (PL_DHashTableOperate(&gAtomTable, &key, PL_DHASH_ADD));
+  if (!e) {
+    HandleOOM();
+  }
+  return e;
 }
 
 class CheckStaticAtomSizes
@@ -607,23 +616,22 @@ RegisterStaticAtoms(const nsStaticAtom* aAtoms, uint32_t aAtomCount)
   return NS_OK;
 }
 
-nsIAtom*
+already_AddRefed<nsIAtom>
 NS_NewAtom(const char* aUTF8String)
 {
   return NS_NewAtom(nsDependentCString(aUTF8String));
 }
 
-nsIAtom*
+already_AddRefed<nsIAtom>
 NS_NewAtom(const nsACString& aUTF8String)
 {
   AtomTableEntry *he = GetAtomHashEntry(aUTF8String.Data(),
                                         aUTF8String.Length());
 
   if (he->mAtom) {
-    nsIAtom* atom;
-    NS_ADDREF(atom = he->mAtom);
+    nsCOMPtr<nsIAtom> atom = he->mAtom;
 
-    return atom;
+    return atom.forget();
   }
 
   // This results in an extra addref/release of the nsStringBuffer.
@@ -631,38 +639,35 @@ NS_NewAtom(const nsACString& aUTF8String)
   // Actually, now there is, sort of: ForgetSharedBuffer.
   nsString str;
   CopyUTF8toUTF16(aUTF8String, str);
-  AtomImpl* atom = new AtomImpl(str, he->keyHash);
+  nsRefPtr<AtomImpl> atom = new AtomImpl(str, he->keyHash);
 
   he->mAtom = atom;
-  NS_ADDREF(atom);
 
-  return atom;
+  return atom.forget();
 }
 
-nsIAtom*
+already_AddRefed<nsIAtom>
 NS_NewAtom(const PRUnichar* aUTF16String)
 {
   return NS_NewAtom(nsDependentString(aUTF16String));
 }
 
-nsIAtom*
+already_AddRefed<nsIAtom>
 NS_NewAtom(const nsAString& aUTF16String)
 {
   AtomTableEntry *he = GetAtomHashEntry(aUTF16String.Data(),
                                         aUTF16String.Length());
 
   if (he->mAtom) {
-    nsIAtom* atom;
-    NS_ADDREF(atom = he->mAtom);
+    nsCOMPtr<nsIAtom> atom = he->mAtom;
 
-    return atom;
+    return atom.forget();
   }
 
-  AtomImpl* atom = new AtomImpl(aUTF16String, he->keyHash);
+  nsRefPtr<AtomImpl> atom = new AtomImpl(aUTF16String, he->keyHash);
   he->mAtom = atom;
-  NS_ADDREF(atom);
 
-  return atom;
+  return atom.forget();
 }
 
 nsIAtom*

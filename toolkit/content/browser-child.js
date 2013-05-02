@@ -176,27 +176,6 @@ let SecurityUI = {
   }
 }
 
-let DOMEvents = {
-  init: function() {
-    addEventListener("DOMTitleChanged", this, false);
-  },
-
-  handleEvent: function (aEvent) {
-    let document = content.document;
-    switch (aEvent.type) {
-    case "DOMTitleChanged":
-      if (!aEvent.isTrusted ||
-          aEvent.target.defaultView != aEvent.target.defaultView.top)
-        return;
-
-      sendAsyncMessage("DOMTitleChanged", { title: document.title });
-      break;
-    }
-  }
-};
-
-DOMEvents.init();
-
 let Content = {
   init: function init() {
     docShell.QueryInterface(Ci.nsIDocShellHistory).useGlobalHistory = true;
@@ -309,3 +288,15 @@ let AddonListeners = {
 };
 
 AddonListeners.init();
+
+addEventListener("DOMTitleChanged", function (aEvent) {
+  let document = content.document;
+  switch (aEvent.type) {
+  case "DOMTitleChanged":
+    if (!aEvent.isTrusted || aEvent.target.defaultView != content)
+      return;
+
+    sendAsyncMessage("DOMTitleChanged", { title: document.title });
+    break;
+  }
+}, false);

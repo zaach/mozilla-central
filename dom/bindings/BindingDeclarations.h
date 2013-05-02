@@ -20,6 +20,7 @@
 #include "nsDOMString.h"
 #include "nsStringBuffer.h"
 #include "nsTArray.h"
+#include "nsAutoPtr.h" // for nsRefPtr member variables
 
 class nsWrapperCache;
 
@@ -34,9 +35,9 @@ struct MainThreadDictionaryBase
 {
 protected:
   JSContext* ParseJSON(const nsAString& aJSON,
-                       mozilla::Maybe<JSAutoRequest>& aAr,
-                       mozilla::Maybe<JSAutoCompartment>& aAc,
-                       JS::Value& aVal);
+                       Maybe<JSAutoRequest>& aAr,
+                       Maybe<JSAutoCompartment>& aAc,
+                       Maybe< JS::Rooted<JS::Value> >& aVal);
 };
 
 struct EnumEntry {
@@ -44,7 +45,7 @@ struct EnumEntry {
   size_t length;
 };
 
-class NS_STACK_CLASS GlobalObject
+class MOZ_STACK_CLASS GlobalObject
 {
 public:
   GlobalObject(JSContext* aCx, JSObject* aObject);
@@ -65,7 +66,7 @@ private:
   nsCOMPtr<nsISupports> mGlobalObjectRef;
 };
 
-class NS_STACK_CLASS WorkerGlobalObject
+class MOZ_STACK_CLASS WorkerGlobalObject
 {
 public:
   WorkerGlobalObject(JSContext* aCx, JSObject* aObject);
@@ -111,7 +112,7 @@ private:
  * empty string.  If HasStringBuffer() returns false, call AsAString() and get
  * the value from that.
  */
-class NS_STACK_CLASS DOMString {
+class MOZ_STACK_CLASS DOMString {
 public:
   DOMString()
     : mStringBuffer(nullptr)
@@ -226,6 +227,11 @@ class Optional
 public:
   Optional()
   {}
+
+  explicit Optional(const T& aValue)
+  {
+    mImpl.construct(aValue);
+  }
 
   bool WasPassed() const
   {
@@ -366,14 +372,21 @@ public:
     return true;
   }
 
-  operator JS::Value()
+  // Note: This operator can be const because we return by value, not
+  // by reference.
+  operator JS::Value() const
   {
     return mValue;
   }
 
-  operator const JS::Value() const
+  JS::Value* operator&()
   {
-    return mValue;
+    return &mValue;
+  }
+
+  const JS::Value* operator&() const
+  {
+    return &mValue;
   }
 
 private:

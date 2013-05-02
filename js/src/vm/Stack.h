@@ -1,6 +1,5 @@
-/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*-
- * vim: set ts=4 sw=4 et tw=79 ft=cpp:
- *
+/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
+ * vim: set ts=8 sts=4 et sw=4 tw=99:
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -213,26 +212,33 @@ enum MaybeCheckAliasing { CHECK_ALIASING = true, DONT_CHECK_ALIASING = false };
 
 /*****************************************************************************/
 
-class BaselineFrame;
+#ifdef DEBUG
+extern void
+CheckLocalUnaliased(MaybeCheckAliasing checkAliasing, JSScript *script,
+                    StaticBlockObject *maybeBlock, unsigned i);
+#endif
+
+namespace ion {
+    class BaselineFrame;
+}
 
 /* Pointer to either a StackFrame or a baseline JIT frame. */
 class AbstractFramePtr
 {
     uintptr_t ptr_;
 
-  protected:
+  public:
     AbstractFramePtr()
       : ptr_(0)
     {}
 
-  public:
     AbstractFramePtr(StackFrame *fp)
         : ptr_(fp ? uintptr_t(fp) | 0x1 : 0)
     {
         JS_ASSERT((uintptr_t(fp) & 1) == 0);
     }
 
-    AbstractFramePtr(BaselineFrame *fp)
+    AbstractFramePtr(ion::BaselineFrame *fp)
       : ptr_(uintptr_t(fp))
     {
         JS_ASSERT((uintptr_t(fp) & 1) == 0);
@@ -246,10 +252,18 @@ class AbstractFramePtr
     bool isStackFrame() const {
         return ptr_ & 0x1;
     }
-
     StackFrame *asStackFrame() const {
         JS_ASSERT(isStackFrame());
         StackFrame *res = (StackFrame *)(ptr_ & ~0x1);
+        JS_ASSERT(res);
+        return res;
+    }
+    bool isBaselineFrame() const {
+        return ptr_ && !isStackFrame();
+    }
+    ion::BaselineFrame *asBaselineFrame() const {
+        JS_ASSERT(isBaselineFrame());
+        ion::BaselineFrame *res = (ion::BaselineFrame *)ptr_;
         JS_ASSERT(res);
         return res;
     }
@@ -265,6 +279,7 @@ class AbstractFramePtr
 
     inline RawObject scopeChain() const;
     inline CallObject &callObj() const;
+    inline bool initFunctionScopeObjects(JSContext *cx);
     inline JSCompartment *compartment() const;
 
     inline StaticBlockObject *maybeBlockChain() const;
@@ -280,7 +295,7 @@ class AbstractFramePtr
     inline RawScript script() const;
     inline JSFunction *fun() const;
     inline JSFunction *maybeFun() const;
-    inline JSFunction &callee() const;
+    inline JSFunction *callee() const;
     inline Value calleev() const;
     inline Value &thisValue() const;
 
@@ -421,6 +436,10 @@ class StackFrame
     void                *hookData_;     /* if HAS_HOOK_DATA, closure returned by call hook */
     FrameRejoinState    rejoin_;        /* for a jit frame rejoining the interpreter
                                          * from JIT code, state at rejoin. */
+#ifdef JS_ION
+    ion::BaselineFrame  *prevBaselineFrame_; /* for an eval/debugger frame, the baseline frame
+                                              * to use as prev. */
+#endif
 
     static void staticAsserts() {
         JS_STATIC_ASSERT(offsetof(StackFrame, rval_) % sizeof(Value) == 0);
@@ -584,6 +603,19 @@ class StackFrame
     StackFrame *prev() const {
         return prev_;
     }
+
+#ifdef JS_ION
+    /*
+     * To handle eval-in-frame with a baseline JIT frame, |prev_| points to the
+     * entry frame and prevBaselineFrame_ to the actual BaselineFrame. This is
+     * done so that StackIter can skip JIT frames pushed on top of the baseline
+     * frame (these frames should not appear in stack traces).
+     */
+    ion::BaselineFrame *prevBaselineFrame() const {
+        JS_ASSERT(isEvalFrame());
+        return prevBaselineFrame_;
+    }
+#endif
 
     inline void resetGeneratorPrev(JSContext *cx);
 
@@ -1046,6 +1078,10 @@ class StackFrame
 
     bool hasCallObj() const {
         JS_ASSERT(isStrictEvalFrame() || fun()->isHeavyweight());
+        return flags_ & HAS_CALL_OBJ;
+    }
+
+    bool hasCallObjUnchecked() const {
         return flags_ & HAS_CALL_OBJ;
     }
 
@@ -1895,7 +1931,9 @@ class StackIter
     void popFrame();
     void popCall();
 #ifdef JS_ION
+    void nextIonFrame();
     void popIonFrame();
+    void popBaselineDebuggerFrame();
 #endif
     void settleOnNewSegment();
     void settleOnNewState();
@@ -1933,7 +1971,9 @@ class StackIter
             return interpFrame()->script();
 #ifdef JS_ION
         JS_ASSERT(data_.state_ == ION);
-        return ionInlineFrames_.script();
+        if (data_.ionFrames_.isOptimizedJS())
+            return ionInlineFrames_.script();
+        return data_.ionFrames_.script();
 #else
         return NULL;
 #endif
@@ -1942,6 +1982,23 @@ class StackIter
         JS_ASSERT(!done());
         return data_.state_ == ION;
     }
+
+    bool isIonOptimizedJS() const {
+#ifdef JS_ION
+        return isIon() && data_.ionFrames_.isOptimizedJS();
+#else
+        return false;
+#endif
+    }
+
+    bool isIonBaselineJS() const {
+#ifdef JS_ION
+        return isIon() && data_.ionFrames_.isBaselineJS();
+#else
+        return false;
+#endif
+    }
+
     bool isNativeCall() const {
         JS_ASSERT(!done());
 #ifdef JS_ION
@@ -2028,13 +2085,17 @@ class ScriptFrameIter : public StackIter
 class NonBuiltinScriptFrameIter : public StackIter
 {
     void settle() {
-        while (!done() && (!isScript() || (isFunctionFrame() && callee()->isSelfHostedBuiltin())))
+        while (!done() && (!isScript() || script()->selfHosted))
             StackIter::operator++();
     }
 
   public:
     NonBuiltinScriptFrameIter(JSContext *cx, StackIter::SavedOption opt = StackIter::STOP_AT_SAVED)
         : StackIter(cx, opt) { settle(); }
+
+    NonBuiltinScriptFrameIter(const StackIter::Data &data)
+      : StackIter(data)
+    {}
 
     NonBuiltinScriptFrameIter &operator++() { StackIter::operator++(); settle(); return *this; }
 };
@@ -2055,6 +2116,13 @@ class AllFramesIter
     AllFramesIter& operator++();
 
     bool isIon() const { return state_ == ION; }
+    bool isIonOptimizedJS() const {
+#ifdef JS_ION
+        return isIon() && ionFrames_.isOptimizedJS();
+#else
+        return false;
+#endif
+    }
     StackFrame *interpFrame() const { JS_ASSERT(state_ == SCRIPTED); return fp_; }
     StackSegment *seg() const { return seg_; }
 
