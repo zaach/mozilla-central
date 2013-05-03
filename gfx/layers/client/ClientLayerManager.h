@@ -70,7 +70,9 @@ public:
 
   void SetTransactionIncomplete() { mTransactionIncomplete = true; }
 
-  bool HasShadowTarget() { return !!mShadowTarget; } 
+  bool HasShadowTarget() { return !!mShadowTarget; }
+
+  void SetShadowTarget(gfxContext *aTarget) { mShadowTarget = aTarget; }
 
   bool CompositorMightResample() { return mCompositorMightResample; } 
   

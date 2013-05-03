@@ -106,6 +106,7 @@ extern "C" {
 #include "gfxUtils.h"
 #include "Layers.h"
 #include "LayerManagerOGL.h"
+#include "ClientLayerManager.h"
 #include "GLContextProvider.h"
 
 #ifdef MOZ_X11
@@ -123,6 +124,8 @@ using namespace mozilla;
 using namespace mozilla::widget;
 using mozilla::gl::GLContext;
 using mozilla::layers::LayerManagerOGL;
+using namespace mozilla::layers;
+using namespace mozilla::gl;
 
 // Don't put more than this many rects in the dirty region, just fluff
 // out to the bounding-box if there are more
@@ -2122,7 +2125,8 @@ nsWindow::OnExposeEvent(cairo_t *cr)
         return TRUE;
     }
     // If this widget uses OMTC...
-    if (GetLayerManager()->AsShadowForwarder() && GetLayerManager()->AsShadowForwarder()->HasShadowManager()) {
+    if (GetLayerManager()->AsShadowForwarder() && GetLayerManager()->AsShadowForwarder()->HasShadowManager() &&
+        Compositor::GetBackend() != LAYERS_BASIC) {
         listener->DidPaintWindow();
 
         g_free(rects);
@@ -2194,8 +2198,14 @@ nsWindow::OnExposeEvent(cairo_t *cr)
 
     bool painted = false;
     {
-      AutoLayerManagerSetup setupLayerManager(this, ctx, layerBuffering);
-      painted = listener->PaintWindow(this, region, 0);
+      if (GetLayerManager()->GetBackendType() == LAYERS_BASIC) {
+        AutoLayerManagerSetup setupLayerManager(this, ctx, layerBuffering);
+        painted = listener->PaintWindow(this, region, 0);
+      } else if (GetLayerManager()->GetBackendType() == LAYERS_CLIENT) {
+        ClientLayerManager *manager = static_cast<ClientLayerManager*>(GetLayerManager());
+        manager->SetShadowTarget(ctx);
+        painted = listener->PaintWindow(this, region, 0);
+      }
     }
 
 #ifdef MOZ_X11
