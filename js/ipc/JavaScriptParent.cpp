@@ -348,7 +348,7 @@ JavaScriptParent::call(JSContext *cx, HandleObject proxy, const CallArgs &args)
 
     RootedValue v(cx);
     for (size_t i = 0; i < args.length() + 2; i++) {
-        v = args.array()[i];
+        v = args.base()[i];
         if (v.isObject()) {
             JSObject *obj = JSVAL_TO_OBJECT(v);
             if (xpc_IsOutObject(cx, obj)) {
@@ -454,7 +454,8 @@ JSObject *
 JavaScriptParent::unwrap(JSContext *cx, ObjectId objId)
 {
     if (JSObject *obj = objects_.find(objId)) {
-        JS_ASSERT(GetObjectCompartment(obj) == GetContextCompartment(cx));
+        if (!JS_WrapObject(cx, &obj))
+            return NULL;
         return obj;
     }
 
