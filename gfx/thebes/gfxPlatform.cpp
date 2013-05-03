@@ -300,10 +300,6 @@ gfxPlatform::Init()
     bool useOffMainThreadCompositing = false;
     useOffMainThreadCompositing = GetPrefLayersOffMainThreadCompositionEnabled() ||
         Preferences::GetBool("browser.tabs.remote", false);
-#ifdef MOZ_X11
-    useOffMainThreadCompositing &= (PR_GetEnv("MOZ_USE_OMTC") != NULL) ||
-                                   (PR_GetEnv("MOZ_OMTC_ENABLED") != NULL);
-#endif
 
     if (useOffMainThreadCompositing && (XRE_GetProcessType() ==
                                         GeckoProcessType_Default)) {
@@ -1778,8 +1774,7 @@ void InitLayersAccelerationPrefs()
   {
     sPrefLayersOffMainThreadCompositionEnabled = Preferences::GetBool("layers.offmainthreadcomposition.enabled", false);
     sPrefLayersOffMainThreadCompositionTestingEnabled = Preferences::GetBool("layers.offmainthreadcomposition.testing.enabled", false);
-    sPrefLayersAccelerationForceEnabled = Preferences::GetBool("layers.acceleration.force-enabled", false) ||
-                                          Preferences::GetBool("browser.tabs.remote", false);
+    sPrefLayersAccelerationForceEnabled = Preferences::GetBool("layers.acceleration.force-enabled", false);
     sPrefLayersAccelerationDisabled = Preferences::GetBool("layers.acceleration.disabled", false);
     sPrefLayersPreferOpenGL = Preferences::GetBool("layers.prefer-opengl", false);
     sPrefLayersPreferD3D9 = Preferences::GetBool("layers.prefer-d3d9", false);

@@ -911,7 +911,7 @@ pref("dom.ipc.plugins.enabled.x86_64", true);
 pref("dom.ipc.plugins.enabled", true);
 #endif
 
-pref("browser.tabs.remote", false);
+pref("browser.tabs.remote", true);
 pref("dom.ipc.processCount", 10);
 
 // This pref governs whether we attempt to work around problems caused by

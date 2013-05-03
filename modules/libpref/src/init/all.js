@@ -3955,6 +3955,7 @@ pref("network.tcp.sendbuffer", 131072);
 pref("layers.async-video.enabled",false);
 
 // Whether to disable acceleration for all widgets.
+pref("layers.acceleration.disabled", false);
 
 // Whether to force acceleration on, ignoring blacklists.
 #ifdef ANDROID
