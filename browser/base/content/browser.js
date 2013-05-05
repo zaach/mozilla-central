@@ -4038,26 +4038,11 @@ var XULBrowserWindow = {
         gURLBar.removeAttribute("level");
     }
 
-    if (gMultiProcessBrowser)
-      return;
-
-    // Don't pass in the actual location object, since it can cause us to
-    // hold on to the window object too long.  Just pass in the fields we
-    // care about. (bug 424829)
-    var location = gBrowser.currentURI;
-    var locationObj = {};
+    let uri = gBrowser.currentURI;
     try {
-      // about:blank can be used by webpages so pretend it is http
-      locationObj.protocol = location.spec == "about:blank" ? "http:" : location.scheme + ":";
-      locationObj.host = location.hostPort;
-      locationObj.hostname = location.host;
-      locationObj.port = location.port;
-    } catch (ex) {
-      // Can sometimes throw if the URL being visited has no host/hostname,
-      // e.g. about:blank. The _state for these pages means we won't need these
-      // properties anyways, though.
-    }
-    gIdentityHandler.checkIdentity(this._state, locationObj);
+      uri = Services.uriFixup.createExposableURI(uri);
+    } catch (e) {}
+    gIdentityHandler.checkIdentity(this._state, uri);
   },
 
   // simulate all change notifications after switching tabs
@@ -6434,8 +6419,7 @@ var gIdentityHandler = {
    * be called by onSecurityChange
    *
    * @param PRUint32 state
-   * @param JS Object location that mirrors an nsLocation (i.e. has .host and
-   *                           .hostname and .port)
+   * @param nsIURI location
    */
   checkIdentity : function(state, location) {
     var currentStatus = gBrowser.securityUI
@@ -6445,7 +6429,7 @@ var gIdentityHandler = {
     this._lastLocation = location;
 
     let nsIWebProgressListener = Ci.nsIWebProgressListener;
-    if (location.protocol == "chrome:" || location.protocol == "about:") {
+    if (location.scheme == "chrome" || location.scheme == "about") {
       this.setMode(this.IDENTITY_MODE_CHROMEUI);
     } else if (state & nsIWebProgressListener.STATE_IDENTITY_EV_TOPLEVEL) {
       this.setMode(this.IDENTITY_MODE_IDENTIFIED);
@@ -6514,12 +6498,12 @@ var gIdentityHandler = {
                          .getService(Ci.nsIIDNService);
     try {
       let baseDomain =
-        Services.eTLD.getBaseDomainFromHost(this._lastLocation.hostname);
+        Services.eTLD.getBaseDomainFromHost(this._lastLocation.host);
       return this._IDNService.convertToDisplayIDN(baseDomain, {});
     } catch (e) {
       // If something goes wrong (e.g. hostname is an IP address) just fail back
       // to the full domain.
-      return this._lastLocation.hostname;
+      return this._lastLocation.host;
     }
   },
 
@@ -6573,8 +6557,8 @@ var gIdentityHandler = {
       // hasMatchingOverride does not handle that, so avoid calling it.
       // Updating the tooltip value in those cases isn't critical.
       // FIXME: Fixing bug 646690 would probably makes this check unnecessary
-      if (this._lastLocation.hostname &&
-          this._overrideService.hasMatchingOverride(this._lastLocation.hostname,
+      if (this._lastLocation.host &&
+          this._overrideService.hasMatchingOverride(this._lastLocation.host,
                                                     (this._lastLocation.port || 443),
                                                     iData.cert, {}, {}))
         tooltip = gNavigatorBundle.getString("identity.identified.verified_by_you");
