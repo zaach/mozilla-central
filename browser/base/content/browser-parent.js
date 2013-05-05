@@ -95,7 +95,7 @@ function SSLStatusProvider(browser)
 }
 
 SSLStatusProvider.prototype = {
-  QueryInterface : XPCOMUtils.generateQI([Ci.nsISSLStatusProvider]),
+  QueryInterface: XPCOMUtils.generateQI([Ci.nsISSLStatusProvider, Ci.nsISecureBrowserUI]),
 
   get state() { return this._state; },
   get SSLStatus() { return this._SSLStatus; },

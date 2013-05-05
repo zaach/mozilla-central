@@ -110,7 +110,7 @@ RemoteWebProgress.prototype = {
     case "Content:SecurityChange":
       let state = aMessage.json.state;
       let status = aMessage.json.status;
-      this._browser.securityUI._update(state, status);
+      this._browser._securityUI._update(state, status);
 
       // The securityUI fixes the state, so we need to use that.
       for each (let p in this._progressListeners) {

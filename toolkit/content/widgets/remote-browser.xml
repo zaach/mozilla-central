@@ -31,10 +31,12 @@
       <property name="securityUI"
                 readonly="true">
         <getter><![CDATA[
-          if (this._securityUI)
-            return this._securityUI;
-          this._securityUI = new SSLStatusProvider(this);
-          return this._securityUI;
+          if (!this._securityUI)
+            this._securityUI = new SSLStatusProvider(this);
+
+          var ptr = Cc["@mozilla.org/supports-interface-pointer;1"].createInstance(Ci.nsISupportsInterfacePointer);
+          ptr.data = this._securityUI;
+          return ptr.data;
         ]]></getter>
       </property>
 
