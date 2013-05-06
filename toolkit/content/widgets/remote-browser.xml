@@ -36,7 +36,7 @@
 
           var ptr = Cc["@mozilla.org/supports-interface-pointer;1"].createInstance(Ci.nsISupportsInterfacePointer);
           ptr.data = this._securityUI;
-          return ptr.data;
+          return ptr.data.QueryInterface(Ci.nsISecureBrowserUI);
         ]]></getter>
       </property>
 

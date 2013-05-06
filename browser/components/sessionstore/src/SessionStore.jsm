@@ -515,6 +515,9 @@ let SessionStoreInternal = {
   },
 
   _initWindow: function ssi_initWindow(aWindow) {
+    if (this._disabledForMultiProcess)
+      return;
+
     if (!aWindow || this._loadState == STATE_RUNNING) {
       // make sure that all browser windows which try to initialize
       // SessionStore are really tracked by it

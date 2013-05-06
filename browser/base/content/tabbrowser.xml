@@ -2721,7 +2721,6 @@
 
       <constructor>
         <![CDATA[
-          dump("TABBROWSER CTOR\n");
           let browserStack = document.getAnonymousElementByAttribute(this, "anonid", "browserStack");
           this.mCurrentBrowser = document.getAnonymousElementByAttribute(this, "anonid", "initialBrowser");
           if (Services.prefs.getBoolPref("browser.tabs.remote")) {
