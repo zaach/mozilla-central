@@ -9,7 +9,7 @@ interface nsIDocShell;
 interface nsIBoxObject;
 interface nsIJavaScriptParent;
 
-[scriptable, uuid(35d4c04b-3bd3-4375-92e2-a818b4b4acb6)]
+[scriptable, uuid(deaec570-b679-11e2-9e96-0800200c9a66)]
 interface nsIContainerBoxObject : nsISupports
 {
   readonly attribute nsIDocShell docShell;
