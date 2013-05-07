@@ -76,4 +76,7 @@ interface nsIDOMJSWindow : nsISupports
    * This property is "replaceable" in JavaScript.
    */
   readonly attribute nsIDOMWindow             frames;
+
+  [implicit_jscontext, binaryname(ScriptableContent)]
+  readonly attribute jsval                    content;
 };

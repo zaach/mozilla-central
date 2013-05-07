@@ -353,7 +353,7 @@ interface nsIDOMWindow : nsISupports
   void                      sizeToContent();
 
   /* [replaceable] content */
-  readonly attribute nsIDOMWindow                       content;
+  [noscript] readonly attribute nsIDOMWindow            content;
 
   /* [replaceable] prompter */
   [noscript] readonly attribute nsIPrompt               prompter;

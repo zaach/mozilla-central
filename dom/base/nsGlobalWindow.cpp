@@ -3559,6 +3559,31 @@ nsGlobalWindow::GetContent(nsIDOMWindow** aContent)
   return NS_OK;
 }
 
+NS_IMETHODIMP
+nsGlobalWindow::GetScriptableContent(JSContext* aCx, JS::Value* aVal)
+{
+  nsIDOMWindow *content;
+  nsresult rv = GetContent(&content);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  if (content || !nsContentUtils::IsCallerChrome() || !IsChromeWindow()) {
+    JSObject* global = JS_GetGlobalForScopeChain(aCx);
+    return nsContentUtils::WrapNative(aCx, global, content, aVal);
+  }
+
+  // Somebody called window.content on a ChromeWindow, try to fetch the CPOW.
+  {
+    JSAutoCompartment ac(aCx, mJSObject);
+    if (!JS_CallFunctionName(aCx, mJSObject, "getBrowser", 0, NULL, aVal) || !aVal->isObject())
+      return NS_ERROR_FAILURE;
+  }
+
+  JSAutoCompartment ac(aCx, &aVal->toObject());
+  if (!JS_GetProperty(aCx, &aVal->toObject(), "contentWindow", aVal))
+    return NS_ERROR_FAILURE;
+  return NS_OK;
+}
+
 
 NS_IMETHODIMP
 nsGlobalWindow::GetPrompter(nsIPrompt** aPrompt)
