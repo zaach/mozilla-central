@@ -87,6 +87,7 @@
 #include "jsapi.h"
 #include "mozilla/dom/HTMLIFrameElement.h"
 #include "nsSandboxFlags.h"
+#include "JavaScriptParent.h"
 
 #include "mozilla/dom/StructuredCloneUtils.h"
 
@@ -2214,15 +2215,26 @@ nsFrameLoader::DoLoadFrameScript(const nsAString& aURL)
 class nsAsyncMessageToChild : public nsRunnable
 {
 public:
-  nsAsyncMessageToChild(nsFrameLoader* aFrameLoader,
+  nsAsyncMessageToChild(JSContext* aCx,
+                        nsFrameLoader* aFrameLoader,
                         const nsAString& aMessage,
-                        const StructuredCloneData& aData)
-    : mFrameLoader(aFrameLoader), mMessage(aMessage)
+                        const StructuredCloneData& aData,
+                        JSObject* aCpows)
+    : mRuntime(js::GetRuntime(aCx)), mFrameLoader(aFrameLoader), mMessage(aMessage), mCpows(aCpows)
   {
     if (aData.mDataLength && !mData.copy(aData.mData, aData.mDataLength)) {
       NS_RUNTIMEABORT("OOM");
     }
+    if (mCpows && !js_AddObjectRoot(mRuntime, &aCpows)) {
+      NS_RUNTIMEABORT("OOM");
+    }
     mClosure = aData.mClosure;
+  }
+
+  ~nsAsyncMessageToChild()
+  {
+    if (mCpows)
+      js_RemoveObjectRoot(mRuntime, &mCpows);
   }
 
   NS_IMETHOD Run()
@@ -2237,21 +2249,27 @@ public:
       data.mDataLength = mData.nbytes();
       data.mClosure = mClosure;
 
+      SameProcessCpowHolder cpows(mCpows);
+
       nsRefPtr<nsFrameMessageManager> mm = tabChild->GetInnerManager();
       mm->ReceiveMessage(static_cast<EventTarget*>(tabChild), mMessage,
-                         false, &data, nullptr, nullptr, nullptr);
+                         false, &data, &cpows, nullptr, nullptr);
     }
     return NS_OK;
   }
+  JSRuntime* mRuntime;
   nsRefPtr<nsFrameLoader> mFrameLoader;
   nsString mMessage;
   JSAutoStructuredCloneBuffer mData;
   StructuredCloneClosure mClosure;
+  JSObject* mCpows;
 };
 
 bool
-nsFrameLoader::DoSendAsyncMessage(const nsAString& aMessage,
-                                  const StructuredCloneData& aData)
+nsFrameLoader::DoSendAsyncMessage(JSContext* aCx,
+                                  const nsAString& aMessage,
+                                  const StructuredCloneData& aData,
+                                  JSObject* aCpows)
 {
   PBrowserParent* tabParent = GetRemoteBrowser();
   if (tabParent) {
@@ -2260,11 +2278,15 @@ nsFrameLoader::DoSendAsyncMessage(const nsAString& aMessage,
     if (!BuildClonedMessageDataForParent(cp, aData, data)) {
       return false;
     }
-    return tabParent->SendAsyncMessage(nsString(aMessage), data);
+    InfallibleTArray<mozilla::jsipc::CpowEntry> cpows;
+    if (!cp->GetJavaScript()->Wrap(aCx, aCpows, &cpows)) {
+      return false;
+    }
+    return tabParent->SendAsyncMessage(nsString(aMessage), data, cpows);
   }
 
   if (mChildMessageManager) {
-    nsRefPtr<nsIRunnable> ev = new nsAsyncMessageToChild(this, aMessage, aData);
+    nsRefPtr<nsIRunnable> ev = new nsAsyncMessageToChild(aCx, this, aMessage, aData, aCpows);
     NS_DispatchToCurrentThread(ev);
     return true;
   }

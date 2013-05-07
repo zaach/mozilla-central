@@ -11,13 +11,33 @@
 #include "jsapi.h"
 #include "jspubtd.h"
 #include "js/HashTable.h"
+#include "mozilla/dom/DOMTypes.h"
 #include "mozilla/jsipc/PJavaScript.h"
 #include "nsJSUtils.h"
+#include "nsFrameMessageManager.h"
 
 namespace mozilla {
 namespace jsipc {
 
 typedef uint32_t ObjectId;
+
+class JavaScriptShared;
+
+class CpowIdHolder : public CpowHolder
+{
+  public:
+    CpowIdHolder(JavaScriptShared *js, const InfallibleTArray<CpowEntry> &cpows)
+      : js_(js),
+        cpows_(cpows)
+    {
+    }
+
+    bool ToObject(JSContext *cx, JSObject **objp);
+
+  private:
+    JavaScriptShared *js_;
+    const InfallibleTArray<CpowEntry> &cpows_;
+};
 
 // Map ids -> JSObjects
 class ObjectStore
@@ -77,11 +97,15 @@ class JavaScriptShared
     static const uint32_t OBJECT_EXTRA_BITS  = 1;
     static const uint32_t OBJECT_IS_CALLABLE = (1 << 0);
 
+    bool Wrap(JSContext* cx, JSObject *obj, InfallibleTArray<CpowEntry> *outCpows);
+    bool Unwrap(JSContext* cx, const InfallibleTArray<CpowEntry>& cpows, JSObject **objp);
+
   protected:
     bool toVariant(JSContext *cx, jsval from, JSVariant *to);
     bool toValue(JSContext *cx, const JSVariant &from, JS::MutableHandleValue to);
     bool fromDesc(JSContext *cx, const JSPropertyDescriptor &desc, PPropertyDescriptor *out);
     bool toDesc(JSContext *cx, const PPropertyDescriptor &in, JSPropertyDescriptor *out);
+    bool toGecko(JSContext *cx, jsid id, nsString *to);
 
     bool toValue(JSContext *cx, const JSVariant &from, jsval *to) {
         JS::RootedValue v(cx);

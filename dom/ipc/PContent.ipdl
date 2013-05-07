@@ -22,6 +22,7 @@ include protocol PStorage;
 include protocol PTestShell;
 include protocol PJavaScript;
 include DOMTypes;
+include JavaScriptTypes;
 include InputStreamParams;
 include URIParams;
 
@@ -416,7 +417,7 @@ parent:
 
     sync ReadFontList() returns (FontListEntry[] retValue);
 
-    sync SyncMessage(nsString aMessage, ClonedMessageData aData)
+    sync SyncMessage(nsString aMessage, ClonedMessageData aData, CpowEntry[] cpows)
       returns (nsString[] retval);
 
     ShowAlertNotification(nsString imageUrl,
@@ -509,7 +510,7 @@ parent:
     async SystemMessageHandled();
 
 both:
-     AsyncMessage(nsString aMessage, ClonedMessageData aData);
+     AsyncMessage(nsString aMessage, ClonedMessageData aData, CpowEntry[] cpows);
 };
 
 }

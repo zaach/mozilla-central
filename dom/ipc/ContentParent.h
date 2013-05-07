@@ -117,8 +117,10 @@ public:
     /**
      * MessageManagerCallback methods that we override.
      */
-    virtual bool DoSendAsyncMessage(const nsAString& aMessage,
-                                    const mozilla::dom::StructuredCloneData& aData);
+    virtual bool DoSendAsyncMessage(JSContext* aCx,
+                                    const nsAString& aMessage,
+                                    const mozilla::dom::StructuredCloneData& aData,
+                                    JSObject *cpows);
     virtual bool CheckPermission(const nsAString& aPermission);
     virtual bool CheckManifestURL(const nsAString& aManifestURL);
     virtual bool CheckAppHasPermission(const nsAString& aPermission);
@@ -374,9 +376,11 @@ private:
 
     virtual bool RecvSyncMessage(const nsString& aMsg,
                                  const ClonedMessageData& aData,
+                                 const InfallibleTArray<CpowEntry>& aCpows,
                                  InfallibleTArray<nsString>* aRetvals);
     virtual bool RecvAsyncMessage(const nsString& aMsg,
-                                  const ClonedMessageData& aData);
+                                  const ClonedMessageData& aData,
+                                  const InfallibleTArray<CpowEntry>& aCpows);
 
     virtual bool RecvFilePathUpdateNotify(const nsString& aType,
                                           const nsString& aFilePath,

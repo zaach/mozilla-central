@@ -101,6 +101,25 @@ JavaScriptShared::init()
 }
 
 bool
+JavaScriptShared::toGecko(JSContext *cx, jsid id, nsString *to)
+{
+    jsval idval;
+    if (!JS_IdToValue(cx, id, &idval))
+        return false;
+
+    JSString *str = JS_ValueToString(cx, idval);
+    if (!str)
+        return false;
+
+    const jschar *chars = JS_GetStringCharsZ(cx, str);
+    if (!chars)
+        return false;
+
+    *to = chars;
+    return true;
+}
+
+bool
 JavaScriptShared::toVariant(JSContext *cx, jsval from, JSVariant *to)
 {
     switch (JS_TypeOfValue(cx, from)) {
@@ -356,6 +375,77 @@ JavaScriptShared::toDesc(JSContext *cx, const PPropertyDescriptor &in, JSPropert
             out->setter = js_GetterOnlyPropertyStub;
         else
             out->setter = UnknownStrictPropertyStub;
+    }
+
+    return true;
+}
+
+bool
+CpowIdHolder::ToObject(JSContext *cx, JSObject **objp)
+{
+    return js_->Unwrap(cx, cpows_, objp);
+}
+
+bool
+JavaScriptShared::Unwrap(JSContext *cx, const InfallibleTArray<CpowEntry> &aCpows, JSObject **objp)
+{
+    *objp = NULL;
+
+    if (!aCpows.Length())
+        return true;
+
+    JSObject *obj = JS_NewObject(cx, NULL, NULL, NULL);
+    if (!obj)
+        return false;
+
+    for (size_t i = 0; i < aCpows.Length(); i++) {
+        const nsString &name = aCpows[i].name();
+        JSString *str = JS_NewUCStringCopyN(cx, name.BeginReading(), name.Length());
+        if (!str)
+            return false;
+
+        jsid id;
+        if (!JS_ValueToId(cx, STRING_TO_JSVAL(str), &id))
+            return false;
+
+        jsval v;
+        if (!toValue(cx, aCpows[i].value(), &v))
+            return false;
+
+        if (!JS_DefinePropertyById(cx, obj, id, v, NULL, NULL, JSPROP_ENUMERATE))
+            return false;
+    }
+
+    *objp = obj;
+    return true;
+}
+
+bool
+JavaScriptShared::Wrap(JSContext *cx, JSObject *aObj, InfallibleTArray<CpowEntry> *outCpows)
+{
+    if (!aObj)
+        return true;
+
+    AutoIdArray ids(cx, JS_Enumerate(cx, aObj));
+    if (!ids)
+        return false;
+
+    for (size_t i = 0; i < ids.length(); i++) {
+        jsid id = ids[i];
+
+        nsString str;
+        if (!toGecko(cx, id, &str))
+            return false;
+
+        jsval v;
+        if (!JS_GetPropertyById(cx, aObj, id, &v))
+            return false;
+
+        JSVariant var;
+        if (!toVariant(cx, v, &var))
+            return false;
+
+        outCpows->AppendElement(CpowEntry(str, var));
     }
 
     return true;

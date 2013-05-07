@@ -162,9 +162,8 @@ interface nsIMessageListener : nsISupports
    *     sync:    %true or false%.
    *     data:    %structured clone of the sent message data%,
    *     json:    %same as .data, deprecated%,
-   *     objects: %array of handles or null, always null if sync is false%
+   *     remote:  %named table of jsvals/remote objects, or null%
    *   }
-   * @note objects property isn't implemented yet.
    *
    * Each listener is invoked with its own copy of the message
    * parameter.
@@ -232,7 +231,8 @@ interface nsIMessageSender : nsIMessageListenerManager
    */
   [implicit_jscontext, optional_argc]
   void sendAsyncMessage([optional] in AString messageName,
-                        [optional] in jsval obj);
+                        [optional] in jsval obj,
+                        [optional] in jsval remote);
 };
 
 /**
@@ -255,7 +255,8 @@ interface nsIMessageBroadcaster : nsIMessageListenerManager
    */
   [implicit_jscontext, optional_argc]
   void broadcastAsyncMessage([optional] in AString messageName,
-                             [optional] in jsval obj);
+                             [optional] in jsval obj,
+                             [optional] in jsval remote);
 
   /**
    * Number of subordinate message managers.
@@ -278,7 +279,8 @@ interface nsISyncMessageSender : nsIMessageSender
    */
   [implicit_jscontext, optional_argc]
   jsval sendSyncMessage([optional] in AString messageName,
-                        [optional] in jsval obj);
+                        [optional] in jsval obj,
+                        [optional] in jsval remote);
 
   /**
    * Create an ID that can be sent to the parent process and queried as if it

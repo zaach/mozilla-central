@@ -1962,15 +1962,17 @@ TabChild::RecvLoadRemoteScript(const nsString& aURL)
 
 bool
 TabChild::RecvAsyncMessage(const nsString& aMessage,
-                           const ClonedMessageData& aData)
+                           const ClonedMessageData& aData,
+                           const InfallibleTArray<CpowEntry>& aCpows)
 {
   if (mTabChildGlobal) {
     nsFrameScriptCx cx(static_cast<nsIWebBrowserChrome*>(this), this);
     StructuredCloneData cloneData = UnpackClonedMessageDataForChild(aData);
     nsRefPtr<nsFrameMessageManager> mm =
       static_cast<nsFrameMessageManager*>(mTabChildGlobal->mMessageManager.get());
+    CpowIdHolder cpows(static_cast<ContentChild*>(Manager())->GetJavaScript(), aCpows);
     mm->ReceiveMessage(static_cast<EventTarget*>(mTabChildGlobal),
-                       aMessage, false, &cloneData, nullptr, nullptr);
+                       aMessage, false, &cloneData, &cpows, nullptr);
   }
   return true;
 }
@@ -2234,8 +2236,10 @@ TabChild::DeallocPIndexedDB(PIndexedDBChild* aActor)
 }
 
 bool
-TabChild::DoSendSyncMessage(const nsAString& aMessage,
+TabChild::DoSendSyncMessage(JSContext* aCx,
+                            const nsAString& aMessage,
                             const StructuredCloneData& aData,
+                            JSObject *aCpows,
                             InfallibleTArray<nsString>* aJSONRetVal)
 {
   ContentChild* cc = static_cast<ContentChild*>(Manager());
@@ -2243,19 +2247,29 @@ TabChild::DoSendSyncMessage(const nsAString& aMessage,
   if (!BuildClonedMessageDataForChild(cc, aData, data)) {
     return false;
   }
-  return SendSyncMessage(nsString(aMessage), data, aJSONRetVal);
+  InfallibleTArray<CpowEntry> cpows;
+  if (!cc->GetJavaScript()->Wrap(aCx, aCpows, &cpows)) {
+    return false;
+  }
+  return SendSyncMessage(nsString(aMessage), data, cpows, aJSONRetVal);
 }
 
 bool
-TabChild::DoSendAsyncMessage(const nsAString& aMessage,
-                             const StructuredCloneData& aData)
+TabChild::DoSendAsyncMessage(JSContext* aCx,
+                             const nsAString& aMessage,
+                             const StructuredCloneData& aData,
+                             JSObject *aCpows)
 {
   ContentChild* cc = static_cast<ContentChild*>(Manager());
   ClonedMessageData data;
   if (!BuildClonedMessageDataForChild(cc, aData, data)) {
     return false;
   }
-  return SendAsyncMessage(nsString(aMessage), data);
+  InfallibleTArray<CpowEntry> cpows;
+  if (!cc->GetJavaScript()->Wrap(aCx, aCpows, &cpows)) {
+    return false;
+  }
+  return SendAsyncMessage(nsString(aMessage), data, cpows);
 }
 
 

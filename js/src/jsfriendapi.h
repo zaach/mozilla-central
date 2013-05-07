@@ -129,6 +129,12 @@ js_ReportOverRecursed(JSContext *maybecx);
 JS_FRIEND_API(bool)
 js_ObjectClassIs(JSContext *cx, JSHandleObject obj, js::ESClassValue classValue);
 
+JS_FRIEND_API(bool)
+js_AddObjectRoot(JSRuntime *rt, JSObject **objp);
+
+JS_FRIEND_API(void)
+js_RemoveObjectRoot(JSRuntime *rt, JSObject **objp);
+
 #ifdef DEBUG
 
 /*

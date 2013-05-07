@@ -71,25 +71,6 @@ JavaScriptParent::IdOf(JSObject *obj)
     return objId;
 }
 
-static bool
-ToGecko(JSContext *cx, jsid id, nsString *to)
-{
-    jsval idval;
-    if (!JS_IdToValue(cx, id, &idval))
-        return false;
-
-    JSString *str = JS_ValueToString(cx, idval);
-    if (!str)
-        return false;
-
-    const jschar *chars = JS_GetStringCharsZ(cx, str);
-    if (!chars)
-        return false;
-
-    *to = chars;
-    return true;
-}
-
 int sCPOWProxyHandler;
 
 class CPOWProxyHandler : public BaseProxyHandler
@@ -221,7 +202,7 @@ JavaScriptParent::has(JSContext *cx, HandleObject proxy, HandleId id, bool *bp)
     MOZ_ASSERT(objId);
 
     nsString idstr;
-    if (!ToGecko(cx, id, &idstr))
+    if (!toGecko(cx, id, &idstr))
         return JS_FALSE;
 
     ReturnStatus status;
@@ -244,7 +225,7 @@ JavaScriptParent::hasOwn(JSContext *cx, HandleObject proxy, HandleId id, bool *b
     MOZ_ASSERT(objId);
 
     nsString idstr;
-    if (!ToGecko(cx, id, &idstr))
+    if (!toGecko(cx, id, &idstr))
         return JS_FALSE;
 
     ReturnStatus status;
@@ -271,7 +252,7 @@ JavaScriptParent::get(JSContext *cx, HandleObject proxy, HandleObject receiver,
     MOZ_ASSERT(receiverId);
 
     nsString idstr;
-    if (!ToGecko(cx, id, &idstr))
+    if (!toGecko(cx, id, &idstr))
         return JS_FALSE;
 
     JSVariant val;
@@ -303,7 +284,7 @@ JavaScriptParent::set(JSContext *cx, JS::HandleObject proxy, JS::HandleObject re
     MOZ_ASSERT(receiverId);
 
     nsString idstr;
-    if (!ToGecko(cx, id, &idstr))
+    if (!toGecko(cx, id, &idstr))
         return JS_FALSE;
 
     JSVariant val;
@@ -591,7 +572,7 @@ JavaScriptParent::getPropertyDescriptor(JSContext *cx, HandleObject proxy, Handl
     MOZ_ASSERT(objId);
 
     nsString idstr;
-    if (!ToGecko(cx, id, &idstr))
+    if (!toGecko(cx, id, &idstr))
         return JS_FALSE;
 
     ReturnStatus status;

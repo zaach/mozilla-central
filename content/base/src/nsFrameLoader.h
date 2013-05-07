@@ -189,8 +189,10 @@ public:
    * MessageManagerCallback methods that we override.
    */
   virtual bool DoLoadFrameScript(const nsAString& aURL);
-  virtual bool DoSendAsyncMessage(const nsAString& aMessage,
-                                  const mozilla::dom::StructuredCloneData& aData);
+  virtual bool DoSendAsyncMessage(JSContext* aCx,
+                                  const nsAString& aMessage,
+                                  const mozilla::dom::StructuredCloneData& aData,
+                                  JSObject *aCpows);
   virtual bool CheckPermission(const nsAString& aPermission);
   virtual bool CheckManifestURL(const nsAString& aManifestURL);
   virtual bool CheckAppHasPermission(const nsAString& aPermission);

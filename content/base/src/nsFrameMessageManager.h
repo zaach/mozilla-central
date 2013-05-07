@@ -1,4 +1,5 @@
 /* -*- Mode: c++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
+/* vim: set ts=8 sts=4 sw=4 tw=99 et: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -51,15 +52,19 @@ public:
     return true;
   }
 
-  virtual bool DoSendSyncMessage(const nsAString& aMessage,
+  virtual bool DoSendSyncMessage(JSContext* aCx,
+                                 const nsAString& aMessage,
                                  const mozilla::dom::StructuredCloneData& aData,
+				 JSObject *aCpows,
                                  InfallibleTArray<nsString>* aJSONRetVal)
   {
     return true;
   }
 
-  virtual bool DoSendAsyncMessage(const nsAString& aMessage,
-                                  const mozilla::dom::StructuredCloneData& aData)
+  virtual bool DoSendAsyncMessage(JSContext* aCx,
+                                  const nsAString& aMessage,
+                                  const mozilla::dom::StructuredCloneData& aData,
+				  JSObject* aCpows)
   {
     return true;
   }
@@ -105,6 +110,25 @@ struct nsMessageListenerInfo
   nsCOMPtr<nsIAtom> mMessage;
 };
 
+class CpowHolder
+{
+  public:
+    virtual bool ToObject(JSContext* cx, JSObject** objp) = 0;
+};
+
+class SameProcessCpowHolder : public CpowHolder
+{
+  public:
+    SameProcessCpowHolder(JSObject* obj)
+      : mObj(obj)
+    {
+    }
+
+    bool ToObject(JSContext* cx, JSObject** objp);
+
+  private:
+    JSObject* mObj;
+};
 
 class nsFrameMessageManager MOZ_FINAL : public nsIContentFrameMessageManager,
                                         public nsIMessageBroadcaster,
@@ -182,7 +206,7 @@ public:
 
   nsresult ReceiveMessage(nsISupports* aTarget, const nsAString& aMessage,
                           bool aSync, const StructuredCloneData* aCloneData,
-                          JSObject* aObjectsArray,
+                          CpowHolder* aCpows,
                           InfallibleTArray<nsString>* aJSONRetVal,
                           JSContext* aContext = nullptr);
 
@@ -203,10 +227,13 @@ public:
 
   nsresult DispatchAsyncMessage(const nsAString& aMessageName,
                                 const JS::Value& aObject,
+                                const jsval& aRemote,
                                 JSContext* aCx,
                                 uint8_t aArgc);
-  nsresult DispatchAsyncMessageInternal(const nsAString& aMessage,
-                                        const StructuredCloneData& aData);
+  nsresult DispatchAsyncMessageInternal(JSContext* aCx,
+                                        const nsAString& aMessage,
+                                        const StructuredCloneData& aData,
+                                        JSObject* aCpows);
   JSContext* GetJSContext() { return mContext; }
   void SetJSContext(JSContext* aCx) { mContext = aCx; }
   void RemoveFromParent();
