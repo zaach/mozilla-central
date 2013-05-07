@@ -1013,11 +1013,8 @@ ContentParent::NotifyTabDestroyed(PBrowserParent* aTab,
 jsipc::JavaScriptParent*
 ContentParent::GetJavaScript()
 {
-    if (ManagedPJavaScriptParent().Length()) {
-        return static_cast<JavaScriptParent*>(ManagedPJavaScriptParent()[0]);
-    }
-    JavaScriptParent* actor = static_cast<JavaScriptParent*>(SendPJavaScriptConstructor());
-    return actor;
+    MOZ_ASSERT(ManagedPJavaScriptParent().Length() == 1);
+    return static_cast<JavaScriptParent*>(ManagedPJavaScriptParent()[0]);
 }
 
 TestShellParent*

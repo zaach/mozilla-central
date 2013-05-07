@@ -280,8 +280,6 @@ both:
 
     async PBlob(BlobConstructorParams params);
 
-    PJavaScript();
-
 child:
     /**
      * Update OS process privileges to |privs|.  Can usually only be
@@ -361,6 +359,8 @@ child:
     CancelMinimizeMemoryUsage();
 
 parent:
+    PJavaScript();
+
     /**
      * Tell the content process some attributes of itself.  This is
      * among the first information queried by content processes after
