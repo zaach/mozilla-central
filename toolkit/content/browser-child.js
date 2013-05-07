@@ -23,28 +23,25 @@ let WebProgressListener = {
   },
 
   _setupJSON: function setupJSON(aWebProgress, aRequest) {
-    let win = docShell.QueryInterface(Ci.nsIInterfaceRequestor)
-                      .getInterface(Ci.nsIDOMWindow);
-
-    try {
-      win = wrap(win);
-    } catch (e) {
-      win = null;
-    }
-
     return {
       isTopLevel: aWebProgress.isTopLevel,
-      requestURI: this._requestSpec(aRequest),
-      contentWindow: win
+      requestURI: this._requestSpec(aRequest)
     };
+  },
+
+  _setupRemote: function setupRemote() {
+    let win = docShell.QueryInterface(Ci.nsIInterfaceRequestor)
+                      .getInterface(Ci.nsIDOMWindow);
+    return { contentWindow: win };
   },
 
   onStateChange: function onStateChange(aWebProgress, aRequest, aStateFlags, aStatus) {
     let json = this._setupJSON(aWebProgress, aRequest);
+    let remote = this._setupRemote();
     json.stateFlags = aStateFlags;
     json.status = aStatus;
 
-    sendAsyncMessage("Content:StateChange", json);
+    sendAsyncMessage("Content:StateChange", json, remote);
   },
 
   onProgressChange: function onProgressChange(aWebProgress, aRequest, aCurSelf, aMaxSelf, aCurTotal, aMaxTotal) {
@@ -55,29 +52,32 @@ let WebProgressListener = {
     let charset = content.document.characterSet;
 
     let json = this._setupJSON(aWebProgress, aRequest);
+    let remote = this._setupRemote();
     json.documentURI = aWebProgress.DOMWindow.document.documentURIObject.spec;
     json.location = spec;
     json.canGoBack = docShell.canGoBack;
     json.canGoForward = docShell.canGoForward;
     json.charset = charset.toString();
 
-    sendAsyncMessage("Content:LocationChange", json);
+    sendAsyncMessage("Content:LocationChange", json, remote);
   },
 
   onStatusChange: function onStatusChange(aWebProgress, aRequest, aStatus, aMessage) {
     let json = this._setupJSON(aWebProgress, aRequest);
+    let remote = this._setupRemote();
     json.status = aStatus;
     json.message = aMessage;
 
-    sendAsyncMessage("Content:StatusChange", json);
+    sendAsyncMessage("Content:StatusChange", json, remote);
   },
 
   onSecurityChange: function onSecurityChange(aWebProgress, aRequest, aState) {
     let json = this._setupJSON(aWebProgress, aRequest);
+    let remote = this._setupRemote();
     json.state = aState;
     json.status = SecurityUI.getSSLStatusAsString();
 
-    sendAsyncMessage("Content:SecurityChange", json);
+    sendAsyncMessage("Content:SecurityChange", json, remote);
   },
 
   QueryInterface: function QueryInterface(aIID) {
@@ -257,19 +257,13 @@ let AddonListeners = {
   },
 
   shouldLoad: function(contentType, contentLocation, requestOrigin, node, mimeTypeGuess, extra) {
-    try {
-      var contentLocationId = wrap(contentLocation);
-      var requestOriginId = wrap(requestOrigin);
-      var nodeId = wrap(node);
-    } catch (e) {
-      return Ci.nsIContentPolicy.ACCEPT;
-    }
     var rval = sendSyncMessage("Addon:ShouldLoad", {
       contentType: contentType,
-      contentLocationId: contentLocationId,
-      requestOriginId: requestOriginId,
-      nodeId: nodeId,
       mimeTypeGuess: mimeTypeGuess
+    }, {
+      contentLocation: contentLocation,
+      requestOrigin: requestOrigin,
+      node: node
     });
     if (rval == undefined)
       return Ci.nsIContentPolicy.ACCEPT;

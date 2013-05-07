@@ -26,17 +26,16 @@ let AddonParent = {
       break;
 
     case "Addon:ShouldLoad":
-      return this.shouldLoad(message.target, message.json);
+      return this.shouldLoad(message.target, message.json, message.remote);
       break;
     }
   },
 
-  shouldLoad: function(target, json) {
+  shouldLoad: function(target, json, remote) {
     dump('--------------------------------- HOOK ShouldLoad ---\n');
-    var js = target.jsParentUtils;
-    var contentLocation = js.unwrap(json.contentLocationId);
-    var requestOrigin = js.unwrap(json.requestOriginId);
-    var node = js.unwrap(json.nodeId);
+    var contentLocation = remote.contentLocation;
+    var requestOrigin = remote.requestOrigin;
+    var node = remote.node;
     var contentType = json.contentType;
     var mimeTypeGuess = json.mimeTypeGuess;
 

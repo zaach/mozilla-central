@@ -82,8 +82,7 @@ RemoteWebProgress.prototype = {
 
   receiveMessage: function WP_ReceiveMessage(aMessage) {
     this._isTopLevel = aMessage.json.isTopLevel;
-    this._browser._contentWindow = this._browser.jsParentUtils.unwrap(
-                                        aMessage.json.contentWindow);
+    this._browser._contentWindow = aMessage.remote.contentWindow;
 
     let req = this._uriSpec(aMessage.json.requestURI);
     switch (aMessage.name) {
