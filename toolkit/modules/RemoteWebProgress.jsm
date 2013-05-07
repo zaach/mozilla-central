@@ -125,5 +125,10 @@ RemoteWebProgress.prototype = {
       }
       break;
     }
+
+    // This should default to true because chrome code occasionally initiates its own
+    // calls to nsIWebProgressListeners using the top-level browser element's
+    // nsIWebProgress object.
+    this._isTopLevel = true;
   }
 };
