@@ -652,7 +652,7 @@ PuppetWidget::GetNativeData(uint32_t aDataType)
   case NS_NATIVE_GRAPHIC:
   case NS_NATIVE_SHELLWIDGET:
   case NS_NATIVE_WIDGET:
-    NS_WARNING("nsWindow::GetNativeData not implemented for this type");
+    //NS_WARNING("nsWindow::GetNativeData not implemented for this type");
     break;
   default:
     NS_WARNING("nsWindow::GetNativeData called with bad value");
