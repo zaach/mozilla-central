@@ -237,6 +237,7 @@ JavaScriptChild::AnswerGetHook(const ObjectId &objId, const ObjectId &receiverId
 bool
 JavaScriptChild::AnswerSetHook(const ObjectId &objId, const ObjectId &receiverId,
                                const nsString &id, const bool &strict,
+                               const JSVariant &value,
                                ReturnStatus *rs, JSVariant *result)
 {
     SafeAutoJSContext cx;
@@ -262,8 +263,12 @@ JavaScriptChild::AnswerSetHook(const ObjectId &objId, const ObjectId &receiverId
 
     MOZ_ASSERT(obj == receiver);
 
-    JS::Value val;
-    if (!JS_SetPropertyById(cx, obj, internedId, &val))
+    RootedValue val(cx);
+
+    if (!toValue(cx, value, &val))
+        return fail(cx, rs);
+
+    if (!JS_SetPropertyById(cx, obj, internedId, val.address()))
         return fail(cx, rs);
 
     if (!toVariant(cx, val, result))

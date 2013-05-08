@@ -35,6 +35,7 @@ class JavaScriptChild
                        ReturnStatus *rs, JSVariant *result);
     bool AnswerSetHook(const ObjectId &objId, const ObjectId &receiverId,
                        const nsString &id, const bool &strict,
+                       const JSVariant &value,
                        ReturnStatus *rs, JSVariant *result);
     bool AnswerCallHook(const ObjectId &objId,
                         const nsTArray<JSParam> &argv,

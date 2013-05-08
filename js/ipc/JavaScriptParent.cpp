@@ -350,7 +350,7 @@ JavaScriptParent::get(JSContext *cx, HandleObject proxy, HandleObject receiver,
 
     nsString idstr;
     if (!toGecko(cx, id, &idstr))
-        return JS_FALSE;
+        return false;
 
     JSVariant val;
     ReturnStatus status;
@@ -358,7 +358,7 @@ JavaScriptParent::get(JSContext *cx, HandleObject proxy, HandleObject receiver,
         return ipcfail(cx);
 
     if (!ok(cx, status))
-        return JS_FALSE;
+        return false;
 
     return toValue(cx, val, vp);
 }
@@ -382,17 +382,21 @@ JavaScriptParent::set(JSContext *cx, JS::HandleObject proxy, JS::HandleObject re
 
     nsString idstr;
     if (!toGecko(cx, id, &idstr))
-        return JS_FALSE;
+        return false;
 
     JSVariant val;
+    if (!toVariant(cx, vp, &val))
+        return false;
+
     ReturnStatus status;
-    if (!CallSetHook(objId, receiverId, idstr, strict, &status, &val))
+    JSVariant result;
+    if (!CallSetHook(objId, receiverId, idstr, strict, val, &status, &result))
         return ipcfail(cx);
 
     if (!ok(cx, status))
-        return JS_FALSE;
+        return false;
 
-    return toValue(cx, val, vp);
+    return toValue(cx, result, vp);
 }
 
 bool

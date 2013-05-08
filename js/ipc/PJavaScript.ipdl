@@ -26,7 +26,7 @@ child:
     urgent HasHook(uint32_t objId, nsString id) returns (ReturnStatus rs, bool has);
     urgent HasOwnHook(uint32_t objId, nsString id) returns (ReturnStatus rs, bool has);
     urgent GetHook(uint32_t objId, uint32_t receiverId, nsString id) returns (ReturnStatus rs, JSVariant result);
-    urgent SetHook(uint32_t objId, uint32_t receiverId, nsString id, bool strict) returns (ReturnStatus rs, JSVariant result);
+    urgent SetHook(uint32_t objId, uint32_t receiverId, nsString id, bool strict, JSVariant value) returns (ReturnStatus rs, JSVariant result);
     urgent CallHook(uint32_t objId, JSParam[] argv) returns (ReturnStatus rs, JSVariant result, JSParam[] outparams);
 
     urgent InstanceOf(uint32_t objId, JSIID iid) returns (ReturnStatus rs, bool instanceof);
