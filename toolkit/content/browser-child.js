@@ -228,11 +228,6 @@ let AddonListeners = {
   xpcom_categories: ["content-policy"],
 
   init: function init() {
-    try {
-      wrap({});
-    } catch (e) {
-      return;
-    }
     Services.obs.addObserver(this, "content-document-global-created", false);
 
     let registrar = Components.manager.QueryInterface(Ci.nsIComponentRegistrar);
