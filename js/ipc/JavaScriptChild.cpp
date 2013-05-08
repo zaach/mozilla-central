@@ -64,15 +64,7 @@ JavaScriptChild::RecvDropObject(const ObjectId &objId)
     return true;
 }
 
-static inline bool
-ToId(JSContext *cx, const nsString &from, jsid *to)
-{
-    JSString *str = JS_NewUCStringCopyN(cx, from.BeginReading(), from.Length());
-    if (!str)
-        return false;
 
-    return JS_ValueToId(cx, STRING_TO_JSVAL(str), to);
-}
 
 ObjectId
 JavaScriptChild::Send(JSContext *cx, JSObject *obj)
@@ -174,7 +166,7 @@ JavaScriptChild::AnswerHasHook(const ObjectId &objId, const nsString &id,
     JSAutoCompartment comp(cx, obj);
 
     jsid internedId;
-    if (!ToId(cx, id, &internedId))
+    if (!toId(cx, id, &internedId))
         return fail(cx, rs);
 
     JSBool found;
@@ -199,7 +191,7 @@ JavaScriptChild::AnswerHasOwnHook(const ObjectId &objId, const nsString &id,
     JSAutoCompartment comp(cx, obj);
 
     jsid internedId;
-    if (!ToId(cx, id, &internedId))
+    if (!toId(cx, id, &internedId))
         return fail(cx, rs);
 
     JSPropertyDescriptor desc;
@@ -229,7 +221,7 @@ JavaScriptChild::AnswerGetHook(const ObjectId &objId, const ObjectId &receiverId
     JSAutoCompartment comp(cx, obj);
 
     jsid internedId;
-    if (!ToId(cx, id, &internedId))
+    if (!toId(cx, id, &internedId))
         return fail(cx, rs);
 
     JS::Value val;
@@ -265,7 +257,7 @@ JavaScriptChild::AnswerSetHook(const ObjectId &objId, const ObjectId &receiverId
     JSAutoCompartment comp(cx, obj);
 
     jsid internedId;
-    if (!ToId(cx, id, &internedId))
+    if (!toId(cx, id, &internedId))
         return fail(cx, rs);
 
     MOZ_ASSERT(obj == receiver);
@@ -425,15 +417,125 @@ JavaScriptChild::AnswerGetPropertyDescriptor(const uint32_t &objId,
     JSAutoCompartment comp(cx, obj);
 
     jsid internedId;
-    if (!ToId(cx, id, &internedId))
+    if (!toId(cx, id, &internedId))
         return fail(cx, rs);
 
     JSPropertyDescriptor desc;
     if (!JS_GetPropertyDescriptorById(cx, obj, internedId, flags, &desc))
         return fail(cx, rs);
 
+    if (!desc.obj) {
+        out->missing() = true;
+        out->attrs() = 0;
+        out->shortid() = 0;
+        out->value() = uint32_t(0);
+        out->objId() = 0;
+        out->getter() = 0;
+        out->setter() = 0;
+        return ok(rs);
+    }
+
     if (!fromDesc(cx, desc, out))
         return fail(cx, rs);
+
+    return ok(rs);
+}
+
+bool
+JavaScriptChild::AnswerGetOwnPropertyDescriptor(const uint32_t &objId,
+                                                const nsString &id,
+                                                const uint32_t &flags,
+                                                ReturnStatus *rs,
+                                                PPropertyDescriptor *out)
+{
+    SafeAutoJSContext cx;
+    JSAutoRequest request(cx);
+
+    JSObject *obj = objects_.find(objId);
+    if (!obj)
+        return false;
+
+    JSAutoCompartment comp(cx, obj);
+
+    jsid internedId;
+    if (!toId(cx, id, &internedId))
+        return fail(cx, rs);
+
+    JSPropertyDescriptor desc;
+    if (!JS_GetPropertyDescriptorById(cx, obj, internedId, flags, &desc))
+        return fail(cx, rs);
+
+    if (desc.obj != obj) {
+        out->missing() = true;
+        out->attrs() = 0;
+        out->shortid() = 0;
+        out->value() = uint32_t(0);
+        out->objId() = 0;
+        out->getter() = 0;
+        out->setter() = 0;
+        return ok(rs);
+    }
+
+    if (!fromDesc(cx, desc, out))
+        return fail(cx, rs);
+
+    return ok(rs);
+}
+
+bool
+JavaScriptChild::AnswerGetOwnPropertyNames(const uint32_t &objId,
+                                           ReturnStatus *rs,
+                                           nsTArray<nsString> *names)
+{
+    SafeAutoJSContext cx;
+    JSAutoRequest request(cx);
+
+    JSObject *obj = objects_.find(objId);
+    if (!obj)
+        return false;
+
+    JSAutoCompartment comp(cx, obj);
+
+    AutoIdVector props(cx);
+    if (!js::GetPropertyNames(cx, obj, JSITER_OWNONLY | JSITER_HIDDEN, &props))
+        return fail(cx, rs);
+
+    for (size_t i = 0; i < props.length(); i++) {
+        nsString name;
+        if (!toGecko(cx, props[i], &name))
+            return false;
+
+        names->AppendElement(name);
+    }
+
+    return ok(rs);
+}
+
+bool
+JavaScriptChild::AnswerKeys(const uint32_t &objId,
+                            ReturnStatus *rs,
+                            nsTArray<nsString> *names)
+{
+    SafeAutoJSContext cx;
+    JSAutoRequest request(cx);
+
+    JSObject *obj = objects_.find(objId);
+    if (!obj)
+        return false;
+
+    JSAutoCompartment comp(cx, obj);
+
+    AutoIdVector props(cx);
+    if (!js::GetPropertyNames(cx, obj, JSITER_OWNONLY, &props))
+        return fail(cx, rs);
+
+    for (size_t i = 0; i < props.length(); i++) {
+        nsString name;
+        if (!toGecko(cx, props[i], &name))
+            return false;
+
+        names->AppendElement(name);
+    }
 
     return ok(rs);
 }
@@ -454,6 +556,23 @@ JavaScriptChild::AnswerObjectClassIs(const uint32_t &objId,
 
     *result = js_ObjectClassIs(cx, obj, (js::ESClassValue)classValue);
 
+    return true;
+}
+
+bool
+JavaScriptChild::AnswerClassName(const uint32_t &objId,
+                                 nsString *name)
+{
+    SafeAutoJSContext cx;
+    JSAutoRequest request(cx);
+
+    JS::RootedObject obj(cx, objects_.find(objId));
+    if (!obj)
+        return false;
+
+    JSAutoCompartment comp(cx, obj);
+
+    *name = NS_ConvertASCIItoUTF16(js_ObjectClassName(cx, obj));
     return true;
 }
 

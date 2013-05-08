@@ -58,7 +58,12 @@ class JavaScriptParent
     nsresult instanceOf(JSObject *obj, const nsID *id, bool *bp);
     bool getPropertyDescriptor(JSContext *cx, JS::HandleObject proxy, JS::HandleId id,
                                JSPropertyDescriptor *desc, unsigned flags);
+    bool getOwnPropertyDescriptor(JSContext *cx, JS::HandleObject proxy, JS::HandleId id,
+                                  JSPropertyDescriptor *desc, unsigned flags);
+    bool getOwnPropertyNames(JSContext *cx, JS::HandleObject proxy, js::AutoIdVector &props);
+    bool keys(JSContext *cx, JS::HandleObject proxy, js::AutoIdVector &props);
     bool objectClassIs(JSContext *cx, JS::HandleObject obj, js::ESClassValue classValue);
+    const char* className(JSContext *cx, JS::HandleObject proxy);
     bool preventExtensions(JSContext *cx, JS::HandleObject proxy);
     bool isExtensible(JSObject *proxy);
 

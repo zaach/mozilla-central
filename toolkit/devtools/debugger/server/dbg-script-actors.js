@@ -1653,6 +1653,7 @@ ObjectActor.prototype = {
             fn.script === undefined) {
           // Maybe this is a DOM getter. Try calling it on every object in the
           // prototype chain, until it doesn't throw.
+         /*
           let rv, chain = this.threadActor._findProtoChain(this.obj);
           let index = chain.indexOf(this.obj);
           for (let i = index; i >= 0; i--) {
@@ -1672,6 +1673,7 @@ ObjectActor.prototype = {
               break;
             }
           }
+          */
 
           // If calling the getter didn't produce a data property descriptor,
           // use the original accessor property descriptor.

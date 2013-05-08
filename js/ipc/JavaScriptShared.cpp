@@ -120,6 +120,16 @@ JavaScriptShared::toGecko(JSContext *cx, jsid id, nsString *to)
 }
 
 bool
+JavaScriptShared::toId(JSContext *cx, const nsString &from, jsid *to)
+{
+    JSString *str = JS_NewUCStringCopyN(cx, from.BeginReading(), from.Length());
+    if (!str)
+        return false;
+
+    return JS_ValueToId(cx, STRING_TO_JSVAL(str), to);
+}
+
+bool
 JavaScriptShared::toVariant(JSContext *cx, jsval from, JSVariant *to)
 {
     switch (JS_TypeOfValue(cx, from)) {
@@ -283,6 +293,9 @@ static const uint32_t UnknownPropertyOp = 3;
 bool
 JavaScriptShared::fromDesc(JSContext *cx, const JSPropertyDescriptor &desc, PPropertyDescriptor *out)
 {
+    JS_ASSERT(desc.obj);
+
+    out->missing() = false;
     out->attrs() = desc.attrs;
     out->shortid() = desc.shortid;
     if (!toVariant(cx, desc.value, &out->value()))
@@ -340,6 +353,15 @@ UnknownStrictPropertyStub(JSContext *cx, JSHandleObject obj, JSHandleId id, JSBo
 bool
 JavaScriptShared::toDesc(JSContext *cx, const PPropertyDescriptor &in, JSPropertyDescriptor *out)
 {
+    if (in.missing()) {
+        out->obj = NULL;
+        out->attrs = 0;
+        out->getter = NULL;
+        out->setter = NULL;
+        out->value.setUndefined();
+        return true;
+    }
+
     out->attrs = in.attrs();
     out->shortid = in.shortid();
     if (!toValue(cx, in.value(), &out->value))

@@ -306,6 +306,12 @@ js_ObjectClassIs(JSContext *cx, HandleObject obj, ESClassValue classValue)
     return ObjectClassIs(obj, classValue, cx);
 }
 
+JS_FRIEND_API(const char *)
+js_ObjectClassName(JSContext *cx, HandleObject obj)
+{
+    return JSObject::className(cx, obj);
+}
+
 AutoSwitchCompartment::AutoSwitchCompartment(JSContext *cx, JSCompartment *newCompartment
                                              MOZ_GUARD_OBJECT_NOTIFIER_PARAM_IN_IMPL)
   : cx(cx), oldCompartment(cx->compartment)

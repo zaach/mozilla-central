@@ -31,7 +31,11 @@ child:
 
     urgent InstanceOf(uint32_t objId, JSIID iid) returns (ReturnStatus rs, bool instanceof);
     urgent GetPropertyDescriptor(uint32_t objId, nsString id, uint32_t flags) returns (ReturnStatus rs, PPropertyDescriptor result);
+    urgent GetOwnPropertyDescriptor(uint32_t objId, nsString id, uint32_t flags) returns (ReturnStatus rs, PPropertyDescriptor result);
+    urgent GetOwnPropertyNames(uint32_t objId) returns (ReturnStatus rs, nsString[] names);
+    urgent Keys(uint32_t objId) returns (ReturnStatus rs, nsString[] names);
     urgent ObjectClassIs(uint32_t objId, uint32_t classValue) returns (bool result);
+    urgent ClassName(uint32_t objId) returns (nsString name);
     urgent IsExtensible(uint32_t objId) returns (bool result);
     urgent PreventExtensions(uint32_t objId) returns (ReturnStatus rs);
 

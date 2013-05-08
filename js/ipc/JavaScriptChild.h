@@ -51,9 +51,22 @@ class JavaScriptChild
                                      const uint32_t &flags,
                                      ReturnStatus *rs,
                                      PPropertyDescriptor *out);
+    bool AnswerGetOwnPropertyDescriptor(const uint32_t &objId,
+                                        const nsString &id,
+                                        const uint32_t &flags,
+                                        ReturnStatus *rs,
+                                        PPropertyDescriptor *out);
+    bool AnswerGetOwnPropertyNames(const uint32_t &objId,
+                                   ReturnStatus *rs,
+                                   nsTArray<nsString> *names);
+    bool AnswerKeys(const uint32_t &objId,
+                    ReturnStatus *rs,
+                    nsTArray<nsString> *names);
     bool AnswerObjectClassIs(const uint32_t &objId,
                              const uint32_t &classValue,
                              bool *result);
+    bool AnswerClassName(const uint32_t &objId,
+                             nsString *result);
     bool AnswerIsExtensible(const uint32_t &objId,
                             bool *result);
     bool AnswerPreventExtensions(const uint32_t &objId,

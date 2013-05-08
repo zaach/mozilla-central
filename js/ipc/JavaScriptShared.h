@@ -106,6 +106,7 @@ class JavaScriptShared
     bool fromDesc(JSContext *cx, const JSPropertyDescriptor &desc, PPropertyDescriptor *out);
     bool toDesc(JSContext *cx, const PPropertyDescriptor &in, JSPropertyDescriptor *out);
     bool toGecko(JSContext *cx, jsid id, nsString *to);
+    bool toId(JSContext *cx, const nsString &from, jsid *to);
 
     bool toValue(JSContext *cx, const JSVariant &from, jsval *to) {
         JS::RootedValue v(cx);
