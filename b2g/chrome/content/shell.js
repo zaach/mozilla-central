@@ -612,6 +612,10 @@ nsBrowserAccess.prototype = {
 
   isTabContentWindow: function isTabContentWindow(contentWindow) {
     return contentWindow == window;
+  },
+
+  getContentWindow: function getContentWindow() {
+    return shell.contentBrowser.contentWindow;
   }
 };
 

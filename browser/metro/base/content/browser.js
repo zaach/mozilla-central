@@ -1207,6 +1207,10 @@ nsBrowserAccess.prototype = {
 
   isTabContentWindow: function(aWindow) {
     return Browser.browsers.some(function (browser) browser.contentWindow == aWindow);
+  },
+
+  getContentWindow: function() {
+    return Browser.selectedBrowser.contentWindow;
   }
 };
 
