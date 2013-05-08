@@ -14,6 +14,11 @@
 #include "JavaScriptShared.h"
 #include "jsclass.h"
 
+#ifdef XP_WIN
+#undef GetClassName
+#undef GetClassInfo
+#endif
+
 namespace mozilla {
 namespace jsipc {
 

@@ -282,8 +282,10 @@ XRE_InitChildProcess(int aArgc,
 
   sChildProcessType = aProcess;
 
+#ifndef XP_WIN
   // Create a new process group.
   setpgid(0, 0);
+#endif
 
   // Complete 'task_t' exchange for Mac OS X. This structure has the same size
   // regardless of architecture so we don't have any cross-arch issues here.
