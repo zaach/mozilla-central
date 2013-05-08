@@ -400,6 +400,17 @@ JavaScriptChild::AnswerInstanceOf(const ObjectId &objId,
     return ok(rs);
 }
 
+void
+EmptyDesc(PPropertyDescriptor *desc)
+{
+    desc->objId() = 0;
+    desc->attrs() = 0;
+    desc->shortid() = 0;
+    desc->value() = void_t();
+    desc->getter() = 0;
+    desc->setter() = 0;
+}
+
 bool
 JavaScriptChild::AnswerGetPropertyDescriptor(const uint32_t &objId,
                                              const nsString &id,
@@ -425,13 +436,7 @@ JavaScriptChild::AnswerGetPropertyDescriptor(const uint32_t &objId,
         return fail(cx, rs);
 
     if (!desc.obj) {
-        out->missing() = true;
-        out->attrs() = 0;
-        out->shortid() = 0;
-        out->value() = uint32_t(0);
-        out->objId() = 0;
-        out->getter() = 0;
-        out->setter() = 0;
+        EmptyDesc(out);
         return ok(rs);
     }
 
@@ -466,13 +471,7 @@ JavaScriptChild::AnswerGetOwnPropertyDescriptor(const uint32_t &objId,
         return fail(cx, rs);
 
     if (desc.obj != obj) {
-        out->missing() = true;
-        out->attrs() = 0;
-        out->shortid() = 0;
-        out->value() = uint32_t(0);
-        out->objId() = 0;
-        out->getter() = 0;
-        out->setter() = 0;
+        EmptyDesc(out);
         return ok(rs);
     }
 

@@ -293,9 +293,6 @@ static const uint32_t UnknownPropertyOp = 3;
 bool
 JavaScriptShared::fromDesc(JSContext *cx, const JSPropertyDescriptor &desc, PPropertyDescriptor *out)
 {
-    JS_ASSERT(desc.obj);
-
-    out->missing() = false;
     out->attrs() = desc.attrs;
     out->shortid() = desc.shortid;
     if (!toVariant(cx, desc.value, &out->value()))
@@ -353,15 +350,6 @@ UnknownStrictPropertyStub(JSContext *cx, JSHandleObject obj, JSHandleId id, JSBo
 bool
 JavaScriptShared::toDesc(JSContext *cx, const PPropertyDescriptor &in, JSPropertyDescriptor *out)
 {
-    if (in.missing()) {
-        out->obj = NULL;
-        out->attrs = 0;
-        out->getter = NULL;
-        out->setter = NULL;
-        out->value.setUndefined();
-        return true;
-    }
-
     out->attrs = in.attrs();
     out->shortid = in.shortid();
     if (!toValue(cx, in.value(), &out->value))

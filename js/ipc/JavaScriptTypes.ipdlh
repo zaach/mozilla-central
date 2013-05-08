@@ -47,7 +47,6 @@ union JSParam {
 
 struct PPropertyDescriptor
 {
-    bool        missing;
     uint32_t    objId;
     uint32_t    attrs;
     uint32_t    shortid;
