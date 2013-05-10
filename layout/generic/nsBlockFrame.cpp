@@ -3707,7 +3707,7 @@ nsBlockFrame::ReflowInlineFrame(nsBlockReflowState& aState,
     uint8_t breakType = NS_INLINE_GET_BREAK_TYPE(frameReflowStatus);
     NS_ASSERTION((NS_STYLE_CLEAR_NONE != breakType) || 
                  (NS_STYLE_CLEAR_NONE != aState.mFloatBreakType), "bad break type");
-    NS_ASSERTION(NS_STYLE_CLEAR_PAGE != breakType, "no page breaks yet");
+    NS_ASSERTION(NS_STYLE_CLEAR_LAST_VALUE >= breakType, "invalid break type");
 
     if (NS_INLINE_IS_BREAK_BEFORE(frameReflowStatus)) {
       // Break-before cases.
@@ -6002,8 +6002,9 @@ nsBlockFrame::RecoverFloatsFor(nsIFrame*       aFrame,
 int
 nsBlockFrame::GetSkipSides() const
 {
-  if (IS_TRUE_OVERFLOW_CONTAINER(this))
+  if (IS_TRUE_OVERFLOW_CONTAINER(this)) {
     return (1 << NS_SIDE_TOP) | (1 << NS_SIDE_BOTTOM);
+  }
 
   int skip = 0;
   if (GetPrevInFlow()) {

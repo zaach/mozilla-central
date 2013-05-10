@@ -1650,10 +1650,8 @@ nsDocShell::MaybeInitTiming()
         return NS_OK;
     }
 
-    if (Preferences::GetBool("dom.enable_performance", false)) {
-        mTiming = new nsDOMNavigationTiming();
-        mTiming->NotifyNavigationStart();
-    }
+    mTiming = new nsDOMNavigationTiming();
+    mTiming->NotifyNavigationStart();
     return NS_OK;
 }
 
@@ -4496,7 +4494,7 @@ nsDocShell::LoadErrorPage(nsIURI *aURI, const PRUnichar *aURL,
     errorPageUrl.AppendLiteral("&u=");
     errorPageUrl.AppendASCII(escapedUrl.get());
     if (!escapedCSSClass.IsEmpty()) {
-        errorPageUrl.AppendASCII("&s=");
+        errorPageUrl.AppendLiteral("&s=");
         errorPageUrl.AppendASCII(escapedCSSClass.get());
     }
     errorPageUrl.AppendLiteral("&c=");
@@ -9109,7 +9107,7 @@ nsDocShell::InternalLoad(nsIURI * aURI,
     // stopped in those cases. In the case where they do result in
     // data, the javascript: URL channel takes care of stopping
     // current network activity.
-    if (!bIsJavascript) {
+    if (!bIsJavascript && aFileName.IsVoid()) {
         // Stop any current network activity.
         // Also stop content if this is a zombie doc. otherwise 
         // the onload will be delayed by other loads initiated in the 
@@ -9520,11 +9518,9 @@ nsDocShell::DoURILoad(nsIURI * aURI,
         }
     }
 
-    if (Preferences::GetBool("dom.enable_performance", false)) {
-        nsCOMPtr<nsITimedChannel> timedChannel(do_QueryInterface(channel));
-        if (timedChannel) {
-            timedChannel->SetTimingEnabled(true);
-        }
+    nsCOMPtr<nsITimedChannel> timedChannel(do_QueryInterface(channel));
+    if (timedChannel) {
+        timedChannel->SetTimingEnabled(true);
     }
 
     rv = DoChannelLoad(channel, uriLoader, aBypassClassifier);

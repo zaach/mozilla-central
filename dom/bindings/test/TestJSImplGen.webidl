@@ -17,7 +17,16 @@ enum MyTestEnum {
   "b"
 };
 
-[Constructor, JSImplementation="@mozilla.org/test-js-impl-interface;1"]
+// We don't support multiple constructors (bug 869268) or named constructors
+// for JS-implemented WebIDL.
+[Constructor(DOMString str, unsigned long num, boolean? boolArg,
+             TestInterface? iface, long arg1,
+             DictForConstructor dict, any any1,
+             /* (BUG 856911) object obj1,*/
+             object? obj2, sequence<Dict> seq, optional any any2,
+             /* (BUG 856911) optional object obj3, */
+             optional object? obj4),
+ JSImplementation="@mozilla.org/test-js-impl-interface;1"]
 interface TestJSImplInterface {
   // Integer types
   // XXXbz add tests for throwing versions of all the integer stuff
@@ -345,6 +354,17 @@ interface TestJSImplInterface {
   void passUnionWithObject((object or long) arg);
   //void passUnionWithDict((Dict or long) arg);
 
+  // Date types
+  void passDate(Date arg);
+  void passNullableDate(Date? arg);
+  void passOptionalDate(optional Date arg);
+  void passOptionalNullableDate(optional Date? arg);
+  void passOptionalNullableDateWithDefaultValue(optional Date? arg = null);
+  void passDateSequence(sequence<Date> arg);
+  void passNullableDateSequence(sequence<Date?> arg);
+  Date receiveDate();
+  Date? receiveNullableDate();
+
   // binaryNames tests
   void methodRenamedFrom();
   void methodRenamedFrom(byte argument);
@@ -390,6 +410,7 @@ interface TestJSImplInterface {
   void overload2(TestJSImplInterface arg);
   void overload2(optional Dict arg);
   void overload2(DOMString arg);
+  void overload2(Date arg);
   void overload3(TestJSImplInterface arg);
   void overload3(MyTestCallback arg);
   void overload3(DOMString arg);

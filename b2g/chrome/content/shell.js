@@ -12,6 +12,7 @@ Cu.import('resource://gre/modules/DOMFMRadioParent.jsm');
 Cu.import('resource://gre/modules/AlarmService.jsm');
 Cu.import('resource://gre/modules/ActivitiesService.jsm');
 Cu.import('resource://gre/modules/PermissionPromptHelper.jsm');
+Cu.import('resource://gre/modules/PushService.jsm');
 Cu.import('resource://gre/modules/ObjectWrapper.jsm');
 Cu.import('resource://gre/modules/accessibility/AccessFu.jsm');
 Cu.import('resource://gre/modules/Payment.jsm');
@@ -879,6 +880,7 @@ var WebappsHelper = {
   init: function webapps_init() {
     Services.obs.addObserver(this, "webapps-launch", false);
     Services.obs.addObserver(this, "webapps-ask-install", false);
+    Services.obs.addObserver(this, "webapps-close", false);
   },
 
   registerInstaller: function webapps_registerInstaller(data) {
@@ -928,6 +930,12 @@ var WebappsHelper = {
           type: "webapps-ask-install",
           id: id,
           app: json.app
+        });
+        break;
+      case "webapps-close":
+        shell.sendChromeEvent({
+          "type": "webapps-close",
+          "manifestURL": json.manifestURL
         });
         break;
     }

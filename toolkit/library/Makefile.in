@@ -179,6 +179,7 @@ COMPONENT_LIBS += \
   storagecomps \
   rdf \
   windowds \
+  diskspacewatcher \
   $(NULL)
 
 ifdef BUILD_CTYPES
@@ -470,7 +471,7 @@ OS_LIBS += \
 endif
 
 ifdef MOZ_WMF
-OS_LIBS += $(call EXPAND_LIBNAME,mfuuid wmcodecdspuuid)
+OS_LIBS += $(call EXPAND_LIBNAME,mfuuid wmcodecdspuuid strmiids)
 endif
 
 EXTRA_DEPS += \

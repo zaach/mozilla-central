@@ -62,7 +62,7 @@ IonBailoutIterator::dump() const
     }
 }
 
-static RawScript
+static JSScript *
 GetBailedJSScript(JSContext *cx)
 {
     // Just after the frame conversion, we can safely interpret the ionTop as JS
@@ -261,7 +261,7 @@ ConvertFrames(JSContext *cx, IonActivation *activation, IonBailoutIterator &it)
         // Avoid creating duplicate interpreter frames. This is necessary to
         // avoid blowing out the interpreter stack, and must be used in
         // conjunction with inline-OSR from within bailouts (since each Ion
-        // activation must be tied to a unique JSStackFrame for StackIter to
+        // activation must be tied to a unique StackFrame for ScriptFrameIter to
         // work).
         //
         // Note: If the entry frame is a placeholder (a stub frame pushed for
@@ -530,7 +530,7 @@ uint32_t
 ion::BoundsCheckFailure()
 {
     JSContext *cx = GetIonContext()->cx;
-    RawScript script = GetBailedJSScript(cx);
+    JSScript *script = GetBailedJSScript(cx);
 
     IonSpew(IonSpew_Bailouts, "Bounds check failure %s:%d", script->filename(),
             script->lineno);
@@ -551,7 +551,7 @@ uint32_t
 ion::ShapeGuardFailure()
 {
     JSContext *cx = GetIonContext()->cx;
-    RawScript script = GetBailedJSScript(cx);
+    JSScript *script = GetBailedJSScript(cx);
 
     JS_ASSERT(!script->ionScript()->invalidated());
 
@@ -566,7 +566,7 @@ uint32_t
 ion::CachedShapeGuardFailure()
 {
     JSContext *cx = GetIonContext()->cx;
-    RawScript script = GetBailedJSScript(cx);
+    JSScript *script = GetBailedJSScript(cx);
 
     JS_ASSERT(!script->ionScript()->invalidated());
 
@@ -667,7 +667,7 @@ ion::ThunkToInterpreter(Value *vp)
         // completing the OSR inline.
         //
         // Note that we set runningInIon so that if we re-enter C++ from within
-        // the inlined OSR, StackIter will know to traverse these frames.
+        // the inlined OSR, ScriptFrameIter will know to traverse these frames.
         StackFrame *fp = cx->fp();
 
         fp->setRunningInIon();

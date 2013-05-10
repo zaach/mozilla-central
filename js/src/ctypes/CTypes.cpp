@@ -1904,7 +1904,7 @@ jsvalToIntegerExplicit(jsval val, IntegerType* result)
   if (JSVAL_IS_DOUBLE(val)) {
     // Convert -Inf, Inf, and NaN to 0; otherwise, convert by C-style cast.
     double d = JSVAL_TO_DOUBLE(val);
-    *result = MOZ_DOUBLE_IS_FINITE(d) ? IntegerType(d) : 0;
+    *result = mozilla::IsFinite(d) ? IntegerType(d) : 0;
     return true;
   }
   if (!JSVAL_IS_PRIMITIVE(val)) {
@@ -3326,8 +3326,10 @@ CType::Trace(JSTracer* trc, JSObject* obj)
     FieldInfoHash* fields =
       static_cast<FieldInfoHash*>(JSVAL_TO_PRIVATE(slot));
     for (FieldInfoHash::Range r = fields->all(); !r.empty(); r.popFront()) {
-      JS_CallStringTracer(trc, r.front().key, "fieldName");
-      JS_CallObjectTracer(trc, r.front().value.mType, "fieldType");
+      JSString *key = r.front().key;
+      JS_CallStringTracer(trc, &key, "fieldName");
+      JS_ASSERT(key == r.front().key);
+      JS_CallObjectTracer(trc, &r.front().value.mType, "fieldType");
     }
 
     break;
@@ -3342,10 +3344,10 @@ CType::Trace(JSTracer* trc, JSObject* obj)
     JS_ASSERT(fninfo);
 
     // Identify our objects to the tracer.
-    JS_CallObjectTracer(trc, fninfo->mABI, "abi");
-    JS_CallObjectTracer(trc, fninfo->mReturnType, "returnType");
+    JS_CallObjectTracer(trc, &fninfo->mABI, "abi");
+    JS_CallObjectTracer(trc, &fninfo->mReturnType, "returnType");
     for (size_t i = 0; i < fninfo->mArgTypes.length(); ++i)
-      JS_CallObjectTracer(trc, fninfo->mArgTypes[i], "argType");
+      JS_CallObjectTracer(trc, &fninfo->mArgTypes[i], "argType");
 
     break;
   }
@@ -4334,9 +4336,6 @@ ArrayType::ConstructData(JSContext* cx,
       return JS_FALSE;
   }
 
-  // Root the CType object, in case we created one above.
-  js::AutoObjectRooter root(cx, obj);
-
   JSObject* result = CData::Create(cx, obj, NullPtr(), NULL, true);
   if (!result)
     return JS_FALSE;
@@ -4620,7 +4619,6 @@ ExtractStructField(JSContext* cx, jsval val, JSObject** typeObj)
   RootedObject iter(cx, JS_NewPropertyIterator(cx, obj));
   if (!iter)
     return NULL;
-  js::AutoObjectRooter iterroot(cx, iter);
 
   RootedId nameid(cx);
   if (!JS_NextProperty(cx, iter, nameid.address()))
@@ -4648,8 +4646,7 @@ ExtractStructField(JSContext* cx, jsval val, JSObject** typeObj)
   if (!JS_GetPropertyById(cx, obj, nameid, propVal.address()))
     return NULL;
 
-  if (propVal.isPrimitive() ||
-      !CType::IsCType(propVal.toObjectOrNull())) {
+  if (propVal.isPrimitive() || !CType::IsCType(&propVal.toObject())) {
     JS_ReportError(cx, "struct field descriptors require a valid name and type");
     return NULL;
   }
@@ -4657,7 +4654,7 @@ ExtractStructField(JSContext* cx, jsval val, JSObject** typeObj)
   // Undefined size or zero size struct members are illegal.
   // (Zero-size arrays are legal as struct members in C++, but libffi will
   // choke on a zero-size struct, so we disallow them.)
-  *typeObj = propVal.toObjectOrNull();
+  *typeObj = &propVal.toObject();
   size_t size;
   if (!CType::GetSafeSize(*typeObj, &size) || size == 0) {
     JS_ReportError(cx, "struct field types must have defined and nonzero size");
@@ -5620,7 +5617,6 @@ FunctionType::CreateInternal(JSContext* cx,
                         NULL, JSVAL_VOID, JSVAL_VOID, NULL);
   if (!typeObj)
     return NULL;
-  js::AutoObjectRooter root(cx, typeObj);
 
   // Stash the FunctionInfo in a reserved slot.
   JS_SetReservedSlot(typeObj, SLOT_FNINFO, PRIVATE_TO_JSVAL(fninfo.forget()));
@@ -5654,10 +5650,9 @@ FunctionType::ConstructData(JSContext* cx,
     return JS_FALSE;
   }
 
-  JSObject* closureObj = CClosure::Create(cx, typeObj, fnObj, thisObj, errVal, data);
+  RootedObject closureObj(cx, CClosure::Create(cx, typeObj, fnObj, thisObj, errVal, data));
   if (!closureObj)
     return JS_FALSE;
-  js::AutoObjectRooter root(cx, closureObj);
 
   // Set the closure object as the referent of the new CData object.
   JS_SetReservedSlot(dataObj, SLOT_REFERENT, OBJECT_TO_JSVAL(closureObj));
@@ -6085,10 +6080,10 @@ CClosure::Trace(JSTracer* trc, JSObject* obj)
 
   // Identify our objects to the tracer. (There's no need to identify
   // 'closureObj', since that's us.)
-  JS_CallObjectTracer(trc, cinfo->typeObj, "typeObj");
-  JS_CallObjectTracer(trc, cinfo->jsfnObj, "jsfnObj");
+  JS_CallObjectTracer(trc, &cinfo->typeObj, "typeObj");
+  JS_CallObjectTracer(trc, &cinfo->jsfnObj, "jsfnObj");
   if (cinfo->thisObj)
-    JS_CallObjectTracer(trc, cinfo->thisObj, "thisObj");
+    JS_CallObjectTracer(trc, &cinfo->thisObj, "thisObj");
 }
 
 void
@@ -6156,9 +6151,6 @@ CClosure::ClosureStub(ffi_cif* cif, void* result, void** args, void* userData)
     }
     memset(result, 0, rvSize);
   }
-
-  // Get a death grip on 'closureObj'.
-  js::AutoObjectRooter root(cx, cinfo->closureObj);
 
   // Set up an array for converted arguments.
   Array<jsval, 16> argv;

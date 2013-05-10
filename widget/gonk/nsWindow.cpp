@@ -182,7 +182,10 @@ nsWindow::nsWindow()
         // This has to happen after other init has finished.
         gfxPlatform::GetPlatform();
         sUsingOMTC = ShouldUseOffMainThreadCompositing();
-        sUsingHwc = Preferences::GetBool("layers.composer2d.enabled", false);
+
+        property_get("ro.display.colorfill", propValue, "0");
+        sUsingHwc = Preferences::GetBool("layers.composer2d.enabled",
+                                         atoi(propValue) == 1);
 
         if (sUsingOMTC) {
           sOMTCSurface = new gfxImageSurface(gfxIntSize(1, 1),
@@ -539,6 +542,17 @@ float
 nsWindow::GetDPI()
 {
     return NativeWindow()->xdpi;
+}
+
+double
+nsWindow::GetDefaultScaleInternal()
+{
+    double rawscale = GetDPI() / 192.0;
+    if (rawscale < 1.25)
+        return 1;
+    else if (rawscale < 1.75)
+        return 1.5;
+    return 2;
 }
 
 LayerManager *

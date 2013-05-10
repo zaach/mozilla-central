@@ -25,8 +25,6 @@
 #include "Safepoints.h"
 #include "VMFunctions.h"
 
-#include "vm/ParallelDo.h"
-
 namespace js {
 namespace ion {
 
@@ -59,7 +57,7 @@ bool
 IonFrameIterator::checkInvalidation(IonScript **ionScriptOut) const
 {
     uint8_t *returnAddr = returnAddressToFp();
-    RawScript script = this->script();
+    JSScript *script = this->script();
     // N.B. the current IonScript is not the same as the frame's
     // IonScript if the frame has since been invalidated.
     bool invalidated;
@@ -90,21 +88,17 @@ IonFrameIterator::calleeToken() const
 JSFunction *
 IonFrameIterator::callee() const
 {
-    if (isScripted()) {
-        JS_ASSERT(isFunctionFrame() || isParallelFunctionFrame());
-        if (isFunctionFrame())
-            return CalleeTokenToFunction(calleeToken());
-        return CalleeTokenToParallelFunction(calleeToken());
-    }
-
-    JS_ASSERT(isNative());
-    return exitFrame()->nativeExit()->vp()[0].toObject().toFunction();
+    JS_ASSERT(isScripted());
+    JS_ASSERT(isFunctionFrame() || isParallelFunctionFrame());
+    if (isFunctionFrame())
+        return CalleeTokenToFunction(calleeToken());
+    return CalleeTokenToParallelFunction(calleeToken());
 }
 
 JSFunction *
 IonFrameIterator::maybeCallee() const
 {
-    if ((isScripted() && (isFunctionFrame() || isParallelFunctionFrame())) || isNative())
+    if (isScripted() && (isFunctionFrame() || isParallelFunctionFrame()))
         return callee();
     return NULL;
 }
@@ -174,13 +168,13 @@ IonFrameIterator::isEntryJSFrame() const
     return true;
 }
 
-RawScript
+JSScript *
 IonFrameIterator::script() const
 {
     JS_ASSERT(isScripted());
     if (isBaselineJS())
         return baselineFrame()->script();
-    RawScript script = ScriptFromCalleeToken(calleeToken());
+    JSScript *script = ScriptFromCalleeToken(calleeToken());
     JS_ASSERT(script);
     return script;
 }
@@ -189,7 +183,7 @@ void
 IonFrameIterator::baselineScriptAndPc(JSScript **scriptRes, jsbytecode **pcRes) const
 {
     JS_ASSERT(isBaselineJS());
-    RawScript script = this->script();
+    JSScript *script = this->script();
     if (scriptRes)
         *scriptRes = script;
     uint8_t *retAddr = returnAddressToFp();
@@ -435,6 +429,9 @@ HandleException(JSContext *cx, const IonFrameIterator &frame, ResumeFromExceptio
             break;
           }
 
+          case JSTRY_LOOP:
+            break;
+
           default:
             JS_NOT_REACHED("Invalid try note");
         }
@@ -474,7 +471,7 @@ HandleException(ResumeFromException *rfe)
                 // When profiling, each frame popped needs a notification that
                 // the function has exited, so invoke the probe that a function
                 // is exiting.
-                RawScript script = frames.script();
+                JSScript *script = frames.script();
                 Probes::exitScript(cx, script, script->function(), NULL);
                 if (!frames.more())
                     break;
@@ -494,9 +491,13 @@ HandleException(ResumeFromException *rfe)
                 return;
 
             // Unwind profiler pseudo-stack
-            RawScript script = iter.script();
-            Probes::exitScript(cx, script, script->function(), NULL);
-
+            JSScript *script = iter.script();
+            Probes::exitScript(cx, script, script->function(), iter.baselineFrame());
+            // After this point, any pushed SPS frame would have been popped if it needed
+            // to be.  Unset the flag here so that if we call DebugEpilogue below,
+            // it doesn't try to pop the SPS frame again.
+            iter.baselineFrame()->unsetPushedSPSFrame();
+ 
             if (cx->compartment->debugMode() && !calledDebugEpilogue) {
                 // If DebugEpilogue returns |true|, we have to perform a forced
                 // return, e.g. return frame->returnValue() to the caller.
@@ -518,8 +519,8 @@ HandleException(ResumeFromException *rfe)
         if (current) {
             // Unwind the frame by updating ionTop. This is necessary so that
             // (1) debugger exception unwind and leave frame hooks don't see this
-            // frame when they use StackIter, and (2) StackIter does not crash
-            // when accessing an IonScript that's destroyed by the
+            // frame when they use ScriptFrameIter, and (2) ScriptFrameIter does
+            // not crash when accessing an IonScript that's destroyed by the
             // ionScript->decref call.
             EnsureExitFrame(current);
             cx->mainThread().ionTop = (uint8_t *)current;
@@ -537,8 +538,17 @@ HandleParallelFailure(ResumeFromException *rfe)
 
     while (!iter.isEntry()) {
         parallel::Spew(parallel::SpewBailouts, "Bailing from VM reentry");
-        if (!slice->abortedScript && iter.isScripted())
-            slice->abortedScript = iter.script();
+        if (iter.isScripted()) {
+            slice->bailoutRecord->setCause(ParallelBailoutFailedIC,
+                                           iter.script(), iter.script(), NULL);
+            break;
+        }
+        ++iter;
+    }
+
+    while (!iter.isEntry()) {
+        if (iter.isScripted())
+            PropagateParallelAbort(iter.script(), iter.script());
         ++iter;
     }
 
@@ -633,7 +643,7 @@ MarkCalleeToken(JSTracer *trc, CalleeToken token)
       }
       case CalleeToken_Script:
       {
-        RawScript script = CalleeTokenToScript(token);
+        JSScript *script = CalleeTokenToScript(token);
         MarkScriptRoot(trc, &script, "ion-entry");
         JS_ASSERT(script == CalleeTokenToScript(token));
         break;

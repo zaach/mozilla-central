@@ -140,9 +140,9 @@ public:
                                         JSObject&,
                                         JSObject*,
                                         const Sequence<Dict>&,
-                                        const Optional<JS::Value>&,
-                                        const Optional<NonNull<JSObject> >&,
-                                        const Optional<JSObject*>&,
+                                        const Optional<LazyRootedValue>&,
+                                        const Optional<NonNullLazyRootedObject>&,
+                                        const Optional<LazyRootedObject>&,
                                         ErrorResult&);
 
   // Integer types
@@ -429,15 +429,15 @@ public:
 
   // Any types
   void PassAny(JSContext*, JS::Value);
-  void PassOptionalAny(JSContext*, const Optional<JS::Value>&);
+  void PassOptionalAny(JSContext*, const Optional<LazyRootedValue>&);
   void PassAnyDefaultNull(JSContext*, JS::Value);
   JS::Value ReceiveAny(JSContext*);
 
   // object types
   void PassObject(JSContext*, JSObject&);
   void PassNullableObject(JSContext*, JSObject*);
-  void PassOptionalObject(JSContext*, const Optional<NonNull<JSObject> >&);
-  void PassOptionalNullableObject(JSContext*, const Optional<JSObject*>&);
+  void PassOptionalObject(JSContext*, const Optional<NonNullLazyRootedObject>&);
+  void PassOptionalNullableObject(JSContext*, const Optional<LazyRootedObject>&);
   void PassOptionalNullableObjectWithDefaultValue(JSContext*, JSObject*);
   JSObject* ReceiveObject(JSContext*);
   JSObject* ReceiveNullableObject(JSContext*);
@@ -468,6 +468,17 @@ public:
   //void PassUnionWithEnum(JSContext*, const TestEnumOrObject&);
   //void PassUnionWithCallback(JSContext*, const TestCallbackOrLong&);
   void PassUnionWithObject(JSContext*, const ObjectOrLong&);
+
+  // Date types
+  void PassDate(Date);
+  void PassNullableDate(const Nullable<Date>&);
+  void PassOptionalDate(const Optional<Date>&);
+  void PassOptionalNullableDate(const Optional<Nullable<Date> >&);
+  void PassOptionalNullableDateWithDefaultValue(const Nullable<Date>&);
+  void PassDateSequence(const Sequence<Date>&);
+  void PassNullableDateSequence(const Sequence<Nullable<Date> >&);
+  Date ReceiveDate();
+  Nullable<Date> ReceiveNullableDate();
 
   // binaryNames tests
   void MethodRenamedTo();
@@ -505,6 +516,7 @@ public:
   void Overload2(TestInterface&);
   void Overload2(JSContext*, const Dict&);
   void Overload2(const nsAString&);
+  void Overload2(Date);
   void Overload3(TestInterface&);
   void Overload3(const TestCallback&);
   void Overload3(const nsAString&);
@@ -717,6 +729,14 @@ private:
   void PassOptionalUnion(JSContext*, Optional<ObjectOrLong>&) MOZ_DELETE;
   void PassOptionalNullableUnion(JSContext*, Optional<Nullable<ObjectOrLong> >&) MOZ_DELETE;
   void PassOptionalNullableUnionWithDefaultValue(JSContext*, Nullable<ObjectOrLong>&) MOZ_DELETE;
+
+  // Make sure various date stuff is const as needed
+  void PassNullableDate(Nullable<Date>&) MOZ_DELETE;
+  void PassOptionalDate(Optional<Date>&) MOZ_DELETE;
+  void PassOptionalNullableDate(Optional<Nullable<Date> >&) MOZ_DELETE;
+  void PassOptionalNullableDateWithDefaultValue(Nullable<Date>&) MOZ_DELETE;
+  void PassDateSequence(Sequence<Date>&) MOZ_DELETE;
+  void PassNullableDateSequence(Sequence<Nullable<Date> >&) MOZ_DELETE;
 };
 
 class TestIndexedGetterInterface : public nsISupports,

@@ -1,6 +1,6 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
- *
- * This Source Code Form is subject to the terms of the Mozilla Public
+/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
+/* vim: set ts=8 sts=4 et sw=4 tw=99: */
+/* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
@@ -477,7 +477,7 @@ nsJSIID::Enumerate(nsIXPConnectWrappedNative *wrapper,
 static JSObject *
 FindObjectForHasInstance(JSContext *cx, HandleObject objArg)
 {
-    RootedObject obj(cx, objArg);
+    RootedObject obj(cx, objArg), proto(cx);
 
     RootedObject unwrapped(cx, js::CheckedUnwrap(obj, /* stopAtOuter = */ false));
     if (unwrapped && mozilla::jsipc::JavaScriptParent::IsCPOW(unwrapped))
@@ -486,10 +486,13 @@ FindObjectForHasInstance(JSContext *cx, HandleObject objArg)
     while (obj && !IS_WRAPPER_CLASS(js::GetObjectClass(obj)) &&
            !IsDOMObject(obj) && !mozilla::jsipc::JavaScriptParent::IsCPOW(obj))
     {
-        if (js::IsWrapper(obj))
+        if (js::IsWrapper(obj)) {
             obj = js::CheckedUnwrap(obj, /* stopAtOuter = */ false);
-        else if (!js::GetObjectProto(cx, obj, obj.address()))
+            continue;
+        }
+        if (!js::GetObjectProto(cx, obj, &proto))
             return nullptr;
+        obj = proto;
     }
     return obj;
 }
@@ -844,8 +847,7 @@ nsJSCID::GetService(const JS::Value& iidval, JSContext* cx,
 NS_IMETHODIMP
 nsJSCID::Construct(nsIXPConnectWrappedNative *wrapper,
                    JSContext * cx, JSObject * objArg,
-                   uint32_t argc, jsval * argv, jsval * vp,
-                   bool *_retval)
+                   const CallArgs &args, bool *_retval)
 {
     RootedObject obj(cx, objArg);
     XPCJSRuntime* rt = nsXPConnect::GetRuntimeInstance();
@@ -854,7 +856,8 @@ nsJSCID::Construct(nsIXPConnectWrappedNative *wrapper,
 
     // 'push' a call context and call on it
     RootedId name(cx, rt->GetStringID(XPCJSRuntime::IDX_CREATE_INSTANCE));
-    XPCCallContext ccx(JS_CALLER, cx, obj, NullPtr(), name, argc, argv, vp);
+    XPCCallContext ccx(JS_CALLER, cx, obj, NullPtr(), name, args.length(), args.array(),
+                       args.rval().address());
 
     *_retval = XPCWrappedNative::CallMethod(ccx);
     return NS_OK;

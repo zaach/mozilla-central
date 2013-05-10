@@ -121,6 +121,8 @@ mjit::Compiler::Compiler(JSContext *cx, JSScript *outerScript,
     gcNumber(cx->runtime->gcNumber),
     pcLengths(NULL)
 {
+    JS_ASSERT(cx->jaegerCompilationAllowed());
+
     if (!IsIonEnabled(cx)) {
         /* Once a script starts getting really hot we will inline calls in it. */
         if (!debugMode() && cx->typeInferenceEnabled() && globalObj &&
@@ -837,7 +839,7 @@ MakeJITScript(JSContext *cx, JSScript *script)
                     return NULL;
 
                 /* Add an edge for fallthrough from this chunk to the next one. */
-                if (!BytecodeNoFallThrough(op)) {
+                if (BytecodeFallsThrough(op)) {
                     CrossChunkEdge edge;
                     edge.source = offset;
                     edge.target = nextOffset;
@@ -992,6 +994,9 @@ mjit::CanMethodJIT(JSContext *cx, JSScript *script, jsbytecode *pc,
     bool compiledOnce = false;
   checkOutput:
     if (!cx->methodJitEnabled)
+        return Compile_Abort;
+
+    if (!cx->jaegerCompilationAllowed())
         return Compile_Abort;
 
 #ifdef JS_ION
@@ -6108,7 +6113,7 @@ mjit::Compiler::jsop_aliasedVar(ScopeCoordinate sc, bool get, bool poppedAfter)
     for (unsigned i = 0; i < sc.hops; i++)
         masm.loadPayload(Address(reg, ScopeObject::offsetOfEnclosingScope()), reg);
 
-    RawShape shape = ScopeCoordinateToStaticScopeShape(cx, script_, PC);
+    Shape *shape = ScopeCoordinateToStaticScopeShape(cx, script_, PC);
     Address addr;
     if (shape->numFixedSlots() <= sc.slot) {
         masm.loadPtr(Address(reg, JSObject::offsetOfSlots()), reg);
@@ -6256,7 +6261,7 @@ mjit::Compiler::iter(unsigned flags)
     masm.loadPtr(Address(T1, offsetof(types::TypeObject, proto)), T1);
     masm.loadShape(T1, T1);
     masm.loadPtr(Address(nireg, offsetof(NativeIterator, shapes_array)), T2);
-    masm.loadPtr(Address(T2, sizeof(RawShape)), T2);
+    masm.loadPtr(Address(T2, sizeof(Shape *)), T2);
     Jump mismatchedProto = masm.branchPtr(Assembler::NotEqual, T1, T2);
     stubcc.linkExit(mismatchedProto, Uses(1));
 
@@ -6563,7 +6568,7 @@ mjit::Compiler::jsop_getgname(uint32_t index)
          * reallocation of the global object's slots.
          */
         RootedId id(cx, NameToId(name));
-        RawShape shape = globalObj->nativeLookup(cx, id);
+        Shape *shape = globalObj->nativeLookup(cx, id);
         if (shape && shape->hasDefaultGetter() && shape->hasSlot()) {
             HeapSlot *value = &globalObj->getSlotRef(shape->slot());
             if (!value->isUndefined() && !propertyTypes->isOwnProperty(cx, globalType, true)) {
@@ -8123,7 +8128,7 @@ mjit::Compiler::testBarrier(RegisterID typeReg, RegisterID dataReg,
     if (!cx->typeInferenceEnabled() || !(js_CodeSpec[*PC].format & JOF_TYPESET))
         return state;
 
-    types::StackTypeSet *types = analysis->bytecodeTypes(PC);
+    types::StackTypeSet *types = types::TypeScript::BytecodeTypes(script_, PC);
     if (types->unknown()) {
         /*
          * If the result of this opcode is already unknown, there is no way for
@@ -8188,7 +8193,7 @@ mjit::Compiler::testPushedType(RejoinState rejoin, int which, bool ool)
     if (!cx->typeInferenceEnabled() || !(js_CodeSpec[*PC].format & JOF_TYPESET))
         return;
 
-    types::TypeSet *types = analysis->bytecodeTypes(PC);
+    types::TypeSet *types = types::TypeScript::BytecodeTypes(script_, PC);
     if (types->unknown())
         return;
 

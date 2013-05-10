@@ -984,7 +984,7 @@ Evaluate(JSContext *cx, unsigned argc, jsval *vp)
         if (!JSVAL_IS_VOID(v)) {
             global = JSVAL_IS_PRIMITIVE(v) ? NULL : JSVAL_TO_OBJECT(v);
             if (global) {
-                global = JS_UnwrapObject(global);
+                global = js::UncheckedUnwrap(global);
                 if (!global)
                     return false;
             }
@@ -1403,7 +1403,7 @@ AssertEq(JSContext *cx, unsigned argc, jsval *vp)
     return true;
 }
 
-static RawScript
+static JSScript *
 ValueToScript(JSContext *cx, jsval v, JSFunction **funp = NULL)
 {
     RootedFunction fun(cx, JS_ValueToFunction(cx, v));
@@ -1485,7 +1485,7 @@ GetScriptAndPCArgs(JSContext *cx, unsigned argc, jsval *argv, MutableHandleScrip
 }
 
 static JSTrapStatus
-TrapHandler(JSContext *cx, RawScript, jsbytecode *pc, jsval *rvalArg,
+TrapHandler(JSContext *cx, JSScript *, jsbytecode *pc, jsval *rvalArg,
             jsval closure)
 {
     JSString *str = JSVAL_TO_STRING(closure);
@@ -1558,7 +1558,7 @@ Untrap(JSContext *cx, unsigned argc, jsval *vp)
 }
 
 static JSTrapStatus
-DebuggerAndThrowHandler(JSContext *cx, RawScript script, jsbytecode *pc, jsval *rval,
+DebuggerAndThrowHandler(JSContext *cx, JSScript *script, jsbytecode *pc, jsval *rval,
                         void *closure)
 {
     return TrapHandler(cx, script, pc, rval, STRING_TO_JSVAL((JSString *)closure));
@@ -1809,7 +1809,7 @@ JS_STATIC_ASSERT(JSTRY_CATCH == 0);
 JS_STATIC_ASSERT(JSTRY_FINALLY == 1);
 JS_STATIC_ASSERT(JSTRY_ITER == 2);
 
-static const char* const TryNoteNames[] = { "catch", "finally", "iter" };
+static const char* const TryNoteNames[] = { "catch", "finally", "iter", "loop" };
 
 static JSBool
 TryNotes(JSContext *cx, HandleScript script, Sprinter *sp)
@@ -1862,7 +1862,7 @@ DisassembleScript(JSContext *cx, HandleScript script, HandleFunction fun, bool l
     if (recursive && script->hasObjects()) {
         ObjectArray *objects = script->objects();
         for (unsigned i = 0; i != objects->length; ++i) {
-            RawObject obj = objects->vector[i];
+            JSObject *obj = objects->vector[i];
             if (obj->isFunction()) {
                 Sprint(sp, "\n");
                 RootedFunction f(cx, obj->toFunction());
@@ -4927,11 +4927,6 @@ ProcessArgs(JSContext *cx, JSObject *obj_, OptionParser *op)
     if (op->getBoolOption('s'))
         JS_ToggleOptions(cx, JSOPTION_STRICT);
 
-    if (op->getBoolOption("no-jm")) {
-        enableMethodJit = false;
-        JS_ToggleOptions(cx, JSOPTION_METHODJIT);
-    }
-
     if (op->getBoolOption('d')) {
         JS_SetRuntimeDebugMode(JS_GetRuntime(cx), true);
         JS_SetDebugMode(cx, true);
@@ -5121,12 +5116,16 @@ Shell(JSContext *cx, OptionParser *op, char **envp)
     JSAutoRequest ar(cx);
 
     /*
-     * First check to see if type inference is enabled. This flag must be set
-     * on the compartment when it is constructed.
+     * First check to see if type inference and JM are enabled. These flags
+     * must be set on the compartment when it is constructed.
      */
     if (op->getBoolOption("no-ti")) {
         enableTypeInference = false;
         JS_ToggleOptions(cx, JSOPTION_TYPE_INFERENCE);
+    }
+    if (op->getBoolOption("no-jm")) {
+        enableMethodJit = false;
+        JS_ToggleOptions(cx, JSOPTION_METHODJIT);
     }
 
     RootedObject glob(cx);

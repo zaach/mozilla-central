@@ -256,9 +256,8 @@ TraceProtoAndIfaceCache(JSTracer* trc, JSObject* obj)
     return;
   JSObject** protoAndIfaceArray = GetProtoAndIfaceArray(obj);
   for (size_t i = 0; i < kProtoAndIfaceCacheCount; ++i) {
-    JSObject* proto = protoAndIfaceArray[i];
-    if (proto) {
-      JS_CallObjectTracer(trc, proto, "protoAndIfaceArray[i]");
+    if (protoAndIfaceArray[i]) {
+      JS_CallObjectTracer(trc, &protoAndIfaceArray[i], "protoAndIfaceArray[i]");
     }
   }
 }
@@ -277,7 +276,8 @@ DestroyProtoAndIfaceCache(JSObject* obj)
  * Add constants to an object.
  */
 bool
-DefineConstants(JSContext* cx, JSObject* obj, const ConstantSpec* cs);
+DefineConstants(JSContext* cx, JS::Handle<JSObject*> obj,
+                const ConstantSpec* cs);
 
 struct JSNativeHolder
 {
@@ -299,6 +299,7 @@ struct NamedConstructor
  * global is used as the parent of the interface object and the interface
  *        prototype object
  * protoProto is the prototype to use for the interface prototype object.
+ * interfaceProto is the prototype to use for the interface object.
  * protoClass is the JSClass to use for the interface prototype object.
  *            This is null if we should not create an interface prototype
  *            object.
@@ -331,8 +332,10 @@ struct NamedConstructor
  * |name|, which must also be non-null.
  */
 void
-CreateInterfaceObjects(JSContext* cx, JSObject* global, JSObject* protoProto,
+CreateInterfaceObjects(JSContext* cx, JS::Handle<JSObject*> global,
+                       JS::Handle<JSObject*> protoProto,
                        JSClass* protoClass, JSObject** protoCache,
+                       JS::Handle<JSObject*> interfaceProto,
                        JSClass* constructorClass, const JSNativeHolder* constructor,
                        unsigned ctorNargs, const NamedConstructor* namedConstructors,
                        JSObject** constructorCache, const DOMClass* domClass,
@@ -344,11 +347,13 @@ CreateInterfaceObjects(JSContext* cx, JSObject* global, JSObject* protoProto,
  * Define the unforgeable attributes on an object.
  */
 bool
-DefineUnforgeableAttributes(JSContext* cx, JSObject* obj,
+DefineUnforgeableAttributes(JSContext* cx, JS::Handle<JSObject*> obj,
                             const Prefable<const JSPropertySpec>* props);
 
 bool
-DefineWebIDLBindingPropertiesOnXPCProto(JSContext* cx, JSObject* proto, const NativeProperties* properties);
+DefineWebIDLBindingPropertiesOnXPCProto(JSContext* cx,
+                                        JS::Handle<JSObject*> proto,
+                                        const NativeProperties* properties);
 
 #ifdef _MSC_VER
 #define HAS_MEMBER_CHECK(_name)                                           \
@@ -620,7 +625,7 @@ WrapNewBindingNonWrapperCachedObject(JSContext* cx,
 {
   MOZ_ASSERT(value);
   // We try to wrap in the compartment of the underlying object of "scope"
-  JSObject* obj;
+  JS::Rooted<JSObject*> obj(cx);
   {
     // scope for the JSAutoCompartment so that we restore the compartment
     // before we call JS_WrapValue.
@@ -665,7 +670,7 @@ WrapNewBindingNonWrapperCachedOwnedObject(JSContext* cx,
     NS_RUNTIMEABORT("Don't try to wrap null objects");
   }
   // We try to wrap in the compartment of the underlying object of "scope"
-  JSObject* obj;
+  JS::Rooted<JSObject*> obj(cx);
   {
     // scope for the JSAutoCompartment so that we restore the compartment
     // before we call JS_WrapValue.
@@ -683,9 +688,7 @@ WrapNewBindingNonWrapperCachedOwnedObject(JSContext* cx,
 
     bool tookOwnership = false;
     obj = value->WrapObject(cx, scope, &tookOwnership);
-    if (obj) {
-      MOZ_ASSERT(tookOwnership);
-    }
+    MOZ_ASSERT_IF(obj, tookOwnership);
     if (tookOwnership) {
       value.forget();
     }
@@ -1017,8 +1020,8 @@ WrapNativeISupportsParent(JSContext* cx, JS::Handle<JSObject*> scope, T* p,
                           nsWrapperCache* cache)
 {
   qsObjectHelper helper(ToSupports(p), cache);
-  JS::Value v;
-  return XPCOMObjectToJsval(cx, scope, helper, nullptr, false, &v) ?
+  JS::Rooted<JS::Value> v(cx);
+  return XPCOMObjectToJsval(cx, scope, helper, nullptr, false, v.address()) ?
          JSVAL_TO_OBJECT(v) :
          nullptr;
 }
@@ -1175,7 +1178,7 @@ WrapCallThisObject(JSContext* cx, JS::Handle<JSObject*> scope, const T& p)
   // Callbacks are nsISupports, so WrapNativeParent will just happily wrap them
   // up as an nsISupports XPCWrappedNative... which is not at all what we want.
   // So we need to special-case them.
-  JSObject* obj = GetJSObjectFromCallback(p);
+  JS::Rooted<JSObject*> obj(cx, GetJSObjectFromCallback(p));
   if (!obj) {
     // WrapNativeParent is a bit of a Swiss army knife that will
     // wrap anything for us.
@@ -1186,7 +1189,7 @@ WrapCallThisObject(JSContext* cx, JS::Handle<JSObject*> scope, const T& p)
   }
 
   // But all that won't necessarily put things in the compartment of cx.
-  if (!JS_WrapObject(cx, &obj)) {
+  if (!JS_WrapObject(cx, obj.address())) {
     return nullptr;
   }
 
@@ -1300,12 +1303,14 @@ JSBool
 ThrowingConstructor(JSContext* cx, unsigned argc, JS::Value* vp);
 
 bool
-GetPropertyOnPrototype(JSContext* cx, JSObject* proxy, jsid id, bool* found,
+GetPropertyOnPrototype(JSContext* cx, JS::Handle<JSObject*> proxy,
+                       JS::Handle<jsid> id, bool* found,
                        JS::Value* vp);
 
 bool
-HasPropertyOnPrototype(JSContext* cx, JSObject* proxy, DOMProxyHandler* handler,
-                       jsid id);
+HasPropertyOnPrototype(JSContext* cx, JS::Handle<JSObject*> proxy,
+                       DOMProxyHandler* handler,
+                       JS::Handle<jsid> id);
 
 template<class T>
 class NonNull
@@ -1425,34 +1430,6 @@ protected:
 #ifdef DEBUG
   bool inited;
 #endif
-};
-
-class NonNullLazyRootedObject : public Maybe<JS::RootedObject>
-{
-public:
-  operator JSObject&() const {
-    MOZ_ASSERT(!empty() && ref(), "Can not alias null.");
-    return *ref();
-  }
-
-  JSObject** Slot() { // To make us look like a NonNull
-    // Assert if we're empty, on purpose
-    return ref().address();
-  }
-};
-
-class LazyRootedObject : public Maybe<JS::RootedObject>
-{
-public:
-  operator JSObject*() const {
-    return empty() ? (JSObject*) nullptr : ref();
-  }
-
-  JSObject** operator&()
-  {
-    // Assert if we're empty, on purpose
-    return ref().address();
-  }
 };
 
 // A struct that has the same layout as an nsDependentString but much
@@ -1631,8 +1608,10 @@ AddStringToIDVector(JSContext* cx, JS::AutoIdVector& vector, const char* name)
  *     interface or interface prototype object.
  */
 bool
-XrayResolveOwnProperty(JSContext* cx, JSObject* wrapper, JSObject* obj,
-                       jsid id, JSPropertyDescriptor* desc, unsigned flags);
+XrayResolveOwnProperty(JSContext* cx, JS::Handle<JSObject*> wrapper,
+                       JS::Handle<JSObject*> obj,
+                       JS::Handle<jsid> id,
+                       JSPropertyDescriptor* desc, unsigned flags);
 
 /**
  * This resolves operations, attributes and constants of the interfaces for obj.
@@ -1642,8 +1621,9 @@ XrayResolveOwnProperty(JSContext* cx, JSObject* wrapper, JSObject* obj,
  *     interface or interface prototype object.
  */
 bool
-XrayResolveNativeProperty(JSContext* cx, JSObject* wrapper, JSObject* obj,
-                          jsid id, JSPropertyDescriptor* desc);
+XrayResolveNativeProperty(JSContext* cx, JS::Handle<JSObject*> wrapper,
+                          JS::Handle<JSObject*> obj,
+                          JS::Handle<jsid> id, JSPropertyDescriptor* desc);
 
 /**
  * This enumerates indexed or named properties of obj and operations, attributes
@@ -1655,7 +1635,8 @@ XrayResolveNativeProperty(JSContext* cx, JSObject* wrapper, JSObject* obj,
  * flags are JSITER_* flags.
  */
 bool
-XrayEnumerateProperties(JSContext* cx, JSObject* wrapper, JSObject* obj,
+XrayEnumerateProperties(JSContext* cx, JS::Handle<JSObject*> wrapper,
+                        JS::Handle<JSObject*> obj,
                         unsigned flags, JS::AutoIdVector& props);
 
 extern NativePropertyHooks sWorkerNativePropertyHooks;
@@ -1738,7 +1719,8 @@ void SetXrayExpandoChain(JSObject *obj, JSObject *chain);
  * v contains the JSString for the value if the function returns true.
  */
 bool
-NativeToString(JSContext* cx, JSObject* wrapper, JSObject* obj, const char* pre,
+NativeToString(JSContext* cx, JS::Handle<JSObject*> wrapper,
+               JS::Handle<JSObject*> obj, const char* pre,
                const char* post, JS::Value* v);
 
 HAS_MEMBER(JSBindingFinalized)
@@ -1778,14 +1760,16 @@ ReparentWrapper(JSContext* aCx, JS::HandleObject aObj);
  * instance should not be a security wrapper.
  */
 JSBool
-InterfaceHasInstance(JSContext* cx, JSHandleObject obj, JSObject* instance,
+InterfaceHasInstance(JSContext* cx, JS::Handle<JSObject*> obj,
+                     JS::Handle<JSObject*> instance,
                      JSBool* bp);
 JSBool
 InterfaceHasInstance(JSContext* cx, JSHandleObject obj, JSMutableHandleValue vp,
                      JSBool* bp);
 
-// Helper for lenient getters/setters to report to console
-void
+// Helper for lenient getters/setters to report to console.  If this
+// returns false, we couldn't even get a global.
+bool
 ReportLenientThisUnwrappingFailure(JSContext* cx, JS::Handle<JSObject*> obj);
 
 inline JSObject*

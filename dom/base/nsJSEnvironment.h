@@ -44,8 +44,6 @@ public:
   NS_DECL_CYCLE_COLLECTION_SCRIPT_HOLDER_CLASS_AMBIGUOUS(nsJSContext,
                                                          nsIScriptContext)
 
-  virtual nsIScriptObjectPrincipal* GetObjectPrincipal();
-
   virtual nsresult EvaluateString(const nsAString& aScript,
                                   JSObject& aScopeObject,
                                   JS::CompileOptions &aOptions,
@@ -163,7 +161,7 @@ protected:
 
   // Helper to convert xpcom datatypes to jsvals.
   nsresult ConvertSupportsTojsvals(nsISupports *aArgs,
-                                   JSObject *aScope,
+                                   JS::Handle<JSObject*> aScope,
                                    uint32_t *aArgc,
                                    JS::Value **aArgv,
                                    mozilla::Maybe<nsRootedJSValueArray> &aPoolRelease);
@@ -172,7 +170,8 @@ protected:
 
   // given an nsISupports object (presumably an event target or some other
   // DOM object), get (or create) the JSObject wrapping it.
-  nsresult JSObjectFromInterface(nsISupports *aSup, JSObject *aScript,
+  nsresult JSObjectFromInterface(nsISupports *aSup,
+                                 JS::Handle<JSObject*> aScript,
                                  JSObject **aRet);
 
   // Report the pending exception on our mContext, if any.  This
@@ -327,7 +326,7 @@ JSObject* NS_DOMReadStructuredClone(JSContext* cx,
 
 JSBool NS_DOMWriteStructuredClone(JSContext* cx,
                                   JSStructuredCloneWriter* writer,
-                                  JSObject* obj, void *closure);
+                                  JS::Handle<JSObject*> obj, void *closure);
 
 void NS_DOMStructuredCloneError(JSContext* cx, uint32_t errorid);
 

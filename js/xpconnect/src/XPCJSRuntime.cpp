@@ -430,7 +430,7 @@ void XPCJSRuntime::TraceXPConnectRoots(JSTracer *trc)
     while (JSContext *acx = JS_ContextIterator(GetJSRuntime(), &iter)) {
         MOZ_ASSERT(js::HasUnrootedGlobal(acx));
         if (JSObject *global = JS_GetGlobalObject(acx))
-            JS_CallObjectTracer(trc, global, "XPC global object");
+            JS_CallObjectTracer(trc, &global, "XPC global object");
     }
 
     XPCAutoLock lock(mMapLock);
@@ -2496,8 +2496,6 @@ CompartmentNameCallback(JSRuntime *rt, JSCompartment *comp,
     memcpy(buf, name.get(), name.Length() + 1);
 }
 
-bool XPCJSRuntime::gXBLScopesEnabled;
-
 static bool
 PreserveWrapper(JSContext *cx, JSObject *objArg)
 {
@@ -2668,10 +2666,6 @@ XPCJSRuntime::XPCJSRuntime(nsXPConnect* aXPConnect)
 #endif
 
     DOM_InitInterfaces();
-    Preferences::AddBoolVarCache(&gXBLScopesEnabled,
-                                 "dom.xbl_scopes",
-                                 false);
-
 
     // these jsids filled in later when we have a JSContext to work with.
     mStrIDs[0] = JSID_VOID;
@@ -3018,7 +3012,7 @@ JSObject *
 XPCJSRuntime::GetJunkScope()
 {
     if (!mJunkScope) {
-        SafeAutoJSContext cx;
+        AutoSafeJSContext cx;
         SandboxOptions options(cx);
         options.sandboxName.AssignASCII("XPConnect Junk Compartment");
         JSAutoRequest ac(cx);

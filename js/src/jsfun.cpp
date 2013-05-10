@@ -12,7 +12,6 @@
 #include <string.h>
 
 #include "mozilla/PodOperations.h"
-#include "mozilla/RangedPtr.h"
 #include "mozilla/Util.h"
 
 #include "jstypes.h"
@@ -126,7 +125,7 @@ fun_getProperty(JSContext *cx, HandleObject obj_, HandleId id, MutableHandleValu
         // IonMonkey does not guarantee |f.arguments| can be
         // fully recovered, so we try to mitigate observing this behavior by
         // detecting its use early.
-        RawScript script = iter.script();
+        JSScript *script = iter.script();
         ion::ForbidCompilation(cx, script);
 #endif
 
@@ -136,7 +135,7 @@ fun_getProperty(JSContext *cx, HandleObject obj_, HandleId id, MutableHandleValu
 
 #ifdef JS_METHODJIT
     StackFrame *fp = NULL;
-    if (iter.isScript() && !iter.isIon())
+    if (!iter.isIon())
         fp = iter.interpFrame();
 
     if (JSID_IS_ATOM(id, cx->names().caller) && fp && fp->prev()) {
@@ -149,7 +148,7 @@ fun_getProperty(JSContext *cx, HandleObject obj_, HandleId id, MutableHandleValu
         jsbytecode *prevpc = fp->prevpc(&inlined);
         if (inlined) {
             mjit::JITChunk *chunk = fp->prev()->jit()->chunk(prevpc);
-            RawFunction fun = chunk->inlineFrames()[inlined->inlineIndex].fun;
+            JSFunction *fun = chunk->inlineFrames()[inlined->inlineIndex].fun;
             fun->nonLazyScript()->uninlineable = true;
             MarkTypeObjectFlags(cx, fun, OBJECT_FLAG_UNINLINEABLE);
         }
@@ -257,7 +256,7 @@ ResolveInterpretedFunctionPrototype(JSContext *cx, HandleObject obj)
      * Make the prototype object an instance of Object with the same parent
      * as the function object itself.
      */
-    RawObject objProto = obj->global().getOrCreateObjectPrototype(cx);
+    JSObject *objProto = obj->global().getOrCreateObjectPrototype(cx);
     if (!objProto)
         return NULL;
     RootedObject proto(cx, NewObjectWithGivenProto(cx, &ObjectClass, objProto, NULL, SingletonObject));
@@ -524,7 +523,7 @@ JSFunction::trace(JSTracer *trc)
 }
 
 static void
-fun_trace(JSTracer *trc, RawObject obj)
+fun_trace(JSTracer *trc, JSObject *obj)
 {
     obj->toFunction()->trace(trc);
 }
@@ -920,9 +919,9 @@ js_fun_apply(JSContext *cx, unsigned argc, Value *vp)
         StackFrame *fp = cx->fp();
 
 #ifdef JS_ION
-        // We do not want to use StackIter to abstract here because this is
-        // supposed to be a fast path as opposed to StackIter which is doing
-        // complex logic to settle on the next frame twice.
+        // We do not want to use ScriptFrameIter to abstract here because this
+        // is supposed to be a fast path as opposed to ScriptFrameIter which is
+        // doing complex logic to settle on the next frame twice.
         if (fp->beginsIonActivation()) {
             ion::IonActivationIterator activations(cx);
             ion::IonFrameIterator frame(activations);
@@ -1156,7 +1155,7 @@ js::CallOrConstructBoundFunction(JSContext *cx, unsigned argc, Value *vp)
 static JSBool
 fun_isGenerator(JSContext *cx, unsigned argc, Value *vp)
 {
-    RawFunction fun;
+    JSFunction *fun;
     if (!IsFunctionObject(vp[1], &fun)) {
         JS_SET_RVAL(cx, vp, BooleanValue(false));
         return true;
@@ -1164,7 +1163,7 @@ fun_isGenerator(JSContext *cx, unsigned argc, Value *vp)
 
     bool result = false;
     if (fun->hasScript()) {
-        RawScript script = fun->nonLazyScript();
+        JSScript *script = fun->nonLazyScript();
         JS_ASSERT(script->length != 0);
         result = script->isGenerator;
     }
@@ -1200,7 +1199,7 @@ fun_bind(JSContext *cx, unsigned argc, Value *vp)
     /* Steps 7-9. */
     RootedValue thisArg(cx, args.length() >= 1 ? args[0] : UndefinedValue());
     RootedObject target(cx, &thisv.toObject());
-    RawObject boundFunction = js_fun_bind(cx, target, thisArg, boundArgs, argslen);
+    JSObject *boundFunction = js_fun_bind(cx, target, thisArg, boundArgs, argslen);
     if (!boundFunction)
         return false;
 
@@ -1296,7 +1295,8 @@ js::Function(JSContext *cx, unsigned argc, Value *vp)
     CompileOptions options(cx);
     options.setPrincipals(principals)
            .setOriginPrincipals(originPrincipals)
-           .setFileAndLine(filename, lineno);
+           .setFileAndLine(filename, lineno)
+           .setCompileAndGo(true);
 
     unsigned n = args.length() ? args.length() - 1 : 0;
     if (n > 0) {
@@ -1424,7 +1424,7 @@ js::Function(JSContext *cx, unsigned argc, Value *vp)
 
 #ifdef DEBUG
     for (unsigned i = 0; i < formals.length(); ++i) {
-        RawString str = formals[i];
+        JSString *str = formals[i];
         JS_ASSERT(str->asAtom().asPropertyName() == formals[i]);
     }
 #endif
@@ -1675,7 +1675,7 @@ JSObject::hasIdempotentProtoChain() const
 {
     // Return false if obj (or an object on its proto chain) is non-native or
     // has a resolve or lookup hook.
-    RawObject obj = const_cast<RawObject>(this);
+    JSObject *obj = const_cast<JSObject *>(this);
     while (true) {
         if (!obj->isNative())
             return false;

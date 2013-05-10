@@ -18,7 +18,6 @@ DOMCI_CLASS(DOMConstructor)
 // Core classes
 DOMCI_CLASS(DOMException)
 DOMCI_CLASS(Element)
-DOMCI_CLASS(Attr)
 
 // Event classes
 DOMCI_CLASS(Event)
@@ -83,8 +82,6 @@ DOMCI_CLASS(CSSRect)
 // DOM Chrome Window class, almost identical to Window
 DOMCI_CLASS(ChromeWindow)
 
-DOMCI_CLASS(ImageDocument)
-
 #ifdef MOZ_XUL
 DOMCI_CLASS(XULTemplateBuilder)
 DOMCI_CLASS(XULTreeBuilder)
@@ -108,11 +105,9 @@ DOMCI_CLASS(TimeEvent)
 DOMCI_CLASS(SVGAnimatedEnumeration)
 DOMCI_CLASS(SVGAnimatedInteger)
 DOMCI_CLASS(SVGAnimatedNumber)
-DOMCI_CLASS(SVGAnimatedRect)
 DOMCI_CLASS(SVGAnimatedString)
 DOMCI_CLASS(SVGLength)
 DOMCI_CLASS(SVGNumber)
-DOMCI_CLASS(SVGRect)
 
 // Canvas
 DOMCI_CLASS(MozCanvasPrintState)

@@ -117,7 +117,6 @@ class JS_PUBLIC_API(AutoGCRooter) {
         SHAPEVECTOR =  -4, /* js::AutoShapeVector */
         IDARRAY =      -6, /* js::AutoIdArray */
         DESCRIPTORS =  -7, /* js::AutoPropDescArrayRooter */
-        OBJECT =       -8, /* js::AutoObjectRooter */
         ID =           -9, /* js::AutoIdRooter */
         VALVECTOR =   -10, /* js::AutoValueVector */
         DESCRIPTOR =  -11, /* js::AutoPropertyDescriptorRooter */
@@ -145,35 +144,6 @@ class JS_PUBLIC_API(AutoGCRooter) {
     /* No copy or assignment semantics. */
     AutoGCRooter(AutoGCRooter &ida) MOZ_DELETE;
     void operator=(AutoGCRooter &ida) MOZ_DELETE;
-};
-
-class AutoObjectRooter : private AutoGCRooter
-{
-  public:
-    AutoObjectRooter(JSContext *cx, JSObject *obj = NULL
-                     MOZ_GUARD_OBJECT_NOTIFIER_PARAM)
-      : AutoGCRooter(cx, OBJECT), obj_(obj)
-    {
-        MOZ_GUARD_OBJECT_NOTIFIER_INIT;
-    }
-
-    void setObject(JSObject *obj) {
-        obj_ = obj;
-    }
-
-    JSObject * object() const {
-        return obj_;
-    }
-
-    JSObject ** addr() {
-        return &obj_;
-    }
-
-    friend void AutoGCRooter::trace(JSTracer *trc);
-
-  private:
-    JSObject *obj_;
-    MOZ_DECL_USE_GUARD_OBJECT_NOTIFIER
 };
 
 class AutoStringRooter : private AutoGCRooter {
@@ -594,6 +564,19 @@ class AutoIdVector : public AutoVectorRooter<jsid>
     MOZ_DECL_USE_GUARD_OBJECT_NOTIFIER
 };
 
+class AutoObjectVector : public AutoVectorRooter<JSObject *>
+{
+  public:
+    explicit AutoObjectVector(JSContext *cx
+                              MOZ_GUARD_OBJECT_NOTIFIER_PARAM)
+        : AutoVectorRooter<JSObject *>(cx, OBJVECTOR)
+    {
+        MOZ_GUARD_OBJECT_NOTIFIER_INIT;
+    }
+
+    MOZ_DECL_USE_GUARD_OBJECT_NOTIFIER
+};
+
 class AutoScriptVector : public AutoVectorRooter<JSScript *>
 {
   public:
@@ -924,8 +907,8 @@ typedef JSBool
 /*
  * Function type for trace operation of the class called to enumerate all
  * traceable things reachable from obj's private data structure. For each such
- * thing, a trace implementation must call one of the |JS_Call<Type>Tracer|
- * variants on the thing.
+ * thing, a trace implementation must call one of the JS_Call*Tracer variants
+ * on the thing.
  *
  * JSTraceOp implementation can assume that no other threads mutates object
  * state. It must not change state of the object or corresponding native
@@ -1152,7 +1135,7 @@ typedef JSObject *(*ReadStructuredCloneOp)(JSContext *cx, JSStructuredCloneReade
  * Return true on success, false on error/exception.
  */
 typedef JSBool (*WriteStructuredCloneOp)(JSContext *cx, JSStructuredCloneWriter *w,
-                                         JSObject *obj, void *closure);
+                                         JS::Handle<JSObject*> obj, void *closure);
 
 /*
  * This is called when JS_WriteStructuredClone is given an invalid transferable.
@@ -1181,7 +1164,7 @@ JS_NumberValue(double d)
 {
     int32_t i;
     d = JS_CANONICALIZE_NAN(d);
-    if (MOZ_DOUBLE_IS_INT32(d, &i))
+    if (mozilla::DoubleIsInt32(d, &i))
         return INT_TO_JSVAL(i);
     return DOUBLE_TO_JSVAL(d);
 }
@@ -1317,7 +1300,7 @@ JSID_TO_GCTHING(jsid id)
  */
 
 static JS_ALWAYS_INLINE JSBool
-JSID_IS_VOID(const js::RawId id)
+JSID_IS_VOID(const jsid id)
 {
     JS_ASSERT_IF(((size_t)JSID_BITS(id) & JSID_TYPE_MASK) == JSID_TYPE_VOID,
                  JSID_BITS(id) == JSID_TYPE_VOID);
@@ -1325,7 +1308,7 @@ JSID_IS_VOID(const js::RawId id)
 }
 
 static JS_ALWAYS_INLINE JSBool
-JSID_IS_EMPTY(const js::RawId id)
+JSID_IS_EMPTY(const jsid id)
 {
     return ((size_t)JSID_BITS(id) == JSID_TYPE_OBJECT);
 }
@@ -1560,7 +1543,7 @@ ToBoolean(const Value &v)
         return false;
     if (v.isDouble()) {
         double d = v.toDouble();
-        return !MOZ_DOUBLE_IS_NaN(d) && d != 0;
+        return !mozilla::IsNaN(d) && d != 0;
     }
 
     /* The slow path handles strings and objects. */
@@ -2538,23 +2521,56 @@ struct JSTracer {
 # define JS_SET_TRACING_NAME(trc, name)                                       \
     JS_SET_TRACING_DETAILS(trc, NULL, name, (size_t)-1)
 
+/*
+ * The JS_Call*Tracer family of functions traces the given GC thing reference.
+ * This performs the tracing action configured on the given JSTracer:
+ * typically calling the JSTracer::callback or marking the thing as live.
+ *
+ * The argument to JS_Call*Tracer is an in-out param: when the function
+ * returns, the garbage collector might have moved the GC thing. In this case,
+ * the reference passed to JS_Call*Tracer will be updated to the object's new
+ * location. Callers of this method are responsible for updating any state
+ * that is dependent on the object's address. For example, if the object's
+ * address is used as a key in a hashtable, then the object must be removed
+ * and re-inserted with the correct hash.
+ */
 extern JS_PUBLIC_API(void)
-JS_CallValueTracer(JSTracer *trc, JS::Value value, const char *name);
+JS_CallValueTracer(JSTracer *trc, JS::Value *valuep, const char *name);
 
 extern JS_PUBLIC_API(void)
-JS_CallIdTracer(JSTracer *trc, jsid id, const char *name);
+JS_CallIdTracer(JSTracer *trc, jsid *idp, const char *name);
 
 extern JS_PUBLIC_API(void)
-JS_CallObjectTracer(JSTracer *trc, JSObject *obj, const char *name);
+JS_CallObjectTracer(JSTracer *trc, JSObject **objp, const char *name);
 
 extern JS_PUBLIC_API(void)
-JS_CallStringTracer(JSTracer *trc, JSString *str, const char *name);
+JS_CallStringTracer(JSTracer *trc, JSString **strp, const char *name);
 
 extern JS_PUBLIC_API(void)
-JS_CallScriptTracer(JSTracer *trc, JSScript *script, const char *name);
+JS_CallScriptTracer(JSTracer *trc, JSScript **scriptp, const char *name);
 
 extern JS_PUBLIC_API(void)
 JS_CallGenericTracer(JSTracer *trc, void *gcthing, const char *name);
+
+template <typename HashSetEnum>
+inline void
+JS_CallHashSetObjectTracer(JSTracer *trc, HashSetEnum &e, JSObject *const &key, const char *name)
+{
+    JSObject *updated = key;
+    JS_SET_TRACING_LOCATION(trc, reinterpret_cast<void *>(&const_cast<JSObject *&>(key)));
+    JS_CallObjectTracer(trc, &updated, name);
+    if (updated != key)
+        e.rekeyFront(key, updated);
+}
+
+/*
+ * The JS_CallMaskedObjectTracer variant traces a JSObject* that is stored
+ * with flags embedded in the low bits of the word. The flagMask parameter
+ * expects |*objp & flagMask| to yield the flags with the pointer value
+ * stripped and |*objp & ~flagMask| to yield a valid GC pointer.
+ */
+extern JS_PUBLIC_API(void)
+JS_CallMaskedObjectTracer(JSTracer *trc, uintptr_t *objp, uintptr_t flagMask, const char *name);
 
 /*
  * API for JSTraceCallback implementations.
@@ -3874,6 +3890,7 @@ struct JS_PUBLIC_API(CompileOptions) {
     const char *filename;
     unsigned lineno;
     bool compileAndGo;
+    bool forEval;
     bool noScriptRval;
     bool selfHostingMode;
     bool userBit;
@@ -3892,6 +3909,7 @@ struct JS_PUBLIC_API(CompileOptions) {
         filename = f; lineno = l; return *this;
     }
     CompileOptions &setCompileAndGo(bool cng) { compileAndGo = cng; return *this; }
+    CompileOptions &setForEval(bool eval) { forEval = eval; return *this; }
     CompileOptions &setNoScriptRval(bool nsr) { noScriptRval = nsr; return *this; }
     CompileOptions &setSelfHostingMode(bool shm) { selfHostingMode = shm; return *this; }
     CompileOptions &setUserBit(bool bit) { userBit = bit; return *this; }
@@ -5028,6 +5046,9 @@ JS_DecodeInterpretedFunction(JSContext *cx, const void *data, uint32_t length,
 
 namespace JS {
 
+extern JS_PUBLIC_DATA(const HandleValue) NullHandleValue;
+extern JS_PUBLIC_DATA(const HandleValue) UndefinedHandleValue;
+
 extern JS_PUBLIC_DATA(const HandleId) JSID_VOIDHANDLE;
 extern JS_PUBLIC_DATA(const HandleId) JSID_EMPTYHANDLE;
 
@@ -5064,11 +5085,11 @@ using JS::Latin1CharsZ;
 
 using JS::AutoIdVector;
 using JS::AutoValueVector;
+using JS::AutoObjectVector;
 using JS::AutoScriptVector;
 using JS::AutoIdArray;
 
 using JS::AutoGCRooter;
-using JS::AutoObjectRooter;
 using JS::AutoArrayRooter;
 using JS::AutoVectorRooter;
 using JS::AutoHashMapRooter;

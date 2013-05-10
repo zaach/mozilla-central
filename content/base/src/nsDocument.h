@@ -178,6 +178,7 @@ public:
    * GetIdElement(true) if non-null.
    */
   void SetImageElement(Element* aElement);
+  bool HasIdElementExposedAsHTMLDocumentProperty();
 
   bool HasContentChangeCallback() { return mChangeCallbacks != nullptr; }
   void AddContentChangeCallback(nsIDocument::IDTargetObserver aCallback,
@@ -590,13 +591,12 @@ public:
 
   /**
    * Create a new presentation shell that will use aContext for
-   * its presentation context (presentation context's <b>must not</b> be
-   * shared among multiple presentation shell's).
+   * its presentation context (presentation contexts <b>must not</b> be
+   * shared among multiple presentation shells).
    */
-  virtual nsresult CreateShell(nsPresContext* aContext,
-                               nsViewManager* aViewManager,
-                               nsStyleSet* aStyleSet,
-                               nsIPresShell** aInstancePtrResult);
+  virtual already_AddRefed<nsIPresShell> CreateShell(nsPresContext* aContext,
+                                                     nsViewManager* aViewManager,
+                                                     nsStyleSet* aStyleSet) MOZ_OVERRIDE;
   virtual void DeleteShell();
 
   virtual nsresult GetAllowPlugins(bool* aAllowPlugins);
@@ -1043,11 +1043,9 @@ public:
 
   virtual nsIDOMNode* AsDOMNode() { return this; }
 
-  JSObject* GetCustomPrototype(const nsAString& aElementName)
+  void GetCustomPrototype(const nsAString& aElementName, JS::MutableHandle<JSObject*> prototype)
   {
-    JSObject* prototype = nullptr;
-    mCustomPrototypes.Get(aElementName, &prototype);
-    return prototype;
+    mCustomPrototypes.Get(aElementName, prototype.address());
   }
 
   static bool RegisterEnabled();
@@ -1140,16 +1138,19 @@ public:
   virtual void SetTitle(const nsAString& aTitle, mozilla::ErrorResult& rv);
 
   static void XPCOMShutdown();
+
+  js::ExpandoAndGeneration mExpandoAndGeneration;
+
 protected:
-  nsresult doCreateShell(nsPresContext* aContext,
-                         nsViewManager* aViewManager, nsStyleSet* aStyleSet,
-                         nsCompatibility aCompatMode,
-                         nsIPresShell** aInstancePtrResult);
+  already_AddRefed<nsIPresShell> doCreateShell(nsPresContext* aContext,
+                                               nsViewManager* aViewManager,
+                                               nsStyleSet* aStyleSet,
+                                               nsCompatibility aCompatMode);
 
   void RemoveDocStyleSheetsFromStyleSets();
   void RemoveStyleSheetsFromStyleSets(nsCOMArray<nsIStyleSheet>& aSheets, 
                                       nsStyleSet::sheetType aType);
-  nsresult ResetStylesheetsToURI(nsIURI* aURI);
+  void ResetStylesheetsToURI(nsIURI* aURI);
   void FillStyleSet(nsStyleSet* aStyleSet);
 
   // Return whether all the presshells for this document are safe to flush

@@ -15,7 +15,6 @@
 #include "IonAnalysis.h"
 
 #include "vm/Stack.h"
-#include "vm/ParallelDo.h"
 
 namespace js {
 namespace ion {
@@ -118,7 +117,7 @@ class ParallelArrayVisitor : public MInstructionVisitor
     SAFE_OP(TableSwitch)
     SAFE_OP(Goto)
     CUSTOM_OP(Test)
-    CUSTOM_OP(Compare)
+    SAFE_OP(Compare)
     SAFE_OP(Phi)
     SAFE_OP(Beta)
     UNSAFE_OP(OsrValue)
@@ -494,30 +493,6 @@ ParallelArrayVisitor::visitTest(MTest *)
 }
 
 bool
-ParallelArrayVisitor::visitCompare(MCompare *compare)
-{
-    MCompare::CompareType type = compare->compareType();
-
-    switch (type) {
-      case MCompare::Compare_Int32:
-      case MCompare::Compare_Double:
-      case MCompare::Compare_Null:
-      case MCompare::Compare_Undefined:
-      case MCompare::Compare_Boolean:
-      case MCompare::Compare_Object:
-      case MCompare::Compare_Value:
-      case MCompare::Compare_Unknown:
-      case MCompare::Compare_String:
-        // These paths through compare are ok in any mode.
-        return true;
-
-      default:
-        SpewMIR(compare, "unsafe compareType=%d\n", type);
-        return markUnsafe();
-    }
-}
-
-bool
 ParallelArrayVisitor::convertToBailout(MBasicBlock *block, MInstruction *ins)
 {
     JS_ASSERT(unsafe()); // `block` must have contained unsafe items
@@ -759,7 +734,7 @@ GetPossibleCallees(JSContext *cx, HandleScript script, jsbytecode *pc,
 
     RootedFunction fun(cx);
     for (unsigned i = 0; i < objCount; i++) {
-        RawObject obj = calleeTypes->getSingleObject(i);
+        JSObject *obj = calleeTypes->getSingleObject(i);
         if (obj && obj->isFunction()) {
             fun = obj->toFunction();
         } else {

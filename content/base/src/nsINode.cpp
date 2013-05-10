@@ -95,7 +95,6 @@
 #include "nsXBLInsertionPoint.h"
 #include "nsXBLPrototypeBinding.h"
 #include "prprf.h"
-#include "xpcprivate.h" // XBLScopesEnabled
 #include "xpcpublic.h"
 #include "nsCSSRuleProcessor.h"
 #include "nsCSSParser.h"
@@ -698,10 +697,10 @@ nsINode::SetUserData(JSContext* aCx, const nsAString& aKey, JS::Value aData,
     return JS::NullValue();
   }
 
-  JS::Value result;
+  JS::Rooted<JS::Value> result(aCx);
   JSAutoCompartment ac(aCx, GetWrapper());
   aError = nsContentUtils::XPConnect()->VariantToJS(aCx, GetWrapper(), oldData,
-                                                    &result);
+                                                    result.address());
   return result;
 }
 
@@ -713,21 +712,20 @@ nsINode::GetUserData(JSContext* aCx, const nsAString& aKey, ErrorResult& aError)
     return JS::NullValue();
   }
 
-  JS::Value result;
+  JS::Rooted<JS::Value> result(aCx);
   JSAutoCompartment ac(aCx, GetWrapper());
   aError = nsContentUtils::XPConnect()->VariantToJS(aCx, GetWrapper(), data,
-                                                    &result);
+                                                    result.address());
   return result;
 }
 
 //static
 bool
-nsINode::ShouldExposeUserData(JSContext* aCx, JSObject* /* unused */)
+nsINode::IsChromeOrXBL(JSContext* aCx, JSObject* /* unused */)
 {
   JSCompartment* compartment = js::GetContextCompartment(aCx);
   return xpc::AccessCheck::isChrome(compartment) ||
-         xpc::IsXBLScope(compartment) ||
-         !XPCJSRuntime::Get()->XBLScopesEnabled();
+         xpc::IsXBLScope(compartment);
 }
 
 uint16_t
@@ -2396,9 +2394,10 @@ nsINode::WrapObject(JSContext *aCx, JS::Handle<JSObject*> aScope)
     return nullptr;
   }
 
-  JSObject* obj = WrapNode(aCx, aScope);
+  JS::Rooted<JSObject*> obj(aCx, WrapNode(aCx, aScope));
   if (obj && ChromeOnlyAccess() &&
-      !nsContentUtils::IsSystemPrincipal(NodePrincipal()))
+      !nsContentUtils::IsSystemPrincipal(NodePrincipal()) &&
+      xpc::AllowXBLScope(js::GetContextCompartment(aCx)))
   {
     // Create a new wrapper and cache it.
     JSAutoCompartment ac(aCx, obj);

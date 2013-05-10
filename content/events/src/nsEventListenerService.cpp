@@ -22,7 +22,7 @@
 #include "nsDOMClassInfoID.h"
 
 using namespace mozilla::dom;
-using mozilla::SafeAutoJSContext;
+using mozilla::AutoSafeJSContext;
 
 NS_IMPL_CYCLE_COLLECTION_1(nsEventListenerInfo, mListener)
 
@@ -84,8 +84,8 @@ nsEventListenerInfo::GetJSVal(JSContext* aCx,
   *aJSVal = JSVAL_NULL;
   nsCOMPtr<nsIXPConnectWrappedJS> wrappedJS = do_QueryInterface(mListener);
   if (wrappedJS) {
-    JSObject* object = nullptr;
-    if (NS_FAILED(wrappedJS->GetJSObject(&object))) {
+    JS::Rooted<JSObject*> object(aCx, nullptr);
+    if (NS_FAILED(wrappedJS->GetJSObject(object.address()))) {
       return false;
     }
     aAc.construct(aCx, object);
@@ -110,13 +110,13 @@ nsEventListenerInfo::ToSource(nsAString& aResult)
 {
   aResult.SetIsVoid(true);
 
-  SafeAutoJSContext cx;
+  AutoSafeJSContext cx;
   {
     // Extra block to finish the auto request before calling pop
     JSAutoRequest ar(cx);
     mozilla::Maybe<JSAutoCompartment> ac;
-    JS::Value v = JSVAL_NULL;
-    if (GetJSVal(cx, ac, &v)) {
+    JS::Rooted<JS::Value> v(cx, JSVAL_NULL);
+    if (GetJSVal(cx, ac, v.address())) {
       JSString* str = JS_ValueToSource(cx, v);
       if (str) {
         nsDependentJSString depStr;
@@ -139,18 +139,18 @@ nsEventListenerInfo::GetDebugObject(nsISupports** aRetVal)
   nsCOMPtr<jsdIDebuggerService> jsd =
     do_GetService("@mozilla.org/js/jsd/debugger-service;1", &rv);
   NS_ENSURE_SUCCESS(rv, NS_OK);
-  
+
   bool isOn = false;
   jsd->GetIsOn(&isOn);
   NS_ENSURE_TRUE(isOn, NS_OK);
 
-  SafeAutoJSContext cx;
+  AutoSafeJSContext cx;
   {
     // Extra block to finish the auto request before calling pop
     JSAutoRequest ar(cx);
     mozilla::Maybe<JSAutoCompartment> ac;
-    JS::Value v = JSVAL_NULL;
-    if (GetJSVal(cx, ac, &v)) {
+    JS::Rooted<JS::Value> v(cx, JSVAL_NULL);
+    if (GetJSVal(cx, ac, v.address())) {
       nsCOMPtr<jsdIValue> jsdValue;
       rv = jsd->WrapValue(v, getter_AddRefs(jsdValue));
       NS_ENSURE_SUCCESS(rv, rv);

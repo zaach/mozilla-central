@@ -19,8 +19,6 @@
 #include "js/RootingAPI.h"
 #include "vm/Shape.h"
 
-ForwardDeclareJS(Script);
-
 namespace js {
 
 namespace ion {
@@ -51,12 +49,15 @@ namespace analyze {
 
 /*
  * Type of try note associated with each catch or finally block, and also with
- * for-in loops.
+ * for-in and other kinds of loops. Non-for-in loops do not need these notes
+ * for exception unwinding, but storing their boundaries here is helpful for
+ * heuristics that need to know whether a given op is inside a loop.
  */
 typedef enum JSTryNoteKind {
     JSTRY_CATCH,
     JSTRY_FINALLY,
-    JSTRY_ITER
+    JSTRY_ITER,
+    JSTRY_LOOP
 } JSTryNoteKind;
 
 /*
@@ -66,9 +67,9 @@ struct JSTryNote {
     uint8_t         kind;       /* one of JSTryNoteKind */
     uint8_t         padding;    /* explicit padding on uint16_t boundary */
     uint16_t        stackDepth; /* stack depth upon exception handler entry */
-    uint32_t        start;      /* start of the try statement or for-in loop
+    uint32_t        start;      /* start of the try statement or loop
                                    relative to script->main */
-    uint32_t        length;     /* length of the try statement or for-in loop */
+    uint32_t        length;     /* length of the try statement or loop */
 };
 
 namespace js {
@@ -195,7 +196,7 @@ class Bindings
     unsigned count() const { return numArgs() + numVars(); }
 
     /* Return the initial shape of call objects created for this scope. */
-    RawShape callObjShape() const { return callObjShape_; }
+    Shape *callObjShape() const { return callObjShape_; }
 
     /* Convenience method to get the var index of 'arguments'. */
     static unsigned argumentsVarIndex(JSContext *cx, InternalBindingsHandle);
@@ -214,7 +215,7 @@ struct RootMethods<Bindings> {
     static Bindings initial();
     static ThingRootKind kind() { return THING_ROOT_BINDINGS; }
     static bool poisoned(const Bindings &bindings) {
-        return IsPoisonedPtr(static_cast<RawShape>(bindings.callObjShape()));
+        return IsPoisonedPtr(static_cast<Shape *>(bindings.callObjShape()));
     }
 };
 
@@ -244,9 +245,9 @@ class ScriptCounts
     }
 };
 
-typedef HashMap<RawScript,
+typedef HashMap<JSScript *,
                 ScriptCounts,
-                DefaultHasher<RawScript>,
+                DefaultHasher<JSScript *>,
                 SystemAllocPolicy> ScriptCountsMap;
 
 class DebugScript
@@ -272,9 +273,9 @@ class DebugScript
     BreakpointSite  *breakpoints[1];
 };
 
-typedef HashMap<RawScript,
+typedef HashMap<JSScript *,
                 DebugScript *,
-                DefaultHasher<RawScript>,
+                DefaultHasher<JSScript *>,
                 SystemAllocPolicy> DebugScriptMap;
 
 struct ScriptSource;
@@ -411,10 +412,7 @@ class JSScript : public js::gc::Cell
     uint32_t        useCount;   /* Number of times the script has been called
                                  * or has had backedges taken. Reset if the
                                  * script's JIT code is forcibly discarded. */
-
-    uint32_t        maxLoopCount; /* Maximum loop count that has been encountered. */
-    uint32_t        loopCount;    /* Number of times a LOOPHEAD has been encountered.
-                                     after a LOOPENTRY. Modified only by interpreter. */
+    uint32_t        PADDING32;
 
 #ifdef DEBUG
     // Unique identifier within the compartment for this script, used for
@@ -428,7 +426,6 @@ class JSScript : public js::gc::Cell
 
   private:
     uint16_t        PADDING16;
-
     uint16_t        version;    /* JS version under which script was compiled */
 
   public:
@@ -531,7 +528,7 @@ class JSScript : public js::gc::Cell
     //
 
   public:
-    static js::RawScript Create(JSContext *cx, js::HandleObject enclosingScope, bool savedCallerFun,
+    static JSScript *Create(JSContext *cx, js::HandleObject enclosingScope, bool savedCallerFun,
                                 const JS::CompileOptions &options, unsigned staticLevel,
                                 js::ScriptSource *ss, uint32_t sourceStart, uint32_t sourceEnd);
 
@@ -602,6 +599,7 @@ class JSScript : public js::gc::Cell
      * if there's no Baseline or Ion script.
      */
     uint8_t *baselineOrIonRaw;
+    uint8_t *baselineOrIonSkipArgCheck;
 
   public:
     bool hasIonScript() const {
@@ -682,6 +680,9 @@ class JSScript : public js::gc::Cell
     static size_t offsetOfBaselineOrIonRaw() {
         return offsetof(JSScript, baselineOrIonRaw);
     }
+    static size_t offsetOfBaselineOrIonSkipArgCheck() {
+        return offsetof(JSScript, baselineOrIonSkipArgCheck);
+    }
 
     /*
      * Original compiled function for the script, if it has a function.
@@ -718,6 +719,9 @@ class JSScript : public js::gc::Cell
 
     /* Ensure the script has a TypeScript. */
     inline bool ensureHasTypes(JSContext *cx);
+
+    /* Ensure the script has a TypeScript and map for computing BytecodeTypes. */
+    inline bool ensureHasBytecodeTypeMap(JSContext *cx);
 
     /*
      * Ensure the script has bytecode analysis information. Performed when the
@@ -760,6 +764,7 @@ class JSScript : public js::gc::Cell
 
   private:
     bool makeTypes(JSContext *cx);
+    bool makeBytecodeTypeMap(JSContext *cx);
     bool makeAnalysis(JSContext *cx);
 
 #ifdef JS_METHODJIT
@@ -804,22 +809,6 @@ class JSScript : public js::gc::Cell
     static size_t offsetOfUseCount() { return offsetof(JSScript, useCount); }
     void resetUseCount() { useCount = 0; }
 
-    void resetLoopCount() {
-        if (loopCount > maxLoopCount)
-            maxLoopCount = loopCount;
-        loopCount = 0;
-    }
-
-    void incrLoopCount() {
-        ++loopCount;
-    }
-
-    uint32_t getMaxLoopCount() {
-        if (loopCount > maxLoopCount)
-            maxLoopCount = loopCount;
-        return maxLoopCount;
-    }
-
     /*
      * Size of the JITScript and all sections.  If |mallocSizeOf| is NULL, the
      * size is computed analytically.  (This method is implemented in
@@ -855,7 +844,7 @@ class JSScript : public js::gc::Cell
 
     bool hasArray(ArrayKind kind)           { return (hasArrayBits & (1 << kind)); }
     void setHasArray(ArrayKind kind)        { hasArrayBits |= (1 << kind); }
-    void cloneHasArray(js::RawScript script) { hasArrayBits = script->hasArrayBits; }
+    void cloneHasArray(JSScript *script) { hasArrayBits = script->hasArrayBits; }
 
     bool hasConsts()        { return hasArray(CONSTS);      }
     bool hasObjects()       { return hasArray(OBJECTS);     }
@@ -975,7 +964,7 @@ class JSScript : public js::gc::Cell
 
     void destroyBreakpointSite(js::FreeOp *fop, jsbytecode *pc);
 
-    void clearBreakpointsIn(js::FreeOp *fop, js::Debugger *dbg, js::RawObject handler);
+    void clearBreakpointsIn(js::FreeOp *fop, js::Debugger *dbg, JSObject *handler);
     void clearTraps(js::FreeOp *fop);
 
     void markTrapClosures(JSTracer *trc);
@@ -1006,8 +995,8 @@ class JSScript : public js::gc::Cell
 
     JS::Zone *zone() const { return tenuredZone(); }
 
-    static inline void writeBarrierPre(js::RawScript script);
-    static inline void writeBarrierPost(js::RawScript script, void *addr);
+    static inline void writeBarrierPre(JSScript *script);
+    static inline void writeBarrierPost(JSScript *script, void *addr);
 
     static inline js::ThingRootKind rootKind() { return js::THING_ROOT_SCRIPT; }
 
@@ -1083,7 +1072,7 @@ class AliasedFormalIter
     }
 
   public:
-    explicit inline AliasedFormalIter(js::RawScript script);
+    explicit inline AliasedFormalIter(JSScript *script);
 
     bool done() const { return p_ == end_; }
     operator bool() const { return !done(); }
@@ -1296,7 +1285,7 @@ extern void
 CallNewScriptHook(JSContext *cx, JS::HandleScript script, JS::HandleFunction fun);
 
 extern void
-CallDestroyScriptHook(FreeOp *fop, js::RawScript script);
+CallDestroyScriptHook(FreeOp *fop, JSScript *script);
 
 struct SharedScriptData
 {
@@ -1360,7 +1349,7 @@ FreeScriptData(JSRuntime *rt);
 struct ScriptAndCounts
 {
     /* This structure is stored and marked from the JSRuntime. */
-    js::RawScript script;
+    JSScript *script;
     ScriptCounts scriptCounts;
 
     PCCounts &getPCCounts(jsbytecode *pc) const {
@@ -1376,18 +1365,18 @@ struct ScriptAndCounts
 } /* namespace js */
 
 extern jssrcnote *
-js_GetSrcNote(JSContext *cx, js::RawScript script, jsbytecode *pc);
+js_GetSrcNote(JSContext *cx, JSScript *script, jsbytecode *pc);
 
 extern jsbytecode *
-js_LineNumberToPC(js::RawScript script, unsigned lineno);
+js_LineNumberToPC(JSScript *script, unsigned lineno);
 
 extern JS_FRIEND_API(unsigned)
-js_GetScriptLineExtent(js::RawScript script);
+js_GetScriptLineExtent(JSScript *script);
 
 namespace js {
 
 extern unsigned
-PCToLineNumber(js::RawScript script, jsbytecode *pc, unsigned *columnp = NULL);
+PCToLineNumber(JSScript *script, jsbytecode *pc, unsigned *columnp = NULL);
 
 extern unsigned
 PCToLineNumber(unsigned startLine, jssrcnote *notes, jsbytecode *code, jsbytecode *pc,
@@ -1413,7 +1402,7 @@ enum LineOption {
 inline void
 CurrentScriptFileLineOrigin(JSContext *cx, unsigned *linenop, LineOption = NOT_CALLED_FROM_JSOP_EVAL);
 
-extern RawScript
+extern JSScript *
 CloneScript(JSContext *cx, HandleObject enclosingScope, HandleFunction fun, HandleScript script);
 
 bool

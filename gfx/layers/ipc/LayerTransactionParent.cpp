@@ -238,7 +238,7 @@ LayerTransactionParent::RecvUpdate(const InfallibleTArray<Edit>& cset,
       break;
     }
 
-      // Attributes
+    // Attributes
     case Edit::TOpSetLayerAttributes: {
       MOZ_LAYERS_LOG(("[ParentSide] SetLayerAttributes"));
 
@@ -322,10 +322,19 @@ LayerTransactionParent::RecvUpdate(const InfallibleTArray<Edit>& cset,
         ImageLayer* imageLayer = static_cast<ImageLayer*>(layer);
         const ImageLayerAttributes& attrs = specific.get_ImageLayerAttributes();
         imageLayer->SetFilter(attrs.filter());
+        imageLayer->SetScaleToSize(attrs.scaleToSize(), attrs.scaleMode());
         break;
       }
       default:
         NS_RUNTIMEABORT("not reached");
+      }
+      break;
+    }
+    case Edit::TOpSetColoredBorders: {
+      if (edit.get_OpSetColoredBorders().enabled()) {
+        mLayerManager->GetCompositor()->EnableColoredBorders();
+      } else {
+        mLayerManager->GetCompositor()->DisableColoredBorders();
       }
       break;
     }

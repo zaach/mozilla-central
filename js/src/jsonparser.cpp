@@ -6,6 +6,8 @@
 
 #include "jsonparser.h"
 
+#include "mozilla/RangedPtr.h"
+
 #include "jsarray.h"
 #include "jsnum.h"
 
@@ -122,9 +124,9 @@ JSONParser::readString()
 
         jschar c = *current++;
         if (c == '"') {
-            RawFlatString str = (ST == JSONParser::PropertyName)
-                                 ? buffer.finishAtom()
-                                 : buffer.finishString();
+            JSFlatString *str = (ST == JSONParser::PropertyName)
+                                ? buffer.finishAtom()
+                                : buffer.finishString();
             if (!str)
                 return token(OOM);
             return stringToken(str);

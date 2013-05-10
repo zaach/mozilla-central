@@ -3410,7 +3410,8 @@ function BrowserToolboxCustomizeDone(aToolboxChanged) {
     URLBarSetURI();
     XULBrowserWindow.asyncUpdateUI();
     BookmarksMenuButton.updateStarState();
-    SocialShareButton.updateShareState();
+    SocialMark.updateMarkState();
+    SocialShare.update();
   }
 
   TabsInTitlebar.allowedBy("customizing-toolbars", true);
@@ -3880,7 +3881,8 @@ var XULBrowserWindow = {
 
         // Update starring UI
         BookmarksMenuButton.updateStarState();
-        SocialShareButton.updateShareState();
+        SocialMark.updateMarkState();
+        SocialShare.update();
       }
 
       // Show or hide browser chrome based on the whitelist
@@ -3910,7 +3912,16 @@ var XULBrowserWindow = {
           else
             elt.removeAttribute("disabled");
         }
-      }
+        if (gFindBarInitialized) {
+          if (!gFindBar.hidden && aDisable) {
+            gFindBar.hidden = true;
+            this._findbarTemporarilyHidden = true;
+          } else if (this._findbarTemporarilyHidden && !aDisable) {
+            gFindBar.hidden = false;
+            this._findbarTemporarilyHidden = false;
+          }
+        }
+      }.bind(this);
 
       var onContentRSChange = function onContentRSChange(e) {
         if (e.target.readyState != "interactive" && e.target.readyState != "complete")

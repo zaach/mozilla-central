@@ -1524,9 +1524,6 @@ case "$target" in
     MKSHLIB='$(CXX) $(CXXFLAGS) $(DSO_PIC_CFLAGS) $(DSO_LDOPTS) -o $@'
     MKCSHLIB='$(CC) $(CFLAGS) $(DSO_PIC_CFLAGS) $(DSO_LDOPTS) -o $@'
     MOZ_OPTIMIZE_FLAGS="-O3 -fno-stack-protector"
-    if test -n "$CLANG_CXX"; then
-      MOZ_OPTIMIZE_FLAGS="$MOZ_OPTIMIZE_FLAGS -fno-vectorize"
-    fi
     CFLAGS="$CFLAGS -fno-common"
     CXXFLAGS="$CXXFLAGS -fno-common"
     DLL_SUFFIX=".dylib"
@@ -1620,9 +1617,6 @@ ia64*-hpux*)
 
     MOZ_GFX_OPTIMIZE_MOBILE=1
     MOZ_OPTIMIZE_FLAGS="-O3 -freorder-blocks -fno-reorder-functions"
-    if test -n "$CLANG_CXX"; then
-      MOZ_OPTIMIZE_FLAGS="$MOZ_OPTIMIZE_FLAGS -fno-vectorize"
-    fi
     # The Maemo builders don't know about this flag
     MOZ_ARM_VFP_FLAGS="-mfpu=vfp"
     ;;
@@ -1644,9 +1638,6 @@ ia64*-hpux*)
         MOZ_PGO_OPTIMIZE_FLAGS="-O3"
         MOZ_OPTIMIZE_FLAGS="-O3 -freorder-blocks $MOZ_OPTIMIZE_SIZE_TWEAK"
         MOZ_DEBUG_FLAGS="-g"
-    fi
-    if test -n "$CLANG_CXX"; then
-      MOZ_OPTIMIZE_FLAGS="$MOZ_OPTIMIZE_FLAGS -fno-vectorize"
     fi
 
     TARGET_NSPR_MDCPUCFG='\"md/_linux.cfg\"'
@@ -1750,7 +1741,7 @@ ia64*-hpux*)
         XPCOM_FROZEN_LDOPTS='$(LIBXUL_DIST)/lib/xpcom.lib $(LIBXUL_DIST)/lib/mozalloc.lib'
         LIBXUL_LIBS='$(LIBXUL_DIST)/lib/xpcom.lib $(LIBXUL_DIST)/lib/xul.lib $(LIBXUL_DIST)/lib/mozalloc.lib'
         MOZ_COMPONENT_NSPR_LIBS='$(NSPR_LIBS)'
-        LDFLAGS="$LDFLAGS -LARGEADDRESSAWARE -NXCOMPAT"
+        LDFLAGS="$LDFLAGS -LARGEADDRESSAWARE -NXCOMPAT -RELEASE"
         dnl For profile-guided optimization
         PROFILE_GEN_CFLAGS="-GL"
         PROFILE_GEN_LDFLAGS="-LTCG:PGINSTRUMENT"
@@ -2293,9 +2284,6 @@ elif test "$moz_cv_size_of_JS_BYTES_PER_WORD" -eq "8"; then
 else
   AC_MSG_ERROR([Unexpected JS_BYTES_PER_WORD])
 fi
-
-MOZ_ALIGN_OF_TYPE(JS_ALIGN_OF_POINTER, void*, 2 4 8 16)
-MOZ_SIZE_OF_TYPE(JS_BYTES_PER_DOUBLE, double, 6 8 10 12 14)
 
 MOZ_CHECK_HEADERS(endian.h)
 if test "$ac_cv_header_endian_h" = yes; then
@@ -2912,34 +2900,6 @@ if test "$GNU_CC"; then
   fi
 
   TARGET_COMPILER_ABI="${TARGET_COMPILER_ABI-${ARM_ABI_PREFIX}gcc3}"
-fi
-
-dnl Check for support of modern template specialization syntax
-dnl Test code and requirement from scc@netscape.com.
-dnl Autoconf cut-and-paste job by waterson@netscape.com
-AC_CACHE_CHECK(for modern C++ template specialization syntax support,
-               ac_cv_cpp_modern_specialize_template_syntax,
-               [AC_TRY_COMPILE(template <class T> struct X { int a; };
-                               class Y {};
-                               template <> struct X<Y> { double a; };,
-                               X<int> int_x;
-                               X<Y> y_x;,
-                               ac_cv_cpp_modern_specialize_template_syntax=yes,
-                               ac_cv_cpp_modern_specialize_template_syntax=no)])
-if test "$ac_cv_cpp_modern_specialize_template_syntax" = no ; then
-  AC_MSG_ERROR([The C++ compiler does not support template specialization])
-fi
-
-dnl Some compilers support only full specialization, and some don't.
-AC_CACHE_CHECK(whether partial template specialization works,
-               ac_cv_cpp_partial_specialization,
-               [AC_TRY_COMPILE(template <class T> class Foo {};
-                               template <class T> class Foo<T*> {};,
-                               return 0;,
-                               ac_cv_cpp_partial_specialization=yes,
-                               ac_cv_cpp_partial_specialization=no)])
-if test "$ac_cv_cpp_partial_specialization" = yes ; then
-  AC_DEFINE(HAVE_CPP_PARTIAL_SPECIALIZATION)
 fi
 
 dnl Check to see if we can resolve ambiguity with |using|.
@@ -3739,6 +3699,25 @@ MOZ_ARG_ENABLE_BOOL(vtune,
     MOZ_VTUNE=1,
     MOZ_VTUNE= )
 if test -n "$MOZ_VTUNE"; then
+    if test -z "$VTUNE_AMPLIFIER_XE_2013_DIR"; then
+        echo "Error: VTUNE_AMPLIFIER_XE_2013_DIR undefined."
+        exit 1
+    fi
+
+    VTUNE_DIR=`echo "$VTUNE_AMPLIFIER_XE_2013_DIR" | sed 's,\\\,/,g'`
+    VTUNE_DIR=`echo "$VTUNE_DIR" | sed 's,(,\\\(,g'`
+    VTUNE_DIR=`echo "$VTUNE_DIR" | sed 's,),\\\),g'`
+    VTUNE_DIR=`echo "$VTUNE_DIR" | sed 's, ,\\\ ,g'`
+
+    VTUNE_LIB=lib32
+    if test "x86_64" = "$TARGET_CPU"; then
+        VTUNE_LIB=lib64
+    fi
+
+    VTUNE_LIBRARIES="${VTUNE_DIR}/${VTUNE_LIB}/${LIB_PREFIX}jitprofiling.${LIB_SUFFIX}"
+    AC_SUBST(VTUNE_LIBRARIES)
+
+    CXXFLAGS="$CXXFLAGS -I${VTUNE_DIR}/include"
     MOZ_PROFILING=1
     AC_DEFINE(MOZ_VTUNE)
 fi
@@ -3798,6 +3777,7 @@ if test -n "$JS_OOM_DO_BACKTRACES"; then
 fi
 
 MOZ_CHECK_CCACHE
+MOZ_CHECK_COMPILER_WRAPPER
 
 dnl ========================================================
 dnl = Enable static checking using gcc-dehydra

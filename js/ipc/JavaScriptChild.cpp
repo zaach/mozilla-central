@@ -15,7 +15,7 @@ using namespace JS;
 using namespace mozilla;
 using namespace mozilla::jsipc;
 
-using mozilla::SafeAutoJSContext;
+using mozilla::AutoSafeJSContext;
 
 JavaScriptChild::JavaScriptChild(JSRuntime *rt)
   : lastId_(0),
@@ -156,7 +156,7 @@ bool
 JavaScriptChild::AnswerHasHook(const ObjectId &objId, const nsString &id,
                                ReturnStatus *rs, bool *bp)
 {
-    SafeAutoJSContext cx;
+    AutoSafeJSContext cx;
     JSAutoRequest request(cx);
 
     JSObject *obj = objects_.find(objId);
@@ -181,7 +181,7 @@ bool
 JavaScriptChild::AnswerHasOwnHook(const ObjectId &objId, const nsString &id,
                                   ReturnStatus *rs, bool *bp)
 {
-    SafeAutoJSContext cx;
+    AutoSafeJSContext cx;
     JSAutoRequest request(cx);
 
     JSObject *obj = objects_.find(objId);
@@ -207,7 +207,7 @@ JavaScriptChild::AnswerGetHook(const ObjectId &objId, const ObjectId &receiverId
                                const nsString &id,
                                ReturnStatus *rs, JSVariant *result)
 {
-    SafeAutoJSContext cx;
+    AutoSafeJSContext cx;
     JSAutoRequest request(cx);
 
     JSObject *obj = objects_.find(objId);
@@ -240,7 +240,7 @@ JavaScriptChild::AnswerSetHook(const ObjectId &objId, const ObjectId &receiverId
                                const JSVariant &value,
                                ReturnStatus *rs, JSVariant *result)
 {
-    SafeAutoJSContext cx;
+    AutoSafeJSContext cx;
     JSAutoRequest request(cx);
 
     // The outparam will be written to the buffer, so it must be set even if
@@ -284,7 +284,7 @@ JavaScriptChild::AnswerCallHook(const ObjectId &objId,
                                 JSVariant *result,
                                 nsTArray<JSParam> *outparams)
 {
-    SafeAutoJSContext cx;
+    AutoSafeJSContext cx;
     JSAutoRequest request(cx);
 
     // The outparam will be written to the buffer, so it must be set even if
@@ -386,7 +386,7 @@ JavaScriptChild::AnswerInstanceOf(const ObjectId &objId,
                                   ReturnStatus *rs,
                                   bool *instanceof)
 {
-    SafeAutoJSContext cx;
+    AutoSafeJSContext cx;
     JSAutoRequest request(cx);
 
     RootedObject obj(cx, objects_.find(objId));
@@ -423,7 +423,7 @@ JavaScriptChild::AnswerGetPropertyDescriptor(const uint32_t &objId,
                                              ReturnStatus *rs,
                                              PPropertyDescriptor *out)
 {
-    SafeAutoJSContext cx;
+    AutoSafeJSContext cx;
     JSAutoRequest request(cx);
 
     JSObject *obj = objects_.find(objId);
@@ -458,7 +458,7 @@ JavaScriptChild::AnswerGetOwnPropertyDescriptor(const uint32_t &objId,
                                                 ReturnStatus *rs,
                                                 PPropertyDescriptor *out)
 {
-    SafeAutoJSContext cx;
+    AutoSafeJSContext cx;
     JSAutoRequest request(cx);
 
     JSObject *obj = objects_.find(objId);
@@ -491,7 +491,7 @@ JavaScriptChild::AnswerGetOwnPropertyNames(const uint32_t &objId,
                                            ReturnStatus *rs,
                                            nsTArray<nsString> *names)
 {
-    SafeAutoJSContext cx;
+    AutoSafeJSContext cx;
     JSAutoRequest request(cx);
 
     JSObject *obj = objects_.find(objId);
@@ -520,7 +520,7 @@ JavaScriptChild::AnswerKeys(const uint32_t &objId,
                             ReturnStatus *rs,
                             nsTArray<nsString> *names)
 {
-    SafeAutoJSContext cx;
+    AutoSafeJSContext cx;
     JSAutoRequest request(cx);
 
     JSObject *obj = objects_.find(objId);
@@ -549,7 +549,7 @@ JavaScriptChild::AnswerObjectClassIs(const uint32_t &objId,
                                      const uint32_t &classValue,
                                      bool *result)
 {
-    SafeAutoJSContext cx;
+    AutoSafeJSContext cx;
     JSAutoRequest request(cx);
 
     JS::RootedObject obj(cx, objects_.find(objId));
@@ -567,7 +567,7 @@ bool
 JavaScriptChild::AnswerClassName(const uint32_t &objId,
                                  nsString *name)
 {
-    SafeAutoJSContext cx;
+    AutoSafeJSContext cx;
     JSAutoRequest request(cx);
 
     JS::RootedObject obj(cx, objects_.find(objId));
@@ -596,7 +596,7 @@ bool
 JavaScriptChild::AnswerPreventExtensions(const uint32_t &objId,
                                          ReturnStatus *rs)
 {
-    SafeAutoJSContext cx;
+    AutoSafeJSContext cx;
     JSAutoRequest request(cx);
 
     JS::RootedObject obj(cx, objects_.find(objId));

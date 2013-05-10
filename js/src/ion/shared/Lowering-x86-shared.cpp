@@ -71,6 +71,39 @@ LIRGeneratorX86Shared::visitPowHalf(MPowHalf *ins)
 }
 
 bool
+LIRGeneratorX86Shared::lowerForShift(LInstructionHelper<1, 2, 0> *ins, MDefinition *mir,
+                                     MDefinition *lhs, MDefinition *rhs)
+{
+    ins->setOperand(0, useRegisterAtStart(lhs));
+
+    // shift operator should be constant or in register ecx
+    // x86 can't shift a non-ecx register
+    if (rhs->isConstant())
+        ins->setOperand(1, useOrConstant(rhs));
+    else
+        ins->setOperand(1, useFixed(rhs, ecx));
+
+    return defineReuseInput(ins, mir, 0);
+}
+
+bool
+LIRGeneratorX86Shared::lowerForALU(LInstructionHelper<1, 1, 0> *ins, MDefinition *mir,
+                                   MDefinition *input)
+{
+    ins->setOperand(0, useRegisterAtStart(input));
+    return defineReuseInput(ins, mir, 0);
+}
+
+bool
+LIRGeneratorX86Shared::lowerForALU(LInstructionHelper<1, 2, 0> *ins, MDefinition *mir,
+                                   MDefinition *lhs, MDefinition *rhs)
+{
+    ins->setOperand(0, useRegisterAtStart(lhs));
+    ins->setOperand(1, useOrConstant(rhs));
+    return defineReuseInput(ins, mir, 0);
+}
+
+bool
 LIRGeneratorX86Shared::lowerMulI(MMul *mul, MDefinition *lhs, MDefinition *rhs)
 {
     // Note: lhs is used twice, so that we can restore the original value for the
@@ -84,6 +117,26 @@ LIRGeneratorX86Shared::lowerMulI(MMul *mul, MDefinition *lhs, MDefinition *rhs)
 bool
 LIRGeneratorX86Shared::lowerDivI(MDiv *div)
 {
+    // Division instructions are slow. Division by constant denominators can be
+    // rewritten to use other instructions.
+    if (div->rhs()->isConstant()) {
+        int32_t rhs = div->rhs()->toConstant()->value().toInt32();
+
+        // Check for division by a positive power of two, which is an easy and
+        // important case to optimize. Note that other optimizations are also
+        // possible; division by negative powers of two can be optimized in a
+        // similar manner as positive powers of two, and division by other
+        // constants can be optimized by a reciprocal multiplication technique.
+        int32_t shift;
+        JS_FLOOR_LOG2(shift, rhs);
+        if (rhs > 0 && 1 << shift == rhs) {
+            LDivPowTwoI *lir = new LDivPowTwoI(useRegisterAtStart(div->lhs()), useRegister(div->lhs()), shift);
+            if (div->fallible() && !assignSnapshot(lir))
+                return false;
+            return defineReuseInput(lir, div, 0);
+        }
+    }
+
     LDivI *lir = new LDivI(useFixed(div->lhs(), eax), useRegister(div->rhs()), tempFixed(edx));
     if (div->fallible() && !assignSnapshot(lir))
         return false;
@@ -178,3 +231,12 @@ LIRGeneratorX86Shared::visitConstant(MConstant *ins)
     return LIRGeneratorShared::visitConstant(ins);
 }
 
+bool
+LIRGeneratorX86Shared::lowerTruncateDToInt32(MTruncateToInt32 *ins)
+{
+    MDefinition *opd = ins->input();
+    JS_ASSERT(opd->type() == MIRType_Double);
+
+    LDefinition maybeTemp = Assembler::HasSSE3() ? LDefinition::BogusTemp() : tempFloat();
+    return define(new LTruncateDToInt32(useRegister(opd), maybeTemp), ins);
+}

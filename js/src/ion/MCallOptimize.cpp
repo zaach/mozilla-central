@@ -105,9 +105,9 @@ IonBuilder::inlineNativeCall(CallInfo &callInfo, JSNative native)
 
     // Parallel intrinsics.
     if (native == intrinsic_ShouldForceSequential)
-        return inlineShouldForceSequentialOrInParallelSection(callInfo);
+        return inlineForceSequentialOrInParallelSection(callInfo);
     if (native == testingFunc_inParallelSection)
-        return inlineShouldForceSequentialOrInParallelSection(callInfo);
+        return inlineForceSequentialOrInParallelSection(callInfo);
     if (native == intrinsic_NewParallelArray)
         return inlineNewParallelArray(callInfo);
     if (native == ParallelArrayObject::construct)
@@ -119,7 +119,7 @@ IonBuilder::inlineNativeCall(CallInfo &callInfo, JSNative native)
 types::StackTypeSet *
 IonBuilder::getInlineReturnTypeSet()
 {
-    return script()->analysis()->bytecodeTypes(pc);
+    return types::TypeScript::BytecodeTypes(script(), pc);
 }
 
 MIRType
@@ -406,6 +406,14 @@ IonBuilder::inlineArrayConcat(CallInfo &callInfo)
     if (!thisType ||
         thisType->unknownProperties() ||
         &thisType->proto->global() != &script->global())
+    {
+        return InliningStatus_NotInlined;
+    }
+
+    // Don't inline if 'this' is packed and the argument may not be packed
+    // (the result array will reuse the 'this' type).
+    if (!thisTypes->hasObjectFlags(cx, types::OBJECT_FLAG_NON_PACKED) &&
+        argTypes->hasObjectFlags(cx, types::OBJECT_FLAG_NON_PACKED))
     {
         return InliningStatus_NotInlined;
     }
@@ -934,12 +942,6 @@ IonBuilder::inlineUnsafeSetElement(CallInfo &callInfo)
         {
             return InliningStatus_NotInlined;
         }
-
-        if (obj->resultTypeSet()->convertDoubleElements(cx) !=
-            types::StackTypeSet::DontConvertToDoubles)
-        {
-            return InliningStatus_NotInlined;
-        }
     }
 
     callInfo.unwrapArgs();
@@ -977,7 +979,8 @@ IonBuilder::inlineUnsafeSetElement(CallInfo &callInfo)
 }
 
 bool
-IonBuilder::inlineUnsafeSetDenseArrayElement(CallInfo &callInfo, uint32_t base)
+IonBuilder::inlineUnsafeSetDenseArrayElement(
+    CallInfo &callInfo, uint32_t base)
 {
     // Note: we do not check the conditions that are asserted as true
     // in intrinsic_UnsafeSetElement():
@@ -986,33 +989,14 @@ IonBuilder::inlineUnsafeSetDenseArrayElement(CallInfo &callInfo, uint32_t base)
     // Furthermore, note that inlineUnsafeSetElement ensures the type of the
     // value is reflected in the JSID_VOID property of the array.
 
-    uint32_t arri = base + 0;
-    uint32_t idxi = base + 1;
-    uint32_t elemi = base + 2;
+    MDefinition *obj = callInfo.getArg(base + 0);
+    MDefinition *id = callInfo.getArg(base + 1);
+    MDefinition *elem = callInfo.getArg(base + 2);
 
-    MElements *elements = MElements::New(callInfo.getArg(arri));
-    current->add(elements);
-
-    MToInt32 *id = MToInt32::New(callInfo.getArg(idxi));
-    current->add(id);
-
-    // We disable the hole check for this store.  This implies that if
-    // there were setters on the prototype, they would not be invoked.
-    // But this is actually the desired behavior.
-
-    MStoreElement *store = MStoreElement::New(elements, id,
-                                              callInfo.getArg(elemi),
-                                              /* needsHoleCheck = */ false);
-    store->setRacy();
-
-    if (callInfo.getArg(arri)->resultTypeSet()->propertyNeedsBarrier(cx, JSID_VOID))
-        store->setNeedsBarrier();
-
-    current->add(store);
-
-    if (!resumeAfter(store))
+    types::StackTypeSet::DoubleConversion conversion =
+        obj->resultTypeSet()->convertDoubleElements(cx);
+    if (!jsop_setelem_dense(conversion, SetElem_Unsafe, obj, id, elem))
         return false;
-
     return true;
 }
 
@@ -1026,35 +1010,18 @@ IonBuilder::inlineUnsafeSetTypedArrayElement(CallInfo &callInfo,
     // - arr is a typed array
     // - idx < length
 
-    uint32_t arri = base + 0;
-    uint32_t idxi = base + 1;
-    uint32_t elemi = base + 2;
+    MDefinition *obj = callInfo.getArg(base + 0);
+    MDefinition *id = callInfo.getArg(base + 1);
+    MDefinition *elem = callInfo.getArg(base + 2);
 
-    MInstruction *elements = getTypedArrayElements(callInfo.getArg(arri));
-    current->add(elements);
-
-    MToInt32 *id = MToInt32::New(callInfo.getArg(idxi));
-    current->add(id);
-
-    MDefinition *value = callInfo.getArg(elemi);
-    if (arrayType == TypedArray::TYPE_UINT8_CLAMPED) {
-        value = MClampToUint8::New(value);
-        current->add(value->toInstruction());
-    }
-
-    MStoreTypedArrayElement *store = MStoreTypedArrayElement::New(elements, id, value, arrayType);
-    store->setRacy();
-
-    current->add(store);
-
-    if (!resumeAfter(store))
+    if (!jsop_setelem_typed(arrayType, SetElem_Unsafe, obj, id, elem))
         return false;
 
     return true;
 }
 
 IonBuilder::InliningStatus
-IonBuilder::inlineShouldForceSequentialOrInParallelSection(CallInfo &callInfo)
+IonBuilder::inlineForceSequentialOrInParallelSection(CallInfo &callInfo)
 {
     if (callInfo.constructing())
         return InliningStatus_NotInlined;
@@ -1097,7 +1064,7 @@ IonBuilder::inlineNewParallelArray(CallInfo &callInfo)
         return InliningStatus_NotInlined;
 
     types::StackTypeSet *ctorTypes = callInfo.getArg(0)->resultTypeSet();
-    RawObject targetObj = ctorTypes ? ctorTypes->getSingleton() : NULL;
+    JSObject *targetObj = ctorTypes ? ctorTypes->getSingleton() : NULL;
     RootedFunction target(cx);
     if (targetObj && targetObj->isFunction())
         target = targetObj->toFunction();
@@ -1334,6 +1301,29 @@ IonBuilder::inlineIsCallable(CallInfo &callInfo)
         return InliningStatus_NotInlined;
     if (callInfo.getArg(0)->type() != MIRType_Object)
         return InliningStatus_NotInlined;
+
+    // Try inlining with constant true/false: only objects may be callable at
+    // all, and if we know the class check if it is callable.
+    bool isCallableKnown = false;
+    bool isCallableConstant;
+    if (callInfo.getArg(0)->type() != MIRType_Object) {
+        isCallableKnown = true;
+        isCallableConstant = false;
+    } else {
+        types::StackTypeSet *types = callInfo.getArg(0)->resultTypeSet();
+        Class *clasp = types ? types->getKnownClass() : NULL;
+        if (clasp) {
+            isCallableKnown = true;
+            isCallableConstant = clasp->isCallable();
+        }
+    }
+
+    if (isCallableKnown) {
+        MConstant *constant = MConstant::New(BooleanValue(isCallableConstant));
+        current->add(constant);
+        current->push(constant);
+        return InliningStatus_Inlined;
+    }
 
     callInfo.unwrapArgs();
 

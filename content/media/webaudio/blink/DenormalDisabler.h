@@ -27,6 +27,7 @@
 
 #define _USE_MATH_DEFINES
 #include <cmath>
+#include <float.h>
 
 namespace WebCore {
 
@@ -34,7 +35,6 @@ namespace WebCore {
 
 // Define HAVE_DENORMAL if we support flushing denormals to zero.
 #if defined(XP_WIN) && defined(_MSC_VER)
-#include <float.h>
 #define HAVE_DENORMAL
 #endif
 

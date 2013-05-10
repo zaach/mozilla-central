@@ -2651,7 +2651,7 @@ nsObjectLoadingContent::NotifyContentObjectWrapper()
   nsCxPusher pusher;
   pusher.Push(cx);
 
-  JSObject *obj = thisContent->GetWrapper();
+  JS::Rooted<JSObject*> obj(cx, thisContent->GetWrapper());
   if (!obj) {
     // Nothing to do here if there's no wrapper for mContent. The proto
     // chain will be fixed appropriately when the wrapper is created.
@@ -2838,25 +2838,30 @@ nsObjectLoadingContent::GetContentDocument()
     return nullptr;
   }
 
+  // Return null for cross-origin contentDocument.
+  if (!nsContentUtils::GetSubjectPrincipal()->Subsumes(sub_doc->NodePrincipal())) {
+    return nullptr;
+  }
+
   return sub_doc;
 }
 
 JS::Value
 nsObjectLoadingContent::LegacyCall(JSContext* aCx,
-                                   JS::Value aThisVal,
+                                   JS::Handle<JS::Value> aThisVal,
                                    const Sequence<JS::Value>& aArguments,
                                    ErrorResult& aRv)
 {
   nsCOMPtr<nsIContent> thisContent =
     do_QueryInterface(static_cast<nsIImageLoadingContent*>(this));
-  JSObject* obj = thisContent->GetWrapper();
+  JS::Rooted<JSObject*> obj(aCx, thisContent->GetWrapper());
   MOZ_ASSERT(obj, "How did we get called?");
 
   // Make sure we're not dealing with an Xray.  Our DoCall code can't handle
   // random cross-compartment wrappers, so we're going to have to wrap
   // everything up into our compartment, but that means we need to check that
   // this is not an Xray situation by hand.
-  if (!JS_WrapObject(aCx, &obj)) {
+  if (!JS_WrapObject(aCx, obj.address())) {
     aRv.Throw(NS_ERROR_UNEXPECTED);
     return JS::UndefinedValue();
   }
@@ -2870,6 +2875,7 @@ nsObjectLoadingContent::LegacyCall(JSContext* aCx,
   // Now wrap things up into the compartment of "obj"
   JSAutoCompartment ac(aCx, obj);
   nsTArray<JS::Value> args(aArguments);
+  JS::AutoArrayRooter rooter(aCx, args.Length(), args.Elements());
   for (JS::Value *arg = args.Elements(), *arg_end = arg + args.Length();
        arg != arg_end;
        ++arg) {
@@ -2879,7 +2885,8 @@ nsObjectLoadingContent::LegacyCall(JSContext* aCx,
     }
   }
 
-  if (!JS_WrapValue(aCx, &aThisVal)) {
+  JS::Rooted<JS::Value> thisVal(aCx, aThisVal);
+  if (!JS_WrapValue(aCx, thisVal.address())) {
     aRv.Throw(NS_ERROR_UNEXPECTED);
     return JS::UndefinedValue();
   }
@@ -2897,10 +2904,10 @@ nsObjectLoadingContent::LegacyCall(JSContext* aCx,
     return JS::UndefinedValue();
   }
 
-  JSObject *pi_obj;
-  JSObject *pi_proto;
+  JS::Rooted<JSObject*> pi_obj(aCx);
+  JS::Rooted<JSObject*> pi_proto(aCx);
 
-  rv = GetPluginJSObject(aCx, obj, pi, &pi_obj, &pi_proto);
+  rv = GetPluginJSObject(aCx, obj, pi, pi_obj.address(), pi_proto.address());
   if (NS_FAILED(rv)) {
     aRv.Throw(rv);
     return JS::UndefinedValue();
@@ -2911,9 +2918,9 @@ nsObjectLoadingContent::LegacyCall(JSContext* aCx,
     return JS::UndefinedValue();
   }
 
-  JS::Value retval;
-  bool ok = ::JS::Call(aCx, aThisVal, pi_obj, args.Length(),
-                       args.Elements(), &retval);
+  JS::Rooted<JS::Value> retval(aCx);
+  bool ok = ::JS::Call(aCx, thisVal, pi_obj, args.Length(),
+                       args.Elements(), retval.address());
   if (!ok) {
     aRv.Throw(NS_ERROR_FAILURE);
     return JS::UndefinedValue();
@@ -2924,7 +2931,8 @@ nsObjectLoadingContent::LegacyCall(JSContext* aCx,
 }
 
 void
-nsObjectLoadingContent::SetupProtoChain(JSContext* aCx, JSObject* aObject)
+nsObjectLoadingContent::SetupProtoChain(JSContext* aCx,
+                                        JS::Handle<JSObject*> aObject)
 {
   MOZ_ASSERT(nsCOMPtr<nsIContent>(do_QueryInterface(
     static_cast<nsIObjectLoadingContent*>(this)))->IsDOMBinding());
@@ -2963,10 +2971,10 @@ nsObjectLoadingContent::SetupProtoChain(JSContext* aCx, JSObject* aObject)
     return;
   }
 
-  JSObject *pi_obj; // XPConnect-wrapped peer object, when we get it.
-  JSObject *pi_proto; // 'pi.__proto__'
+  JS::Rooted<JSObject*> pi_obj(aCx); // XPConnect-wrapped peer object, when we get it.
+  JS::Rooted<JSObject*> pi_proto(aCx); // 'pi.__proto__'
 
-  rv = GetPluginJSObject(aCx, aObject, pi, &pi_obj, &pi_proto);
+  rv = GetPluginJSObject(aCx, aObject, pi, pi_obj.address(), pi_proto.address());
   if (NS_FAILED(rv)) {
     return;
   }
@@ -2979,8 +2987,8 @@ nsObjectLoadingContent::SetupProtoChain(JSContext* aCx, JSObject* aObject)
   // If we got an xpconnect-wrapped plugin object, set obj's
   // prototype's prototype to the scriptable plugin.
 
-  JSObject *my_proto =
-    GetDOMClass(aObject)->mGetProto(aCx, JS_GetGlobalForObject(aCx, aObject));
+  JS::Rooted<JSObject*> global(aCx, JS_GetGlobalForObject(aCx, aObject));
+  JS::Handle<JSObject*> my_proto = GetDOMClass(aObject)->mGetProto(aCx, global);
   MOZ_ASSERT(my_proto);
 
   // Set 'this.__proto__' to pi
@@ -3050,7 +3058,8 @@ nsObjectLoadingContent::SetupProtoChain(JSContext* aCx, JSObject* aObject)
 
 // static
 nsresult
-nsObjectLoadingContent::GetPluginJSObject(JSContext *cx, JSObject *obj,
+nsObjectLoadingContent::GetPluginJSObject(JSContext *cx,
+                                          JS::Handle<JSObject*> obj,
                                           nsNPAPIPluginInstance *plugin_inst,
                                           JSObject **plugin_obj,
                                           JSObject **plugin_proto)
@@ -3086,10 +3095,10 @@ nsObjectLoadingContent::TeardownProtoChain()
   // Use the safe JSContext here as we're not always able to find the
   // JSContext associated with the NPP any more.
   JSContext *cx = nsContentUtils::GetSafeJSContext();
-  JSObject *obj = thisContent->GetWrapper();
+  JS::Rooted<JSObject*> obj(cx, thisContent->GetWrapper());
   NS_ENSURE_TRUE(obj, /* void */);
 
-  JSObject *proto;
+  JS::Rooted<JSObject*> proto(cx);
   JSAutoRequest ar(cx);
   JSAutoCompartment ac(cx, obj);
 
@@ -3097,7 +3106,7 @@ nsObjectLoadingContent::TeardownProtoChain()
   // all JS objects of the class sNPObjectJSWrapperClass
   bool removed = false;
   while (obj) {
-    if (!::JS_GetPrototype(cx, obj, &proto)) {
+    if (!::JS_GetPrototype(cx, obj, proto.address())) {
       return;
     }
     if (!proto) {
@@ -3107,7 +3116,7 @@ nsObjectLoadingContent::TeardownProtoChain()
     // an NP object, that counts too.
     if (JS_GetClass(js::UncheckedUnwrap(proto)) == &sNPObjectJSWrapperClass) {
       // We found an NPObject on the proto chain, get its prototype...
-      if (!::JS_GetPrototype(cx, proto, &proto)) {
+      if (!::JS_GetPrototype(cx, proto, proto.address())) {
         return;
       }
 
@@ -3158,7 +3167,7 @@ nsObjectLoadingContent::SetupProtoChainRunner::Run()
 
   nsCOMPtr<nsIContent> content;
   CallQueryInterface(mContent.get(), getter_AddRefs(content));
-  JSObject* obj = content->GetWrapper();
+  JS::Rooted<JSObject*> obj(cx, content->GetWrapper());
   if (!obj) {
     // No need to set up our proto chain if we don't even have an object
     return NS_OK;

@@ -28,8 +28,11 @@ ObjectStore::init()
 void
 ObjectStore::trace(JSTracer *trc)
 {
-    for (ObjectTable::Range r(table_.all()); !r.empty(); r.popFront())
-        JS_CallObjectTracer(trc, r.front().value, "ipc-object");
+    for (ObjectTable::Range r(table_.all()); !r.empty(); r.popFront()) {
+        JSObject *obj = r.front().value;
+        JS_CallObjectTracer(trc, &obj, "ipc-object");
+        MOZ_ASSERT(obj == r.front().value);
+    }
 }
 
 JSObject *
@@ -67,8 +70,11 @@ ObjectIdCache::init()
 void
 ObjectIdCache::trace(JSTracer *trc)
 {
-    for (ObjectIdTable::Range r(table_.all()); !r.empty(); r.popFront())
-        JS_CallObjectTracer(trc, r.front().key, "ipc-id");
+    for (ObjectIdTable::Range r(table_.all()); !r.empty(); r.popFront()) {
+        JSObject *obj = r.front().key;
+        JS_CallObjectTracer(trc, &obj, "ipc-id");
+        MOZ_ASSERT(obj == r.front().key);
+    }
 }
 
 ObjectId

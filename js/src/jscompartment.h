@@ -242,7 +242,7 @@ struct JSCompartment
      * debugger wrapper objects.  The list link is either in the second extra
      * slot for the former, or a special slot for the latter.
      */
-    js::RawObject                gcIncomingGrayPointers;
+    JSObject                     *gcIncomingGrayPointers;
 
     /* Linked list of live array buffers with >1 view. */
     JSObject                     *gcLiveArrayBuffers;
@@ -409,6 +409,12 @@ inline bool
 JSContext::typeInferenceEnabled() const
 {
     return compartment->zone()->types.inferenceEnabled;
+}
+
+inline bool
+JSContext::jaegerCompilationAllowed() const
+{
+    return compartment->zone()->types.jaegerCompilationAllowed;
 }
 
 inline js::Handle<js::GlobalObject*>

@@ -1365,11 +1365,14 @@ class MCall
     // Original value of argc from the bytecode.
     uint32_t numActualArgs_;
 
+    bool needsArgCheck_;
+
     MCall(JSFunction *target, uint32_t numActualArgs, bool construct)
       : construct_(construct),
         target_(target),
         targetScript_(NULL),
-        numActualArgs_(numActualArgs)
+        numActualArgs_(numActualArgs),
+        needsArgCheck_(true)
     {
         setResultType(MIRType_Value);
     }
@@ -1385,6 +1388,14 @@ class MCall
     void initFunction(MDefinition *func) {
         JS_ASSERT(!func->isPassArg());
         return setOperand(FunctionOperandIndex, func);
+    }
+
+    bool needsArgCheck() const {
+        return needsArgCheck_;
+    }
+
+    void disableArgCheck() {
+        needsArgCheck_ = false;
     }
 
     MPrepareCall *getPrepareCall() {
@@ -1835,6 +1846,11 @@ class MCompare
     void infer(JSContext *cx, BaselineInspector *inspector, jsbytecode *pc);
     CompareType compareType() const {
         return compareType_;
+    }
+    bool isDoubleComparison() const {
+        return compareType() == Compare_Double ||
+               compareType() == Compare_DoubleMaybeCoerceLHS ||
+               compareType() == Compare_DoubleMaybeCoerceRHS;
     }
     void setCompareType(CompareType type) {
         compareType_ = type;
@@ -2737,7 +2753,7 @@ class MBitXor : public MBinaryBitwiseInstruction
         return this;
     }
     MDefinition *foldIfEqual() {
-        return MConstant::New(Int32Value(0));
+        return this;
     }
 };
 
@@ -5373,10 +5389,10 @@ class MGetPropertyPolymorphic
 {
     struct Entry {
         // The shape to guard against.
-        RawShape objShape;
+        Shape *objShape;
 
         // The property to laod.
-        RawShape shape;
+        Shape *shape;
     };
 
     Vector<Entry, 4, IonAllocPolicy> shapes_;
@@ -5412,7 +5428,7 @@ class MGetPropertyPolymorphic
     TypePolicy *typePolicy() {
         return this;
     }
-    bool addShape(RawShape objShape, RawShape shape) {
+    bool addShape(Shape *objShape, Shape *shape) {
         Entry entry;
         entry.objShape = objShape;
         entry.shape = shape;
@@ -5421,10 +5437,10 @@ class MGetPropertyPolymorphic
     size_t numShapes() const {
         return shapes_.length();
     }
-    RawShape objShape(size_t i) const {
+    Shape *objShape(size_t i) const {
         return shapes_[i].objShape;
     }
-    RawShape shape(size_t i) const {
+    Shape *shape(size_t i) const {
         return shapes_[i].shape;
     }
     MDefinition *obj() const {
@@ -5445,10 +5461,10 @@ class MSetPropertyPolymorphic
 {
     struct Entry {
         // The shape to guard against.
-        RawShape objShape;
+        Shape *objShape;
 
         // The property to laod.
-        RawShape shape;
+        Shape *shape;
     };
 
     Vector<Entry, 4, IonAllocPolicy> shapes_;
@@ -5470,7 +5486,7 @@ class MSetPropertyPolymorphic
     TypePolicy *typePolicy() {
         return this;
     }
-    bool addShape(RawShape objShape, RawShape shape) {
+    bool addShape(Shape *objShape, Shape *shape) {
         Entry entry;
         entry.objShape = objShape;
         entry.shape = shape;
@@ -5479,10 +5495,10 @@ class MSetPropertyPolymorphic
     size_t numShapes() const {
         return shapes_.length();
     }
-    RawShape objShape(size_t i) const {
+    Shape *objShape(size_t i) const {
         return shapes_[i].objShape;
     }
-    RawShape shape(size_t i) const {
+    Shape *shape(size_t i) const {
         return shapes_[i].shape;
     }
     MDefinition *obj() const {
@@ -5849,7 +5865,7 @@ class MBindNameCache
     CompilerRootScript script_;
     jsbytecode *pc_;
 
-    MBindNameCache(MDefinition *scopeChain, PropertyName *name, RawScript script, jsbytecode *pc)
+    MBindNameCache(MDefinition *scopeChain, PropertyName *name, JSScript *script, jsbytecode *pc)
       : MUnaryInstruction(scopeChain), name_(name), script_(script), pc_(pc)
     {
         setResultType(MIRType_Object);
@@ -5858,7 +5874,7 @@ class MBindNameCache
   public:
     INSTRUCTION_HEADER(BindNameCache)
 
-    static MBindNameCache *New(MDefinition *scopeChain, PropertyName *name, RawScript script,
+    static MBindNameCache *New(MDefinition *scopeChain, PropertyName *name, JSScript *script,
                                jsbytecode *pc) {
         return new MBindNameCache(scopeChain, name, script, pc);
     }
@@ -5872,7 +5888,7 @@ class MBindNameCache
     PropertyName *name() const {
         return name_;
     }
-    RawScript script() const {
+    JSScript *script() const {
         return script_;
     }
     jsbytecode *pc() const {
@@ -5911,7 +5927,7 @@ class MGuardShape
     MDefinition *obj() const {
         return getOperand(0);
     }
-    const RawShape shape() const {
+    const Shape *shape() const {
         return shape_;
     }
     BailoutKind bailoutKind() const {
@@ -6916,7 +6932,7 @@ class MInstanceOf
     CompilerRootObject protoObj_;
 
   public:
-    MInstanceOf(MDefinition *obj, RawObject proto)
+    MInstanceOf(MDefinition *obj, JSObject *proto)
       : MUnaryInstruction(obj),
         protoObj_(proto)
     {
@@ -6929,7 +6945,7 @@ class MInstanceOf
         return this;
     }
 
-    RawObject prototypeObject() {
+    JSObject *prototypeObject() {
         return protoObj_;
     }
 };
@@ -7124,7 +7140,7 @@ class MTypeBarrier
 // Like MTypeBarrier, guard that the value is in the given type set. This is
 // used before property writes to ensure the value being written is represented
 // in the property types for the object.
-class MMonitorTypes : public MUnaryInstruction
+class MMonitorTypes : public MUnaryInstruction, public BoxInputsPolicy
 {
     const types::StackTypeSet *typeSet_;
 
@@ -7142,6 +7158,11 @@ class MMonitorTypes : public MUnaryInstruction
     static MMonitorTypes *New(MDefinition *def, const types::StackTypeSet *types) {
         return new MMonitorTypes(def, types);
     }
+
+    TypePolicy *typePolicy() {
+        return this;
+    }
+
     MDefinition *input() const {
         return getOperand(0);
     }
@@ -7329,7 +7350,7 @@ class MFunctionBoundary : public MNullaryInstruction
     Type type_;
     unsigned inlineLevel_;
 
-    MFunctionBoundary(RawScript script, Type type, unsigned inlineLevel)
+    MFunctionBoundary(JSScript *script, Type type, unsigned inlineLevel)
       : script_(script), type_(type), inlineLevel_(inlineLevel)
     {
         JS_ASSERT_IF(type != Inline_Exit, script != NULL);
@@ -7340,12 +7361,12 @@ class MFunctionBoundary : public MNullaryInstruction
   public:
     INSTRUCTION_HEADER(FunctionBoundary)
 
-    static MFunctionBoundary *New(RawScript script, Type type,
+    static MFunctionBoundary *New(JSScript *script, Type type,
                                   unsigned inlineLevel = 0) {
         return new MFunctionBoundary(script, type, inlineLevel);
     }
 
-    RawScript script() {
+    JSScript *script() {
         return script_;
     }
 

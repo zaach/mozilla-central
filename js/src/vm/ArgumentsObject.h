@@ -123,7 +123,7 @@ class ArgumentsObject : public JSObject
      * This allows function-local analysis to determine that formals are
      * not aliased and generally simplifies arguments objects.
      */
-    static ArgumentsObject *createUnexpected(JSContext *cx, StackIter &iter);
+    static ArgumentsObject *createUnexpected(JSContext *cx, ScriptFrameIter &iter);
     static ArgumentsObject *createUnexpected(JSContext *cx, AbstractFramePtr frame);
 #if defined(JS_ION)
     static ArgumentsObject *createForIon(JSContext *cx, ion::IonJSFrameLayout *frame,
@@ -199,8 +199,8 @@ class ArgumentsObject : public JSObject
      */
     inline size_t sizeOfMisc(JSMallocSizeOfFun mallocSizeOf) const;
 
-    static void finalize(FreeOp *fop, RawObject obj);
-    static void trace(JSTracer *trc, RawObject obj);
+    static void finalize(FreeOp *fop, JSObject *obj);
+    static void trace(JSTracer *trc, JSObject *obj);
 
     /* For jit use: */
     static size_t getDataSlotOffset() {

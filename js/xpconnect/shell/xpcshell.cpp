@@ -204,7 +204,7 @@ GetLocationProperty(JSContext *cx, JSHandleObject obj, JSHandleId id, JSMutableH
 
         if (location) {
             nsCOMPtr<nsIXPConnectJSObjectHolder> locationHolder;
-            JSObject *locationObj = NULL;
+            JS::Rooted<JSObject*> locationObj(cx, nullptr);
 
             bool symlink;
             // don't normalize symlinks, because that's kind of confusing
@@ -216,7 +216,7 @@ GetLocationProperty(JSContext *cx, JSHandleObject obj, JSHandleId id, JSMutableH
                                  getter_AddRefs(locationHolder));
 
             if (NS_SUCCEEDED(rv) &&
-                NS_SUCCEEDED(locationHolder->GetJSObject(&locationObj))) {
+                NS_SUCCEEDED(locationHolder->GetJSObject(locationObj.address()))) {
                 vp.set(OBJECT_TO_JSVAL(locationObj));
             }
         }
@@ -449,7 +449,7 @@ Dump(JSContext *cx, unsigned argc, jsval *vp)
 static JSBool
 Load(JSContext *cx, unsigned argc, jsval *vp)
 {
-    JSObject *obj = JS_THIS_OBJECT(cx, vp);
+    JS::Rooted<JSObject*> obj(cx, JS_THIS_OBJECT(cx, vp));
     if (!obj)
         return false;
 
@@ -478,8 +478,8 @@ Load(JSContext *cx, unsigned argc, jsval *vp)
         if (!script)
             return false;
 
-        jsval result;
-        if (!compileOnly && !JS_ExecuteScript(cx, obj, script, &result))
+        JS::Rooted<JS::Value> result(cx);
+        if (!compileOnly && !JS_ExecuteScript(cx, obj, script, result.address()))
             return false;
     }
     JS_SET_RVAL(cx, vp, JSVAL_VOID);
@@ -841,7 +841,8 @@ env_setProperty(JSContext *cx, JSHandleObject obj, JSHandleId id, JSBool strict,
 {
 /* XXX porting may be easy, but these don't seem to supply setenv by default */
 #if !defined XP_OS2 && !defined SOLARIS
-    JSString *idstr, *valstr;
+    JSString *valstr;
+    JS::Rooted<JSString*> idstr(cx);
     int rv;
 
     jsval idval;
@@ -986,11 +987,11 @@ my_GetErrorMessage(void *userRef, const char *locale, const unsigned errorNumber
 }
 
 static void
-ProcessFile(JSContext *cx, JSObject *obj, const char *filename, FILE *file,
+ProcessFile(JSContext *cx, JS::Handle<JSObject*> obj, const char *filename, FILE *file,
             JSBool forceTTY)
 {
     JSScript *script;
-    jsval result;
+    JS::Rooted<JS::Value> result(cx);
     int lineno, startline;
     JSBool ok, hitEOF;
     char *bufp, buffer[4096];
@@ -1025,10 +1026,9 @@ ProcessFile(JSContext *cx, JSObject *obj, const char *filename, FILE *file,
         options.setUTF8(true)
                .setFileAndLine(filename, 1)
                .setPrincipals(gJSPrincipals);
-        JS::RootedObject rootedObj(cx, obj);
-        script = JS::Compile(cx, rootedObj, options, file);
+        script = JS::Compile(cx, obj, options, file);
         if (script && !compileOnly)
-            (void)JS_ExecuteScript(cx, obj, script, &result);
+            (void)JS_ExecuteScript(cx, obj, script, result.address());
         DoEndRequest(cx);
 
         return;
@@ -1066,7 +1066,7 @@ ProcessFile(JSContext *cx, JSObject *obj, const char *filename, FILE *file,
             JSErrorReporter older;
 
             if (!compileOnly) {
-                ok = JS_ExecuteScript(cx, obj, script, &result);
+                ok = JS_ExecuteScript(cx, obj, script, result.address());
                 if (ok && result != JSVAL_VOID) {
                     /* Suppress error reports from JS_ValueToString(). */
                     older = JS_SetErrorReporter(cx, NULL);
@@ -1087,7 +1087,7 @@ ProcessFile(JSContext *cx, JSObject *obj, const char *filename, FILE *file,
 }
 
 static void
-Process(JSContext *cx, JSObject *obj, const char *filename, JSBool forceTTY)
+Process(JSContext *cx, JS::Handle<JSObject*> obj, const char *filename, JSBool forceTTY)
 {
     FILE *file;
 
@@ -1154,12 +1154,12 @@ ProcessArgsForCompartment(JSContext *cx, char **argv, int argc)
 }
 
 static int
-ProcessArgs(JSContext *cx, JSObject *obj, char **argv, int argc, XPCShellDirProvider* aDirProvider)
+ProcessArgs(JSContext *cx, JS::Handle<JSObject*> obj, char **argv, int argc, XPCShellDirProvider* aDirProvider)
 {
     const char rcfilename[] = "xpcshell.js";
     FILE *rcfile;
     int i;
-    JSObject *argsObj;
+    JS::Rooted<JSObject*> argsObj(cx);
     char *filename = NULL;
     JSBool isInteractive = true;
     JSBool forceTTY = false;
@@ -1917,7 +1917,8 @@ main(int argc, char **argv, char **envp)
             JS_DefineProperty(cx, glob, "__LOCATION__", JSVAL_VOID,
                               GetLocationProperty, NULL, 0);
 
-            result = ProcessArgs(cx, glob, argv, argc, &dirprovider);
+            JS::Rooted<JSObject*> rootedGlob(cx, glob);
+            result = ProcessArgs(cx, rootedGlob, argv, argc, &dirprovider);
 
             JS_DropPrincipals(rt, gJSPrincipals);
             JS_SetAllNonReservedSlotsToUndefined(cx, glob);

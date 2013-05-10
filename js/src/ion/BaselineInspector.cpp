@@ -11,6 +11,20 @@ using namespace js;
 using namespace js::ion;
 
 bool
+SetElemICInspector::sawOOBDenseWrite() const
+{
+    if (!icEntry_)
+        return false;
+
+    // Check for a SetElem_DenseAdd stub.
+    for (ICStub *stub = icEntry_->firstStub(); stub; stub = stub->next()) {
+        if (stub->isSetElem_DenseAdd())
+            return true;
+    }
+    return false;
+}
+
+bool
 SetElemICInspector::sawOOBTypedArrayWrite() const
 {
     if (!icEntry_)
@@ -42,7 +56,7 @@ BaselineInspector::maybeShapesForPropertyOp(jsbytecode *pc, Vector<Shape *> &sha
 
     ICStub *stub = entry.firstStub();
     while (stub->next()) {
-        RawShape shape;
+        Shape *shape;
         if (stub->isGetProp_Native()) {
             shape = stub->toGetProp_Native()->shape();
         } else if (stub->isSetProp_Native()) {
@@ -253,3 +267,30 @@ BaselineInspector::expectedBinaryArithSpecialization(jsbytecode *pc)
     return MIRType_None;
 }
 
+bool
+BaselineInspector::hasSeenNonNativeGetElement(jsbytecode *pc)
+{
+    if (!hasBaselineScript())
+        return false;
+
+    const ICEntry &entry = icEntryFromPC(pc);
+    ICStub *stub = entry.fallbackStub();
+
+    if (stub->isGetElem_Fallback())
+        return stub->toGetElem_Fallback()->hasNonNativeAccess();
+    return false;
+}
+
+bool
+BaselineInspector::hasSeenAccessedGetter(jsbytecode *pc)
+{
+    if (!hasBaselineScript())
+        return false;
+
+    const ICEntry &entry = icEntryFromPC(pc);
+    ICStub *stub = entry.fallbackStub();
+
+    if (stub->isGetProp_Fallback())
+        return stub->toGetProp_Fallback()->hasAccessedGetter();
+    return false;
+}

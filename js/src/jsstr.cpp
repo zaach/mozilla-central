@@ -63,6 +63,8 @@ using namespace js::types;
 using namespace js::unicode;
 
 using mozilla::CheckedInt;
+using mozilla::IsNaN;
+using mozilla::IsNegativeZero;
 using mozilla::PodCopy;
 using mozilla::PodEqual;
 
@@ -1286,7 +1288,7 @@ str_lastIndexOf(JSContext *cx, unsigned argc, Value *vp)
             double d;
             if (!ToNumber(cx, args[1], &d))
                 return false;
-            if (!MOZ_DOUBLE_IS_NaN(d)) {
+            if (!IsNaN(d)) {
                 d = ToInteger(d);
                 if (d <= 0)
                     i = 0;
@@ -2615,7 +2617,7 @@ LambdaIsGetElem(JSObject &lambda)
     if (!fun->hasScript())
         return NULL;
 
-    RawScript script = fun->nonLazyScript();
+    JSScript *script = fun->nonLazyScript();
     jsbytecode *pc = script->code;
 
     /*
@@ -3491,7 +3493,7 @@ static const JSFunctionSpec string_static_methods[] = {
     JS_FS_END
 };
 
-RawShape
+Shape *
 StringObject::assignInitialShape(JSContext *cx)
 {
     JS_ASSERT(nativeEmpty());
@@ -3726,7 +3728,7 @@ js::ValueToSource(JSContext *cx, const Value &v)
         return js_QuoteString(cx, v.toString(), '"');
     if (v.isPrimitive()) {
         /* Special case to preserve negative zero, _contra_ toString. */
-        if (v.isDouble() && MOZ_DOUBLE_IS_NEGATIVE_ZERO(v.toDouble())) {
+        if (v.isDouble() && IsNegativeZero(v.toDouble())) {
             /* NB: _ucNstr rather than _ucstr to indicate non-terminated. */
             static const jschar js_negzero_ucNstr[] = {'-', '0'};
 
@@ -4237,7 +4239,7 @@ const bool js_isspace[] = {
 static inline bool
 TransferBufferToString(StringBuffer &sb, MutableHandleValue rval)
 {
-    RawString str = sb.finishString();
+    JSString *str = sb.finishString();
     if (!str)
         return false;
     rval.setString(str);

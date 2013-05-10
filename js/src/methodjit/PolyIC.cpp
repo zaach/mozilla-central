@@ -191,7 +191,7 @@ class SetPropCompiler : public PICStubCompiler
         repatcher.relink(pic.slowPathCall, target);
     }
 
-    LookupStatus patchInline(RawShape shape)
+    LookupStatus patchInline(Shape *shape)
     {
         JS_ASSERT(!pic.inlinePathPatched);
         JaegerSpew(JSpew_PICs, "patch setprop inline at %p\n", pic.fastPathStart.executableAddress());
@@ -677,17 +677,15 @@ struct GetPropHelper {
     LookupStatus lookup() {
         RootedObject aobj(cx, obj);
         if (IsCacheableListBase(obj)) {
-            Value expandoValue = obj->getFixedSlot(GetListBaseExpandoSlot());
-
-            // Expando objects just hold any extra properties the object has been given by a
-            // script, and have no prototype or anything else that will complicate property
-            // lookups on them.
-            JS_ASSERT_IF(expandoValue.isObject(),
-                         expandoValue.toObject().isNative() && !expandoValue.toObject().getProto());
-
-            if (expandoValue.isObject() && expandoValue.toObject().nativeContains(cx, name))
+            RootedId aid(cx, NameToId(name));
+            ListBaseShadowsResult shadows =
+                GetListBaseShadowsCheck()(cx, obj, aid);
+            if (shadows == ShadowCheckFailed)
+                return ic.error(cx);
+            // Either the property is shadowed or we need an additional check in
+            // the stub, which we haven't implemented.
+            if (shadows == Shadows || shadows == DoesntShadowUnique)
                 return Lookup_Uncacheable;
-
             aobj = obj->getTaggedProto().toObjectOrNull();
         }
 
@@ -1010,7 +1008,7 @@ class GetPropCompiler : public PICStubCompiler
         return Lookup_Cacheable;
     }
 
-    LookupStatus patchInline(JSObject *holder, RawShape shape)
+    LookupStatus patchInline(JSObject *holder, Shape *shape)
     {
         spew("patch", "inline");
         Repatcher repatcher(f.chunk());
@@ -1045,7 +1043,7 @@ class GetPropCompiler : public PICStubCompiler
     }
 
     /* For JSPropertyOp getters. */
-    void generateGetterStub(Assembler &masm, RawShape shape, jsid userid,
+    void generateGetterStub(Assembler &masm, Shape *shape, jsid userid,
                             Label start, Vector<Jump, 8> &shapeMismatches)
     {
         /*
@@ -1155,7 +1153,7 @@ class GetPropCompiler : public PICStubCompiler
     }
 
     /* For getters backed by a JSNative. */
-    void generateNativeGetterStub(Assembler &masm, RawShape shape,
+    void generateNativeGetterStub(Assembler &masm, Shape *shape,
                                   Label start, Vector<Jump, 8> &shapeMismatches)
     {
        /*
@@ -1657,7 +1655,7 @@ class ScopeNameCompiler : public PICStubCompiler
         JS_ASSERT(obj == getprop.holder);
         JS_ASSERT(getprop.holder != &scopeChain->global());
 
-        RawShape shape = getprop.shape;
+        Shape *shape = getprop.shape;
         if (!shape->hasDefaultGetter())
             return disable("unhandled callobj sprop getter");
 
@@ -2170,7 +2168,7 @@ frameCountersOffset(VMFrame &f)
     }
 
     jsbytecode *pc;
-    RawScript script = cx->stack.currentScript(&pc);
+    JSScript *script = cx->stack.currentScript(&pc);
     offset += pc - script->code;
 
     return offset;

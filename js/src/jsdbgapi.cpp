@@ -383,7 +383,7 @@ JS_ClearAllWatchPoints(JSContext *cx)
 /************************************************************************/
 
 JS_PUBLIC_API(unsigned)
-JS_PCToLineNumber(JSContext *cx, RawScript script, jsbytecode *pc)
+JS_PCToLineNumber(JSContext *cx, JSScript *script, jsbytecode *pc)
 {
     return js::PCToLineNumber(script, pc);
 }
@@ -517,7 +517,7 @@ JS_GetFunctionScript(JSContext *cx, JSFunction *fun)
     if (fun->isInterpretedLazy()) {
         RootedFunction rootedFun(cx, fun);
         AutoCompartment funCompartment(cx, rootedFun);
-        RawScript script = rootedFun->getOrCreateScript(cx);
+        JSScript *script = rootedFun->getOrCreateScript(cx);
         if (!script)
             MOZ_CRASH();
         return script;
@@ -951,18 +951,6 @@ JS_DumpCompartmentPCCounts(JSContext *cx)
 #endif
 }
 
-JS_PUBLIC_API(JSObject *)
-JS_UnwrapObject(JSObject *obj)
-{
-    return UncheckedUnwrap(obj);
-}
-
-JS_PUBLIC_API(JSObject *)
-JS_UnwrapObjectAndInnerize(JSObject *obj)
-{
-    return UncheckedUnwrap(obj, /* stopAtOuter = */ false);
-}
-
 JS_FRIEND_API(JSBool)
 js_CallContextDebugHandler(JSContext *cx)
 {
@@ -1382,20 +1370,20 @@ JSBrokenFrameIterator::JSBrokenFrameIterator(JSContext *cx)
 
 JSBrokenFrameIterator::~JSBrokenFrameIterator()
 {
-    js_free((StackIter::Data *)data_);
+    js_free((ScriptFrameIter::Data *)data_);
 }
 
 bool
 JSBrokenFrameIterator::done() const
 {
-    NonBuiltinScriptFrameIter iter(*(StackIter::Data *)data_);
+    NonBuiltinScriptFrameIter iter(*(ScriptFrameIter::Data *)data_);
     return iter.done();
 }
 
 JSBrokenFrameIterator &
 JSBrokenFrameIterator::operator++()
 {
-    StackIter::Data *data = (StackIter::Data *)data_;
+    ScriptFrameIter::Data *data = (ScriptFrameIter::Data *)data_;
     NonBuiltinScriptFrameIter iter(*data);
     ++iter;
     *data = iter.data_;
@@ -1405,20 +1393,20 @@ JSBrokenFrameIterator::operator++()
 JSAbstractFramePtr
 JSBrokenFrameIterator::abstractFramePtr() const
 {
-    NonBuiltinScriptFrameIter iter(*(StackIter::Data *)data_);
+    NonBuiltinScriptFrameIter iter(*(ScriptFrameIter::Data *)data_);
     return Jsvalify(iter.abstractFramePtr());
 }
 
 jsbytecode *
 JSBrokenFrameIterator::pc() const
 {
-    NonBuiltinScriptFrameIter iter(*(StackIter::Data *)data_);
+    NonBuiltinScriptFrameIter iter(*(ScriptFrameIter::Data *)data_);
     return iter.pc();
 }
 
 bool
 JSBrokenFrameIterator::isConstructing() const
 {
-    NonBuiltinScriptFrameIter iter(*(StackIter::Data *)data_);
+    NonBuiltinScriptFrameIter iter(*(ScriptFrameIter::Data *)data_);
     return iter.isConstructing();
 }
