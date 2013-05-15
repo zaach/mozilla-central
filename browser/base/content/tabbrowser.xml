@@ -2712,6 +2712,9 @@
               break;
             case "contextmenu":
               gContextMenuContext = json.contextMenuContext;
+              gContextMenuContext.link = aMessage.remote.link;
+              gContextMenuContext.target = aMessage.remote.target;
+              gContextMenuContext.browser = browser;
               let popup = browser.ownerDocument.getElementById("contentAreaContextMenu");
               popup.openPopup(browser, "overlap", json.screenX, json.screenY, true, false, null);
               break;

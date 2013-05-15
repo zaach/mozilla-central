@@ -645,19 +645,20 @@ nsContextMenu.prototype = {
       viewURL = this.target.toDataURL();
     else {
       viewURL = this.mediaURL;
-      urlSecurityCheck(viewURL,
-                       this.browser.contentPrincipal,
-                       Ci.nsIScriptSecurityManager.DISALLOW_SCRIPT);
+      // urlSecurityCheck(viewURL,
+      //                  this.browser.contentPrincipal,
+      //                  Ci.nsIScriptSecurityManager.DISALLOW_SCRIPT);
     }
 
-    var doc = this.target.ownerDocument;
-    openUILink(viewURL, e, { disallowInheritPrincipal: true,
-                             referrerURI: doc.documentURIObject });
+    //var doc = this.target.ownerDocument;
+    openLinkIn(viewURL, "tab", {});
+    // openUILink(viewURL, e, { disallowInheritPrincipal: true,
+    //                          referrerURI: doc.documentURIObject });
   },
 
   saveVideoFrameAsImage: function () {
-    urlSecurityCheck(this.mediaURL, this.browser.contentPrincipal,
-                     Ci.nsIScriptSecurityManager.DISALLOW_SCRIPT);
+    // urlSecurityCheck(this.mediaURL, this.browser.contentPrincipal,
+    //                  Ci.nsIScriptSecurityManager.DISALLOW_SCRIPT);
     let name = "";
     try {
       let uri = makeURI(this.mediaURL);
@@ -1255,6 +1256,10 @@ nsContextMenu.prototype = {
   },
 
   copyMediaLocation : function () {
+    var consoleService = Components.classes["@mozilla.org/consoleservice;1"]
+                     .getService(Components.interfaces.nsIConsoleService);
+    consoleservice.logStringMessage('test');
+
     var clipboard = Cc["@mozilla.org/widget/clipboardhelper;1"].
                     getService(Ci.nsIClipboardHelper);
     clipboard.copyString(this.mediaURL, document);

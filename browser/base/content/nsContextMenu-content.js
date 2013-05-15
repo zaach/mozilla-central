@@ -4,6 +4,14 @@
 
 Components.utils.import("resource://gre/modules/PrivateBrowsingUtils.jsm");
 
+function makeURI(aURL, aOriginCharset, aBaseURI) {
+  return Services.io.newURI(aURL, aOriginCharset, aBaseURI);
+}
+
+function makeURLAbsolute(base, url) {
+  return this.makeURI(url, null, this.makeURI(base)).spec;
+}
+
 function contextMenuHandler(aEvent) {
   if (aEvent.type == "contextmenu") {
     let contextMenu = null;
@@ -14,10 +22,13 @@ function contextMenuHandler(aEvent) {
     }
     sendSyncMessage("contextmenu", { contextMenuContext: contextMenu,
                                      screenX: aEvent.screenX + 2,
-                                     screenY: aEvent.screenY + 2 });
+                                     screenY: aEvent.screenY + 2 },
                                      // so, "screen" in this case is really
                                      // just the viewport...
                                      // XXX can do shiftKey as well!
+                                     {link: contextMenu.link,
+                                      browser: contextMenu.browser,
+                                      target: contextMenu.target});
   }
 }
 

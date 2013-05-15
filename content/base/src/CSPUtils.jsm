@@ -1926,6 +1926,10 @@ function innerWindowFromRequest(docRequest) {
   let win = null;
   let loadContext = null;
 
+  if (!docRequest) {
+    return null;
+  }
+
   try {
     loadContext = docRequest.notificationCallbacks.getInterface(Ci.nsILoadContext);
   } catch (ex) {

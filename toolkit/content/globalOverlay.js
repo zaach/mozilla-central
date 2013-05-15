@@ -94,6 +94,7 @@ function goDoCommand(aCommand)
   catch (e) {
     Components.utils.reportError("An error occurred executing the " +
                                  aCommand + " command: " + e);
+    Components.utils.reportError((new Error).stack);
   }
 }
 
