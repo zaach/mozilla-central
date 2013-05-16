@@ -1318,7 +1318,7 @@ var gBrowserInit = {
     } catch (ex) {
     }
 
-    BookmarksMenuButton.uninit();
+    BookmarkingUI.uninit();
 
     TabsOnTop.uninit();
 
@@ -2236,7 +2236,7 @@ function UpdatePageProxyState()
 
 function SetPageProxyState(aState)
 {
-  BookmarksMenuButton.onPageProxyStateChanged(aState);
+  BookmarkingUI.onPageProxyStateChanged(aState);
 
   if (!gURLBar)
     return;
@@ -3332,7 +3332,7 @@ function BrowserCustomizeToolbar() {
   CombinedStopReload.uninit();
 
   PlacesToolbarHelper.customizeStart();
-  BookmarksMenuButton.customizeStart();
+  BookmarkingUI.customizeStart();
   DownloadsButton.customizeStart();
 
   TabsInTitlebar.allowedBy("customizing-toolbars", false);
@@ -3396,7 +3396,7 @@ function BrowserToolboxCustomizeDone(aToolboxChanged) {
   }
 
   PlacesToolbarHelper.customizeDone();
-  BookmarksMenuButton.customizeDone();
+  BookmarkingUI.customizeDone();
   DownloadsButton.customizeDone();
 
   // The url bar splitter state is dependent on whether stop/reload
@@ -3409,7 +3409,7 @@ function BrowserToolboxCustomizeDone(aToolboxChanged) {
   if (gURLBar) {
     URLBarSetURI();
     XULBrowserWindow.asyncUpdateUI();
-    BookmarksMenuButton.updateStarState();
+    BookmarkingUI.updateStarState();
     SocialMark.updateMarkState();
     SocialShare.update();
   }
@@ -3438,7 +3438,7 @@ function BrowserToolboxCustomizeChange(aType) {
       break;
     default:
       gHomeButton.updatePersonalToolbarStyle();
-      BookmarksMenuButton.customizeChange();
+      BookmarkingUI.customizeChange();
   }
 }
 
@@ -3880,7 +3880,7 @@ var XULBrowserWindow = {
         URLBarSetURI(aLocationURI);
 
         // Update starring UI
-        BookmarksMenuButton.updateStarState();
+        BookmarkingUI.updateStarState();
         SocialMark.updateMarkState();
         SocialShare.update();
       }
@@ -4533,7 +4533,7 @@ function setToolbarVisibility(toolbar, isVisible) {
   document.persist(toolbar.id, hidingAttribute);
 
   PlacesToolbarHelper.init();
-  BookmarksMenuButton.onToolbarVisibilityChange();
+  BookmarkingUI.onToolbarVisibilityChange();
   gBrowser.updateWindowResizers();
 
 #ifdef MENUBAR_CAN_AUTOHIDE
@@ -4642,6 +4642,9 @@ var TabsInTitlebar = {
   },
 
   _update: function () {
+    function $(id) document.getElementById(id);
+    function rect(ele) ele.getBoundingClientRect();
+
     if (!this._initialized || window.fullScreen)
       return;
 
@@ -4654,12 +4657,9 @@ var TabsInTitlebar = {
     if (allowed == this.enabled)
       return;
 
-    function $(id) document.getElementById(id);
     let titlebar = $("titlebar");
 
     if (allowed) {
-      function rect(ele)   ele.getBoundingClientRect();
-
       let tabsToolbar       = $("TabsToolbar");
 
 #ifdef MENUBAR_CAN_AUTOHIDE

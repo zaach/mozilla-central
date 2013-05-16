@@ -462,15 +462,22 @@ BluetoothHfpManager::Get()
 }
 
 void
-BluetoothHfpManager::NotifySettings()
+BluetoothHfpManager::NotifyStatusChanged(const nsAString& aType)
 {
   nsString type, name;
   BluetoothValue v;
   InfallibleTArray<BluetoothNamedValue> parameters;
-  type.AssignLiteral("bluetooth-hfp-status-changed");
+  type = aType;
 
   name.AssignLiteral("connected");
-  v = IsConnected();
+  if (type.EqualsLiteral("bluetooth-hfp-status-changed")) {
+    v = IsConnected();
+  } else if (type.EqualsLiteral("bluetooth-sco-status-changed")) {
+    v = IsScoConnected();
+  } else {
+    NS_WARNING("Wrong type for NotifyStatusChanged");
+    return;
+  }
   parameters.AppendElement(BluetoothNamedValue(name, v));
 
   name.AssignLiteral("address");
@@ -650,6 +657,19 @@ BluetoothHfpManager::HandleVoiceConnectionChanged()
   voiceInfo->GetNetwork(&network);
   NS_ENSURE_TRUE(network, NS_ERROR_FAILURE);
   network->GetLongName(mOperatorName);
+
+  // According to GSM 07.07, "<format> indicates if the format is alphanumeric
+  // or numeric; long alphanumeric format can be upto 16 characters long and
+  // short format up to 8 characters (refer GSM MoU SE.13 [9])..."
+  // However, we found that the operator name may sometimes be longer than 16
+  // characters. After discussion, we decided to fix this here but not in RIL
+  // or modem.
+  //
+  // Please see Bug 871366 for more information.
+  if (mOperatorName.Length() > 16) {
+    NS_WARNING("The operator name was longer than 16 characters. We cut it.");
+    mOperatorName.Left(mOperatorName, 16);
+  }
 
   return NS_OK;
 }
@@ -1004,6 +1024,8 @@ BluetoothHfpManager::Connect(const nsAString& aDevicePath,
     mHeadsetSocket->Disconnect();
     mHeadsetSocket = nullptr;
   }
+
+  MOZ_ASSERT(!mRunnable);
 
   mRunnable = aRunnable;
   mSocket =
@@ -1410,7 +1432,7 @@ BluetoothHfpManager::OnConnectSuccess(BluetoothSocket* aSocket)
   // Cache device path for NotifySettings() since we can't get socket address
   // when a headset disconnect with us
   mSocket->GetAddress(mDeviceAddress);
-  NotifySettings();
+  NotifyStatusChanged(NS_LITERAL_STRING("bluetooth-hfp-status-changed"));
 
   ListenSco();
 }
@@ -1461,7 +1483,7 @@ BluetoothHfpManager::OnDisconnect(BluetoothSocket* aSocket)
   DisconnectSco();
 
   Listen();
-  NotifySettings();
+  NotifyStatusChanged(NS_LITERAL_STRING("bluetooth-hfp-status-changed"));
   Reset();
 }
 
@@ -1503,6 +1525,7 @@ BluetoothHfpManager::OnScoConnectSuccess()
   }
 
   NotifyAudioManager(mDeviceAddress);
+  NotifyStatusChanged(NS_LITERAL_STRING("bluetooth-sco-status-changed"));
 
   mScoSocketStatus = mScoSocket->GetConnectionStatus();
 }
@@ -1526,6 +1549,7 @@ BluetoothHfpManager::OnScoDisconnect()
   if (mScoSocketStatus == SocketConnectionStatus::SOCKET_CONNECTED) {
     ListenSco();
     NotifyAudioManager(EmptyString());
+    NotifyStatusChanged(NS_LITERAL_STRING("bluetooth-sco-status-changed"));
   }
 }
 
@@ -1577,6 +1601,7 @@ BluetoothHfpManager::ConnectSco(BluetoothReplyRunnable* aRunnable)
   NS_ENSURE_TRUE(bs, false);
   nsresult rv = bs->GetScoSocket(mDeviceAddress, true, false, mScoSocket);
 
+  mScoSocketStatus = mSocket->GetConnectionStatus();
   return NS_SUCCEEDED(rv);
 }
 

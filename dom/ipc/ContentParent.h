@@ -382,6 +382,7 @@ private:
                                   const InfallibleTArray<CpowEntry>& aCpows);
 
     virtual bool RecvFilePathUpdateNotify(const nsString& aType,
+                                          const nsString& aStorageName,
                                           const nsString& aFilePath,
                                           const nsCString& aReason);
 
