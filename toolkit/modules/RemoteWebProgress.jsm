@@ -26,9 +26,10 @@ RemoteWebProgressRequest.prototype = {
 function RemoteWebProgress(browser)
 {
   this._browser = browser;
-  this._isDocumentLoading = false;
+  this._isLoadingDocument = false;
   this._isTopLevel = true;
   this._progressListeners = [];
+  this._loadType = 0;
 }
 
 RemoteWebProgress.prototype = {
@@ -59,10 +60,11 @@ RemoteWebProgress.prototype = {
     this._browser = null;
   },
 
-  get isLoadingDocument() { return this._isDocumentLoading },
+  get isLoadingDocument() { return this._isLoadingDocument; },
   get DOMWindow() { return null; },
   get DOMWindowID() { return 0; },
   get isTopLevel() { return this._isTopLevel; },
+  get loadType() { return this._loadType; },
 
   addProgressListener: function WP_AddProgressListener (aListener) {
     let listener = aListener.QueryInterface(Ci.nsIWebProgressListener);
@@ -82,6 +84,8 @@ RemoteWebProgress.prototype = {
 
   receiveMessage: function WP_ReceiveMessage(aMessage) {
     this._isTopLevel = aMessage.json.isTopLevel;
+    this._isLoadingDocument = aMessage.json.isLoadingDocument;
+    this._loadType = aMessage.json.loadType;
     this._browser._contentWindow = aMessage.remote.contentWindow;
 
     let req = this._uriSpec(aMessage.json.requestURI);

@@ -22,6 +22,7 @@
 #include "nsAutoPtr.h"
 
 #include "nsIDOMWindow.h"
+#include "nsIDocShell.h"
 
 #include "nsIStringBundle.h"
 #include "nsIScriptSecurityManager.h"
@@ -972,6 +973,25 @@ nsDocLoader::GetIsLoadingDocument(bool *aIsLoadingDocument)
 {
   *aIsLoadingDocument = mIsLoadingDocument;
 
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsDocLoader::GetLoadType(uint32_t *aLoadType)
+{
+  *aLoadType = 0;
+
+  nsCOMPtr<nsIDOMWindow> window;
+  GetDOMWindow(getter_AddRefs(window));
+  if (window) {
+    nsCOMPtr<nsPIDOMWindow> piwindow = do_QueryInterface(window);
+    NS_ENSURE_STATE(piwindow);
+
+    nsCOMPtr<nsIDocShell> docshell = piwindow->GetDocShell(); 
+    if (docshell) {
+      docshell->GetLoadType(aLoadType);
+    }
+  }
   return NS_OK;
 }
 

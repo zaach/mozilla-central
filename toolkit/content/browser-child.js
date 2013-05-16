@@ -25,7 +25,9 @@ let WebProgressListener = {
   _setupJSON: function setupJSON(aWebProgress, aRequest) {
     return {
       isTopLevel: aWebProgress.isTopLevel,
-      requestURI: this._requestSpec(aRequest)
+      isLoadingDocument: aWebProgress.isLoadingDocument,
+      requestURI: this._requestSpec(aRequest),
+      loadType: aWebProgress.loadType
     };
   },
 
