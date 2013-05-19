@@ -647,16 +647,6 @@
                 // previous location.
                 this.mBrowser.missingPlugins = null;
 
-
-function LOG(msg) {
-  var consoleService = Components.classes["@mozilla.org/consoleservice;1"]
-                                 .getService(Components.interfaces.nsIConsoleService);
-  consoleService.logStringMessage(msg);
-}
-
-                LOG("aWebProgress.isLoadingDocument:" + aWebProgress.isLoadingDocument + "\n")
-                LOG("aWebProgress.loadType:" + aWebProgress.loadType.toString() + "\n")
-
                 // Don't clear the favicon if this onLocationChange was
                 // triggered by a pushState or a replaceState. See bug 550565.
                 if (aWebProgress.isLoadingDocument &&
