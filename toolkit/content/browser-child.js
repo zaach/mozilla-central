@@ -25,21 +25,25 @@ let WebProgressListener = {
   _setupJSON: function setupJSON(aWebProgress, aRequest) {
     return {
       isTopLevel: aWebProgress.isTopLevel,
+      DOMWindowID: aWebProgress.DOMWindowID,
       isLoadingDocument: aWebProgress.isLoadingDocument,
       requestURI: this._requestSpec(aRequest),
       loadType: aWebProgress.loadType
     };
   },
 
-  _setupRemote: function setupRemote() {
+  _setupRemote: function setupRemote(aWebProgress) {
     let win = docShell.QueryInterface(Ci.nsIInterfaceRequestor)
                       .getInterface(Ci.nsIDOMWindow);
-    return { contentWindow: win };
+    return {
+      contentWindow: win,
+      DOMWindow: aWebProgress.DOMWindow // DOMWindow is not necessarily the content window
+    };
   },
 
   onStateChange: function onStateChange(aWebProgress, aRequest, aStateFlags, aStatus) {
     let json = this._setupJSON(aWebProgress, aRequest);
-    let remote = this._setupRemote();
+    let remote = this._setupRemote(aWebProgress);
     json.stateFlags = aStateFlags;
     json.status = aStatus;
 
@@ -54,7 +58,7 @@ let WebProgressListener = {
     let charset = content.document.characterSet;
 
     let json = this._setupJSON(aWebProgress, aRequest);
-    let remote = this._setupRemote();
+    let remote = this._setupRemote(aWebProgress);
     json.documentURI = aWebProgress.DOMWindow.document.documentURIObject.spec;
     json.location = spec;
     json.canGoBack = docShell.canGoBack;
@@ -66,7 +70,7 @@ let WebProgressListener = {
 
   onStatusChange: function onStatusChange(aWebProgress, aRequest, aStatus, aMessage) {
     let json = this._setupJSON(aWebProgress, aRequest);
-    let remote = this._setupRemote();
+    let remote = this._setupRemote(aWebProgress);
     json.status = aStatus;
     json.message = aMessage;
 
@@ -75,7 +79,7 @@ let WebProgressListener = {
 
   onSecurityChange: function onSecurityChange(aWebProgress, aRequest, aState) {
     let json = this._setupJSON(aWebProgress, aRequest);
-    let remote = this._setupRemote();
+    let remote = this._setupRemote(aWebProgress);
     json.state = aState;
     json.status = SecurityUI.getSSLStatusAsString();
 
