@@ -254,18 +254,12 @@ ScriptAnalysis::analyzeBytecode(JSContext *cx)
         if (!forwardJump)
             code->unconditional = true;
 
-        /*
-         * Treat decompose ops as no-ops which do not adjust the stack. We will
-         * pick up the stack depths as we go through the decomposed version.
-         */
-        if (!(js_CodeSpec[op].format & JOF_DECOMPOSE)) {
-            unsigned nuses = GetUseCount(script_, offset);
-            unsigned ndefs = GetDefCount(script_, offset);
+        unsigned nuses = GetUseCount(script_, offset);
+        unsigned ndefs = GetDefCount(script_, offset);
 
-            JS_ASSERT(stackDepth >= nuses);
-            stackDepth -= nuses;
-            stackDepth += ndefs;
-        }
+        JS_ASSERT(stackDepth >= nuses);
+        stackDepth -= nuses;
+        stackDepth += ndefs;
 
         switch (op) {
 
@@ -530,13 +524,12 @@ ScriptAnalysis::analyzeBytecode(JSContext *cx)
           case JSOP_LOOPHEAD:
           case JSOP_LOOPENTRY:
           case JSOP_NOTEARG:
+          case JSOP_REST:
             break;
 
           default:
-            if (!(js_CodeSpec[op].format & JOF_DECOMPOSE)) {
-                isJaegerCompileable = false;
-                isJaegerInlineable = isIonInlineable = false;
-            }
+            isJaegerCompileable = false;
+            isJaegerInlineable = isIonInlineable = false;
             break;
         }
 
@@ -1272,11 +1265,6 @@ ScriptAnalysis::analyzeSSA(JSContext *cx)
             freezeNewValues(cx, offset);
         }
 
-        if (js_CodeSpec[op].format & JOF_DECOMPOSE) {
-            offset = successorOffset;
-            continue;
-        }
-
         unsigned nuses = GetUseCount(script_, offset);
         unsigned ndefs = GetDefCount(script_, offset);
         JS_ASSERT(stackDepth >= nuses);
@@ -1374,6 +1362,8 @@ ScriptAnalysis::analyzeSSA(JSContext *cx)
             break;
 
           case JSOP_INITPROP:
+          case JSOP_INITPROP_GETTER:
+          case JSOP_INITPROP_SETTER:
             stack[stackDepth - 1].v = code->poppedValues[1];
             break;
 
@@ -1387,6 +1377,8 @@ ScriptAnalysis::analyzeSSA(JSContext *cx)
             break;
 
           case JSOP_INITELEM:
+          case JSOP_INITELEM_GETTER:
+          case JSOP_INITELEM_SETTER:
             stack[stackDepth - 1].v = code->poppedValues[2];
             break;
 

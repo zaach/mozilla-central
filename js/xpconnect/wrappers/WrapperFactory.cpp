@@ -11,6 +11,7 @@
 #include "AccessCheck.h"
 #include "XPCWrapper.h"
 #include "ChromeObjectWrapper.h"
+#include "WrapperFactory.h"
 
 #include "xpcprivate.h"
 #include "XPCMaps.h"
@@ -171,8 +172,12 @@ WrapperFactory::PrepareForWrapping(JSContext *cx, HandleObject scope,
     // COW(obj) => COW(foo) => COW(bar) => contentWin.StandardClass.prototype
     //
     // NB: We now remap all non-subsuming access of standard prototypes.
-    bool subsumes = AccessCheck::subsumes(js::GetContextCompartment(cx),
-                                          js::GetObjectCompartment(obj));
+    //
+    // NB: We need to ignore domain here so that the security relationship we
+    // compute here can't change over time. See the comment above the other
+    // subsumesIgnoringDomain call below.
+    bool subsumes = AccessCheck::subsumesIgnoringDomain(js::GetContextCompartment(cx),
+                                                        js::GetObjectCompartment(obj));
     XrayType xrayType = GetXrayType(obj);
     if (!subsumes && xrayType == NotXray) {
         JSProtoKey key = JSProto_Null;
@@ -289,9 +294,9 @@ WrapperFactory::PrepareForWrapping(JSContext *cx, HandleObject scope,
     // so we don't have to.
     RootedValue v(cx);
     nsresult rv =
-        nsXPConnect::FastGetXPConnect()->WrapNativeToJSVal(cx, wrapScope, wn->Native(), nullptr,
-                                                           &NS_GET_IID(nsISupports), false,
-                                                           v.address(), getter_AddRefs(holder));
+        nsXPConnect::XPConnect()->WrapNativeToJSVal(cx, wrapScope, wn->Native(), nullptr,
+                                                    &NS_GET_IID(nsISupports), false,
+                                                    v.address(), getter_AddRefs(holder));
     if (NS_SUCCEEDED(rv)) {
         obj = JSVAL_TO_OBJECT(v);
         NS_ASSERTION(IS_WN_WRAPPER(obj), "bad object");

@@ -559,7 +559,7 @@ ArrayBufferObject::create(JSContext *cx, uint32_t nbytes, uint8_t *contents)
     JS_ASSERT(obj->getClass() == &ArrayBufferClass);
 
     js::Shape *empty = EmptyShape::getInitialShape(cx, &ArrayBufferClass,
-                                                   obj->getProto(), obj->getParent(),
+                                                   obj->getProto(), obj->getParent(), obj->getMetadata(),
                                                    gc::FINALIZE_OBJECT16_BACKGROUND);
     if (!empty)
         return NULL;
@@ -1738,6 +1738,8 @@ class TypedArrayTemplate
                                 ? UseNewTypeForInitializer(cx, script, pc, fastClass())
                                 : GenericObject;
         RootedObject obj(cx, NewBuiltinClassInstance(cx, fastClass(), newKind));
+        if (!obj)
+            return NULL;
 
         if (script) {
             if (!types::SetInitializerObjectType(cx, script, pc, obj, newKind))
@@ -1783,7 +1785,7 @@ class TypedArrayTemplate
         // would just boil down to a slightly slower wrapper around the
         // following code anyway:
         js::Shape *empty = EmptyShape::getInitialShape(cx, fastClass(),
-                                                       obj->getProto(), obj->getParent(),
+                                                       obj->getProto(), obj->getParent(), obj->getMetadata(),
                                                        gc::FINALIZE_OBJECT8_BACKGROUND,
                                                        BaseShape::NOT_EXTENSIBLE);
         if (!empty)
@@ -3371,7 +3373,7 @@ const JSFunctionSpec ArrayBufferObject::jsfuncs[] = {
  * TypedArray boilerplate
  */
 
-#ifdef ENABLE_TYPEDARRAY_MOVE
+#ifndef RELEASE_BUILD
 # define IMPL_TYPED_ARRAY_STATICS(_typedArray)                                 \
 const JSFunctionSpec _typedArray::jsfuncs[] = {                                \
     JS_FN("iterator", JS_ArrayIterator, 0, 0),                                 \

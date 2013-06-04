@@ -9,6 +9,8 @@ import org.mozilla.gecko.animation.PropertyAnimator;
 import org.mozilla.gecko.animation.ViewHelper;
 import org.mozilla.gecko.gfx.ImmutableViewportMetrics;
 import org.mozilla.gecko.gfx.LayerView;
+import org.mozilla.gecko.menu.GeckoMenu;
+import org.mozilla.gecko.menu.MenuPopup;
 import org.mozilla.gecko.util.StringUtils;
 import org.mozilla.gecko.util.HardwareUtils;
 
@@ -321,11 +323,7 @@ public class BrowserToolbar implements Tabs.OnTabsChangedListener,
             public void onClick(View view) {
                 Tab tab = Tabs.getInstance().getSelectedTab();
                 if (tab != null) {
-                    if (ReaderModeUtils.isAboutReader(tab.getURL())) {
-                        tab.doBack();
-                    } else {
-                        tab.readerMode();
-                    }
+                    tab.toggleReaderMode();
                 }
             }
         });
@@ -348,6 +346,10 @@ public class BrowserToolbar implements Tabs.OnTabsChangedListener,
             public void onClick(View v) {
             }
         });
+
+        if (Build.VERSION.SDK_INT >= 16) {
+            mShadow.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        }
 
         mHandler = new Handler();
 
@@ -466,10 +468,8 @@ public class BrowserToolbar implements Tabs.OnTabsChangedListener,
                     updateTitle();
                 }
                 break;
-            case RESTORED:
-                updateTabCount(Tabs.getInstance().getDisplayCount());
-                break;
             case SELECTED:
+                updateTabCount(Tabs.getInstance().getDisplayCount());
                 mSwitchingTabs = true;
                 // fall through
             case LOCATION_CHANGE:
@@ -481,7 +481,7 @@ public class BrowserToolbar implements Tabs.OnTabsChangedListener,
                 break;
             case CLOSED:
             case ADDED:
-                updateTabCountAndAnimate(Tabs.getInstance().getDisplayCount());
+                updateTabCount(Tabs.getInstance().getDisplayCount());
                 if (Tabs.getInstance().isSelectedTab(tab)) {
                     updateBackButton(tab.canDoBack());
                     updateForwardButton(tab.canDoForward());
@@ -649,7 +649,7 @@ public class BrowserToolbar implements Tabs.OnTabsChangedListener,
 
                 // Trigger animation to update the tabs counter once the
                 // tabs button is back on screen.
-                updateTabCountAndAnimate(Tabs.getInstance().getDisplayCount());
+                updateTabCount(Tabs.getInstance().getDisplayCount());
             }
         });
 
@@ -750,26 +750,6 @@ public class BrowserToolbar implements Tabs.OnTabsChangedListener,
         }
     }
 
-    public void updateTabCountAndAnimate(int count) {
-        // Don't animate if the toolbar is hidden.
-        if (!isVisible()) {
-            updateTabCount(count);
-            return;
-        }
-
-        // If toolbar is selected, this means the entry is expanded and the
-        // tabs button is translated offscreen. Don't trigger tabs counter
-        // updates until the tabs button is back on screen.
-        // See fromAwesomeBarSearch()
-        if (!mLayout.isSelected()) {
-            mTabsCounter.setCount(count);
-
-            mTabs.setContentDescription((count > 1) ?
-                                        mActivity.getString(R.string.num_tabs, count) :
-                                        mActivity.getString(R.string.one_tab));
-        }
-    }
-
     public void updateTabCount(int count) {
         // If toolbar is selected, this means the entry is expanded and the
         // tabs button is translated offscreen. Don't trigger tabs counter
@@ -779,7 +759,14 @@ public class BrowserToolbar implements Tabs.OnTabsChangedListener,
             return;
         }
 
-        mTabsCounter.setCurrentText(String.valueOf(count));
+        // Set TabCounter based on visibility
+        if (isVisible() && ViewHelper.getAlpha(mTabsCounter) != 0) {
+            mTabsCounter.setCountWithAnimation(count);
+        } else {
+            mTabsCounter.setCount(count);
+        }
+
+        // Update A11y information
         mTabs.setContentDescription((count > 1) ?
                                     mActivity.getString(R.string.num_tabs, count) :
                                     mActivity.getString(R.string.one_tab));
@@ -812,19 +799,20 @@ public class BrowserToolbar implements Tabs.OnTabsChangedListener,
         setSiteSecurityVisibility(mShowSiteSecurity && !isLoading);
 
         // Handle the readerMode image and visibility: We show the reader mode button if 1) you can
-        // enter reader mode for current page or 2) if you're already in reader mode and can exit back,
+        // enter reader mode for current page or 2) if you're already in reader mode,
         // in which case we show the reader mode "close" (reader_active) icon.
-        boolean exitableReaderMode = false;
+        boolean inReaderMode = false;
         Tab tab = Tabs.getInstance().getSelectedTab();
         if (tab != null)
-            exitableReaderMode = ReaderModeUtils.isAboutReader(tab.getURL()) && tab.canDoBack();
-        mReader.setImageResource(exitableReaderMode ? R.drawable.reader_active : R.drawable.reader);
-        mReader.setVisibility(!isLoading && (mShowReader || exitableReaderMode) ? View.VISIBLE : View.GONE);
+            inReaderMode = ReaderModeUtils.isAboutReader(tab.getURL());
+        mReader.setImageResource(inReaderMode ? R.drawable.reader_active : R.drawable.reader);
+
+        mReader.setVisibility(!isLoading && (mShowReader || inReaderMode) ? View.VISIBLE : View.GONE);
 
         // We want title to fill the whole space available for it when there are icons
         // being shown on the right side of the toolbar as the icons already have some
         // padding in them. This is just to avoid wasting space when icons are shown.
-        mTitle.setPadding(0, 0, (!isLoading && !(mShowReader || exitableReaderMode) ? mTitlePadding : 0), 0);
+        mTitle.setPadding(0, 0, (!isLoading && !(mShowReader || inReaderMode) ? mTitlePadding : 0), 0);
 
         updateFocusOrder();
     }
@@ -1058,7 +1046,7 @@ public class BrowserToolbar implements Tabs.OnTabsChangedListener,
 
                 ViewGroup.MarginLayoutParams layoutParams =
                     (ViewGroup.MarginLayoutParams)mForward.getLayoutParams();
-                layoutParams.leftMargin = mDefaultForwardMargin + (mForward.isEnabled() ? mForward.getWidth() / 2 : 0);
+                layoutParams.leftMargin = mDefaultForwardMargin + (mForward.isEnabled() ? width : 0);
                 ViewHelper.setTranslationX(mForward, 0);
 
                 mUrlDisplayContainer.requestLayout();
@@ -1180,7 +1168,7 @@ public class BrowserToolbar implements Tabs.OnTabsChangedListener,
         if (!mHasSoftMenuButton)
             return false;
 
-        GeckoApp.mAppContext.invalidateOptionsMenu();
+        GeckoAppShell.getGeckoInterface().invalidateOptionsMenu();
         if (mMenuPopup != null && !mMenuPopup.isShowing())
             mMenuPopup.showAsDropDown(mMenu);
 

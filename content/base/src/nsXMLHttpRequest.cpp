@@ -42,6 +42,7 @@
 #include "nsIStreamConverterService.h"
 #include "nsICachingChannel.h"
 #include "nsContentUtils.h"
+#include "nsCxPusher.h"
 #include "nsEventDispatcher.h"
 #include "nsDOMJSUtils.h"
 #include "nsCOMArray.h"
@@ -782,8 +783,8 @@ nsXMLHttpRequest::CreateResponseParsedJSON(JSContext* aCx)
 
   // The Unicode converter has already zapped the BOM if there was one
   if (!JS_ParseJSON(aCx,
-                    static_cast<const jschar*>(mResponseText.get()),
-                    mResponseText.Length(), &mResultJSON)) {
+                    static_cast<const jschar*>(mResponseText.get()), mResponseText.Length(),
+                    JS::MutableHandle<JS::Value>::fromMarkedLocation(&mResultJSON))) {
     return NS_ERROR_FAILURE;
   }
 
@@ -2318,12 +2319,8 @@ GetRequestBody(nsIDOMDocument* aDoc, nsIInputStream** aResult,
   NS_ENSURE_SUCCESS(rv, rv);
 
   // Make sure to use the encoding we'll send
-  {
-    nsCxPusher pusher;
-    pusher.PushNull();
-    rv = serializer->SerializeToStream(aDoc, output, aCharset);
-    NS_ENSURE_SUCCESS(rv, rv);
-  }
+  rv = serializer->SerializeToStream(aDoc, output, aCharset);
+  NS_ENSURE_SUCCESS(rv, rv);
 
   output->Close();
 
@@ -3469,6 +3466,7 @@ nsXMLHttpRequest::MaybeDispatchProgressEvents(bool aFinalProgress)
       mResponseBody.Truncate();
       mResponseText.Truncate();
       mResultArrayBuffer = nullptr;
+      mArrayBufferBuilder.reset();
     }
   }
 

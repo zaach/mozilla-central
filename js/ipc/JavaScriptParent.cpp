@@ -560,7 +560,7 @@ JavaScriptParent::unwrap(JSContext *cx, ObjectId objId)
 
     JSObject *obj = NewProxyObject(cx,
                                    &CPOWProxyHandler::singleton,
-                                   UndefinedValue(),
+                                   UndefinedHandleValue,
                                    NULL,
                                    someObj,
                                    callable ? ProxyIsCallable : ProxyNotCallable);

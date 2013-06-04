@@ -915,7 +915,7 @@ nsDocShellTreeOwner::HandleEvent(nsIDOMEvent* aEvent)
   NS_ENSURE_TRUE(dragEvent, NS_ERROR_INVALID_ARG);
 
   bool defaultPrevented;
-  aEvent->GetPreventDefault(&defaultPrevented);
+  aEvent->GetDefaultPrevented(&defaultPrevented);
   if (defaultPrevented) {
     return NS_OK;
   }
@@ -1650,7 +1650,7 @@ ChromeContextMenuListener::HandleEvent(nsIDOMEvent* aMouseEvent)
   NS_ENSURE_TRUE(mouseEvent, NS_ERROR_UNEXPECTED);
 
   bool isDefaultPrevented = false;
-  aMouseEvent->GetPreventDefault(&isDefaultPrevented);
+  aMouseEvent->GetDefaultPrevented(&isDefaultPrevented);
   if (isDefaultPrevented) {
     return NS_OK;
   }

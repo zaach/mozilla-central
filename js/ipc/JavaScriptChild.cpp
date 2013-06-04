@@ -8,6 +8,7 @@
 #include "JavaScriptChild.h"
 #include "mozilla/dom/ContentChild.h"
 #include "nsContentUtils.h"
+#include "nsCxPusher.h"
 #include "xpcprivate.h"
 #include "jsfriendapi.h"
 

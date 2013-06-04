@@ -168,15 +168,7 @@ ExtendedDef(jsbytecode *pc)
 {
     switch ((JSOp)*pc) {
       case JSOP_SETARG:
-      case JSOP_INCARG:
-      case JSOP_DECARG:
-      case JSOP_ARGINC:
-      case JSOP_ARGDEC:
       case JSOP_SETLOCAL:
-      case JSOP_INCLOCAL:
-      case JSOP_DECLOCAL:
-      case JSOP_LOCALINC:
-      case JSOP_LOCALDEC:
         return true;
       default:
         return false;
@@ -451,26 +443,6 @@ struct LifetimeVariable
         return firstWrite(loop->head, loop->backedge);
     }
 
-    /* Return true if the variable cannot decrease during the body of a loop. */
-    bool nonDecreasing(JSScript *script, LoopAnalysis *loop) const {
-        Lifetime *segment = lifetime ? lifetime : saved;
-        while (segment && segment->start <= loop->backedge) {
-            if (segment->start >= loop->head && segment->write) {
-                switch (JSOp(script->code[segment->start])) {
-                  case JSOP_INCLOCAL:
-                  case JSOP_LOCALINC:
-                  case JSOP_INCARG:
-                  case JSOP_ARGINC:
-                    break;
-                  default:
-                    return false;
-                }
-            }
-            segment = segment->next;
-        }
-        return true;
-    }
-
     /*
      * If the variable is only written once in the body of a loop, offset of
      * that write. UINT32_MAX otherwise.
@@ -736,6 +708,8 @@ class ScriptAnalysis
 
     bool *escapedSlots;
 
+    types::StackTypeSet *undefinedTypeSet;
+
     /* Which analyses have been performed. */
     bool ranBytecode_;
     bool ranSSA_;
@@ -852,11 +826,6 @@ class ScriptAnalysis
         return JSOp(*next) == JSOP_POP && !jumpTarget(next);
     }
 
-    bool incrementInitialValueObserved(jsbytecode *pc) {
-        const JSCodeSpec *cs = &js_CodeSpec[*pc];
-        return (cs->format & JOF_POST) && !popGuaranteed(pc);
-    }
-
     const SSAValue &poppedValue(uint32_t offset, uint32_t which) {
         JS_ASSERT(offset < script_->length);
         JS_ASSERT(which < GetUseCount(script_, offset) +
@@ -923,7 +892,9 @@ class ScriptAnalysis
           case SSAValue::VAR:
             JS_ASSERT(!slotEscapes(v.varSlot()));
             if (v.varInitial()) {
-                return types::TypeScript::SlotTypes(script_, v.varSlot());
+                if (v.varSlot() < LocalSlot(script_, 0))
+                    return types::TypeScript::SlotTypes(script_, v.varSlot());
+                return undefinedTypeSet;
             } else {
                 /*
                  * Results of intermediate assignments have the same type as
@@ -1073,13 +1044,12 @@ class ScriptAnalysis
 
     struct TypeInferenceState {
         Vector<SSAPhiNode *> phiNodes;
-        bool hasGetSet;
         bool hasHole;
         types::StackTypeSet *forTypes;
         bool hasPropertyReadTypes;
         uint32_t propertyReadIndex;
         TypeInferenceState(JSContext *cx)
-            : phiNodes(cx), hasGetSet(false), hasHole(false), forTypes(NULL),
+            : phiNodes(cx), hasHole(false), forTypes(NULL),
               hasPropertyReadTypes(false), propertyReadIndex(0)
         {}
     };

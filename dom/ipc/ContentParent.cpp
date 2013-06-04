@@ -26,6 +26,7 @@
 #include "IndexedDatabaseManager.h"
 #include "mozIApplication.h"
 #include "mozilla/ClearOnShutdown.h"
+#include "mozilla/dom/Element.h"
 #include "mozilla/dom/ExternalHelperAppParent.h"
 #include "mozilla/dom/PMemoryReportRequestParent.h"
 #include "mozilla/dom/power/PowerManagerService.h"
@@ -338,9 +339,9 @@ ContentParent::GetNewOrUsed(bool aForBrowserElement, uint32_t processNum)
         maxContentProcesses = 1;
 
     if (processNum < sNonAppContentParents->Length()) {
-        ContentParent* p = (*sNonAppContentParents)[processNum];
+        nsRefPtr<ContentParent> p = (*sNonAppContentParents)[processNum];
         if (p->IsAlive()) {
-            return p;
+            return p.forget();
         }
     }
 

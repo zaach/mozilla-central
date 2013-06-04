@@ -338,6 +338,9 @@ class NewObjectCache
     NewObjectCache() { mozilla::PodZero(this); }
     void purge() { mozilla::PodZero(this); }
 
+    /* Remove any cached items keyed on moved objects. */
+    inline void clearNurseryObjects(JSRuntime *rt);
+
     /*
      * Get the entry index for the given lookup, return whether there was a hit
      * on an existing entry.
@@ -1438,16 +1441,6 @@ struct JSRuntime : public JS::shadow::Runtime,
   public:
     js::AutoEnterPolicy *enteredPolicy;
 #endif
-
-  private:
-    /*
-     * Used to ensure that compartments created at the same time get different
-     * random number sequences. See js::InitRandom.
-     */
-    uint64_t rngNonce;
-
-  public:
-    uint64_t nextRNGNonce() { return rngNonce++; }
 };
 
 /* Common macros to access thread-local caches in JSRuntime. */

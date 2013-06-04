@@ -51,7 +51,7 @@ pref("extensions.blocklist.interval", 86400);
 // blocking them.
 pref("extensions.blocklist.level", 2);
 pref("extensions.blocklist.url", "https://addons.mozilla.org/blocklist/3/%APP_ID%/%APP_VERSION%/%PRODUCT%/%BUILD_ID%/%BUILD_TARGET%/%LOCALE%/%CHANNEL%/%OS_VERSION%/%DISTRIBUTION%/%DISTRIBUTION_VERSION%/%PING_COUNT%/%TOTAL_PING_COUNT%/%DAYS_SINCE_LAST_PING%/");
-pref("extensions.blocklist.detailsURL", "https://www.mozilla.com/%LOCALE%/blocklist/");
+pref("extensions.blocklist.detailsURL", "https://www.mozilla.org/%LOCALE%/blocklist/");
 pref("extensions.blocklist.itemURL", "https://addons.mozilla.org/%LOCALE%/%APP%/blocked/%blockID%");
 
 pref("extensions.update.autoUpdateDefault", true);
@@ -120,6 +120,7 @@ pref("app.update.cert.maxErrors", 5);
 // |app.update.url.override| user preference has been set for testing updates or
 // when the |app.update.cert.checkAttributes| preference is set to false. Also,
 // the |app.update.url.override| preference should ONLY be used for testing.
+// IMPORTANT! metro.js should also be updated for updates to certs.X.issuerName
 pref("app.update.certs.1.issuerName", "OU=Equifax Secure Certificate Authority,O=Equifax,C=US");
 pref("app.update.certs.1.commonName", "aus3.mozilla.org");
 
@@ -226,6 +227,7 @@ pref("general.useragent.complexOverride.moodle", false); // bug 797703
 
 // At startup, check if we're the default browser and prompt user if not.
 pref("browser.shell.checkDefaultBrowser", true);
+pref("browser.shell.shortcutFavicons",true);
 
 // 0 = blank, 1 = home (browser.startup.homepage), 2 = last visited page, 3 = resume previous browser session
 // The behavior of option 3 is detailed at: http://wiki.mozilla.org/Session_Restore
@@ -751,7 +753,7 @@ pref("browser.safebrowsing.reportPhishURL", "http://%LOCALE%.phish-report.mozill
 pref("browser.safebrowsing.reportMalwareURL", "http://%LOCALE%.malware-report.mozilla.com/?hl=%LOCALE%");
 pref("browser.safebrowsing.reportMalwareErrorURL", "http://%LOCALE%.malware-error.mozilla.com/?hl=%LOCALE%");
 
-pref("browser.safebrowsing.warning.infoURL", "http://www.mozilla.com/%LOCALE%/firefox/phishing-protection/");
+pref("browser.safebrowsing.warning.infoURL", "https://www.mozilla.org/%LOCALE%/firefox/phishing-protection/");
 pref("browser.safebrowsing.malware.reportURL", "http://safebrowsing.clients.google.com/safebrowsing/diagnostic?client=%NAME%&hl=%LOCALE%&site=");
 
 #ifdef MOZILLA_OFFICIAL
@@ -894,7 +896,7 @@ pref("toolkit.crashreporter.infoURL",
      "https://www.mozilla.org/legal/privacy/firefox.html#crash-reporter");
 
 // base URL for web-based support pages
-pref("app.support.baseURL", "http://support.mozilla.org/1/firefox/%VERSION%/%OS%/%LOCALE%/");
+pref("app.support.baseURL", "https://support.mozilla.org/1/firefox/%VERSION%/%OS%/%LOCALE%/");
 
 // Name of alternate about: page for certificate errors (when undefined, defaults to about:neterror)
 pref("security.alternate_certificate_error_page", "certerror");
@@ -1157,6 +1159,11 @@ pref("devtools.editor.component", "orion");
 // Enable the Font Inspector
 pref("devtools.fontinspector.enabled", true);
 
+// Pref to store the browser version at the time of a telemetry ping for an
+// opened developer tool. This allows us to ping telemetry just once per browser
+// version for each user.
+pref("devtools.telemetry.tools.opened.version", "{}");
+
 // Whether the character encoding menu is under the main Firefox button. This
 // preference is a string so that localizers can alter it.
 pref("browser.menu.showCharacterEncoding", "chrome://browser/locale/browser.properties");
@@ -1230,6 +1237,9 @@ pref("social.sidebar.unload_timeout_ms", 10000);
 pref("social.toast-notifications.enabled", true);
 
 pref("dom.identity.enabled", false);
+
+// Turn on the CSP 1.0 parser for Content Security Policy headers
+pref("security.csp.speccompliant", true);
 
 // Block insecure active content on https pages
 pref("security.mixed_content.block_active_content", true);

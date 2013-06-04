@@ -41,7 +41,8 @@ nsInProcessTabChildGlobal::DoSendSyncMessage(JSContext* aCx,
   if (mChromeMessageManager) {
     SameProcessCpowHolder cpows(aCpows);
     nsRefPtr<nsFrameMessageManager> mm = mChromeMessageManager;
-    mm->ReceiveMessage(mOwner, aMessage, true, &aData, &cpows, aJSONRetVal);
+    mm->ReceiveMessage(mOwner, aMessage, true, &aData, &cpows,
+                       aJSONRetVal);
   }
   return true;
 }

@@ -84,6 +84,11 @@ this.DOMApplicationRegistry = {
   webapps: { },
   children: [ ],
   allAppsLaunchable: false,
+#ifdef MOZ_OFFICIAL_BRANDING
+  get allowSideloadingCertified() false,
+#else
+  get allowSideloadingCertified() true,
+#endif
 
   init: function() {
     this.messages = ["Webapps:Install", "Webapps:Uninstall",
@@ -127,6 +132,10 @@ this.DOMApplicationRegistry = {
           let appDir = FileUtils.getDir(DIRECTORY_NAME, ["webapps"], false);
           for (let id in this.webapps) {
             let app = this.webapps[id];
+            if (!app) {
+              delete this.webapps[id];
+              continue;
+            }
 
             app.id = id;
 
@@ -384,7 +393,6 @@ this.DOMApplicationRegistry = {
         for (let id in this.webapps) {
           if (id in aData || this.webapps[id].removable)
             continue;
-          delete this.webapps[id];
           // Remove the permissions, cookies and private data for this app.
           let localId = this.webapps[id].localId;
           let permMgr = Cc["@mozilla.org/permissionmanager;1"]
@@ -392,6 +400,7 @@ this.DOMApplicationRegistry = {
           permMgr.RemovePermissionsForApp(localId, false);
           Services.cookies.removeCookiesForApp(localId, false);
           this._clearPrivateData(localId, false);
+          delete this.webapps[id];
         }
 
         let appDir = FileUtils.getDir("coreAppsDir", ["webapps"], false);
@@ -1136,6 +1145,8 @@ this.DOMApplicationRegistry = {
           DOMApplicationRegistry._writeFile(manFile,
                                             JSON.stringify(aManifest),
                                             function() { });
+
+          app = DOMApplicationRegistry.webapps[aId];
           // Set state and fire events.
           app.downloading = false;
           app.downloadAvailable = false;
@@ -1459,6 +1470,7 @@ this.DOMApplicationRegistry = {
 
         app.name = manifest.name;
         app.csp = manifest.csp || "";
+        app.updateTime = Date.now();
       } else {
         manifest = new ManifestHelper(aOldManifest, app.origin);
       }
@@ -1854,8 +1866,16 @@ this.DOMApplicationRegistry = {
           app.etag = xhr.getResponseHeader("Etag");
           app.manifestHash = this.computeManifestHash(manifest);
           debug("at install package got app etag=" + app.etag);
-          Services.obs.notifyObservers(aMm, "webapps-ask-install",
-                                       JSON.stringify(aData));
+          // We allow bypassing the install confirmation process to facilitate
+          // automation.
+          let prefName = "dom.mozApps.auto_confirm_install";
+          if (Services.prefs.prefHasUserValue(prefName) &&
+              Services.prefs.getBoolPref(prefName)) {
+            this.confirmInstall(aData);
+          } else {
+            Services.obs.notifyObservers(aMm, "webapps-ask-install",
+                                         JSON.stringify(aData));
+          }
         }
       }
       else {
@@ -2011,19 +2031,18 @@ this.DOMApplicationRegistry = {
       offlineCacheObserver: aOfflineCacheObserver
     }
 
-    let postFirstInstallTask = (function () {
-      // Only executed on install not involving sync.
-      this.broadcastMessage("Webapps:AddApp", { id: id, app: appObject });
-      this.broadcastMessage("Webapps:Install:Return:OK", aData);
-      Services.obs.notifyObservers(this, "webapps-sync-install", appNote);
-    }).bind(this);
+    // We notify about the successful installation via mgmt.oninstall and the
+    // corresponging DOMRequest.onsuccess event as soon as the app is properly
+    // saved in the registry.
+    if (!aFromSync) {
+      this._saveApps((function() {
+        this.broadcastMessage("Webapps:AddApp", { id: id, app: appObject });
+        this.broadcastMessage("Webapps:Install:Return:OK", aData);
+        Services.obs.notifyObservers(this, "webapps-sync-install", appNote);
+      }).bind(this));
+    }
 
     if (!aData.isPackage) {
-      if (!aFromSync) {
-        this._saveApps((function() {
-          postFirstInstallTask();
-        }).bind(this));
-      }
       this.updateAppHandlers(null, app.manifest, app);
       if (aInstallSuccessCallback) {
         aInstallSuccessCallback(manifest);
@@ -2036,7 +2055,7 @@ this.DOMApplicationRegistry = {
       manifest = new ManifestHelper(jsonManifest, app.manifestURL);
       this.downloadPackage(manifest, appObject, false, (function(aId, aManifest) {
         // Success! Move the zip out of TmpD.
-        let app = DOMApplicationRegistry.webapps[id];
+        let app = DOMApplicationRegistry.webapps[aId];
         let zipFile = FileUtils.getFile("TmpD", ["webapps", aId, "application.zip"], true);
         let dir = FileUtils.getDir(DIRECTORY_NAME, ["webapps", aId], true, true);
         zipFile.moveTo(dir, "application.zip");
@@ -2067,9 +2086,6 @@ this.DOMApplicationRegistry = {
                                   manifestURL: appObject.manifestURL,
                                   app: app,
                                   manifest: aManifest });
-          if (!aFromSync) {
-            postFirstInstallTask();
-          }
           if (aInstallSuccessCallback) {
             aInstallSuccessCallback(aManifest);
           }
@@ -2547,15 +2563,65 @@ this.DOMApplicationRegistry = {
                   app.appStatus = AppsUtils.getAppManifestStatus(manifest);
                 }
 
+                // Check if the app declares which origin it will use.
+                if (isSigned &&
+                    app.appStatus >= Ci.nsIPrincipal.APP_STATUS_PRIVILEGED &&
+                    manifest.origin !== undefined) {
+
+                  let uri;
+                  try {
+                    uri = Services.io.newURI(manifest.origin, null, null);
+                  } catch(e) {
+                    throw "INVALID_ORIGIN";
+                  }
+
+                  if (uri.scheme != "app") {
+                    throw "INVALID_ORIGIN";
+                  }
+
+                  // Changing the origin during an update is not allowed.
+                  if (aIsUpdate && uri.prePath != app.origin) {
+                    throw "INVALID_ORIGIN_CHANGE";
+                  }
+
+                  debug("Setting origin to " + uri.prePath +
+                        " for " + app.manifestURL);
+                  let newId = uri.prePath.substring(6); // "app://".length
+
+                  if (newId in self.webapps) {
+                    throw "DUPLICATE_ORIGIN";
+                  }
+                  app.origin = uri.prePath;
+
+                  // Update the registry.
+                  app.id = newId;
+                  self.webapps[newId] = app;
+                  delete self.webapps[id];
+
+                  // Rename the directories where the files are installed.
+                  [DIRECTORY_NAME, "TmpD"].forEach(function(aDir) {
+                    let parent = FileUtils.getDir(aDir,
+                                             ["webapps"], true, true);
+                    let dir = FileUtils.getDir(aDir,
+                                             ["webapps", id], true, true);
+                    dir.moveTo(parent, newId);
+                  });
+
+                  // Signals that we need to swap the old id with the new app.
+                  self.broadcastMessage("Webapps:RemoveApp", { id: id });
+                  self.broadcastMessage("Webapps:AddApp", { id: newId,
+                                                            app: app });
+                }
+
                 if (aOnSuccess) {
-                  aOnSuccess(id, manifest);
+                  aOnSuccess(app.id, manifest);
                 }
               } catch (e) {
                 // Something bad happened when reading the package.
                 // Unrecoverable error, don't bug the user.
                 // Apps with installState 'pending' does not produce any
                 // notification, so we are safe with its current
-                // downladAvailable state.
+                // downloadAvailable state.
                 if (app.installState !== "pending") {
                   app.downloadAvailable = false;
                 }
@@ -3015,7 +3081,7 @@ this.DOMApplicationRegistry = {
 
   },
 
-  _notifyCategoryAndObservers: function(subject, topic, data) {
+  _notifyCategoryAndObservers: function(subject, topic, data,  msg) {
     const serviceMarker = "service,";
 
     // First create observers from the category manager.
@@ -3064,6 +3130,8 @@ this.DOMApplicationRegistry = {
         observer.observe(subject, topic, data);
       } catch(e) { }
     });
+    // Send back an answer to the child.
+    ppmm.broadcastAsyncMessage("Webapps:ClearBrowserData:Return", msg);
   },
 
   registerBrowserElementParentForApp: function(bep, appId) {
@@ -3080,18 +3148,18 @@ this.DOMApplicationRegistry = {
   receiveAppMessage: function(appId, message) {
     switch (message.name) {
       case "Webapps:ClearBrowserData":
-        this._clearPrivateData(appId, true);
+        this._clearPrivateData(appId, true, message.data);
         break;
     }
   },
 
-  _clearPrivateData: function(appId, browserOnly) {
+  _clearPrivateData: function(appId, browserOnly, msg) {
     let subject = {
       appId: appId,
       browserOnly: browserOnly,
       QueryInterface: XPCOMUtils.generateQI([Ci.mozIApplicationClearPrivateDataParams])
     };
-    this._notifyCategoryAndObservers(subject, "webapps-clear-data", null);
+    this._notifyCategoryAndObservers(subject, "webapps-clear-data", null, msg);
   }
 };
 

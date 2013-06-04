@@ -17,6 +17,7 @@
 #include "nsWrapperCache.h"
 #include "AccessCheck.h"
 #include "nsJSUtils.h"
+#include "WrapperFactory.h"
 
 #include "nsWrapperCacheInlines.h"
 
@@ -67,10 +68,9 @@ UnwrapNativeCPOW(nsISupports* wrapper)
 {
     nsCOMPtr<nsIXPConnectWrappedJS> underware = do_QueryInterface(wrapper);
     if (underware) {
-        JSObject* mainObj = nullptr;
-        if (NS_SUCCEEDED(underware->GetJSObject(&mainObj)) && mainObj) {
-            if (mozilla::jsipc::JavaScriptParent::IsCPOW(mainObj))
-                return mainObj;
+        JSObject* mainObj = underware->GetJSObject();
+        if (mainObj && mozilla::jsipc::JavaScriptParent::IsCPOW(mainObj)) {
+            return mainObj;
         }
     }
     return nullptr;
@@ -90,7 +90,8 @@ XPCConvert::GetISupportsFromJSObject(JSObject* obj, nsISupports** iface)
         *iface = (nsISupports*) xpc_GetJSPrivate(obj);
         return true;
     }
-    return UnwrapDOMObjectToISupports(obj, *iface);
+    *iface = UnwrapDOMObjectToISupports(obj);
+    return !!*iface;
 }
 
 /***************************************************************************/
@@ -104,13 +105,6 @@ XPCConvert::NativeData2JS(XPCLazyCallContext& lccx, jsval* d, const void* s,
     NS_PRECONDITION(d, "bad param");
 
    JSContext* cx = lccx.GetJSContext();
-
-    // Allow wrong compartment or unset ScopeForNewObject when the caller knows
-    // the value is primitive (viz., XPCNativeMember::GetConstantValue).
-    NS_ABORT_IF_FALSE(type.IsArithmetic() ||
-                      js::IsObjectInContextCompartment(lccx.GetScopeForNewJSObjects(), cx),
-                      "bad scope for new JSObjects");
-
     if (pErr)
         *pErr = NS_ERROR_XPC_BAD_CONVERT_NATIVE;
 
@@ -185,7 +179,7 @@ XPCConvert::NativeData2JS(XPCLazyCallContext& lccx, jsval* d, const void* s,
                 nsID* iid2 = *((nsID**)s);
                 if (!iid2)
                     break;
-                RootedObject scope(cx, lccx.GetScopeForNewJSObjects());
+                RootedObject scope(cx, JS_GetGlobalForScopeChain(cx));
                 JSObject* obj;
                 if (!(obj = xpc_NewIDObject(cx, scope, *iid2)))
                     return false;
@@ -387,7 +381,7 @@ CheckJSCharInCharRange(jschar c)
 #endif
 
 template<typename T>
-bool ConvertToPrimitive(JSContext *cx, const JS::Value& v, T *retval)
+bool ConvertToPrimitive(JSContext *cx, HandleValue v, T *retval)
 {
     return ValueToPrimitive<T, eDefault>(cx, v, retval);
 }
@@ -836,11 +830,7 @@ XPCConvert::NativeInterface2JSObject(XPCLazyCallContext& lccx,
     // optimal -- we could detect this and roll the functionality into a
     // single wrapper, but the current solution is good enough for now.
     JSContext* cx = lccx.GetJSContext();
-    NS_ABORT_IF_FALSE(js::IsObjectInContextCompartment(lccx.GetScopeForNewJSObjects(), cx),
-                      "bad scope for new JSObjects");
-
-    JSObject *jsscope = lccx.GetScopeForNewJSObjects();
-    XPCWrappedNativeScope* xpcscope = GetObjectScope(jsscope);
+    XPCWrappedNativeScope* xpcscope = GetObjectScope(JS_GetGlobalForScopeChain(cx));
     if (!xpcscope)
         return false;
 
@@ -1428,8 +1418,6 @@ XPCConvert::NativeArray2JS(XPCLazyCallContext& lccx,
         return false;
 
     JSContext* cx = ccx.GetJSContext();
-    NS_ABORT_IF_FALSE(js::IsObjectInContextCompartment(lccx.GetScopeForNewJSObjects(), cx),
-                      "bad scope for new JSObjects");
 
     // XXX add support for putting chars in a string rather than an array
 

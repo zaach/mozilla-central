@@ -34,10 +34,6 @@ public:
                             const nsIntRegion& aOldValidRegionBack,
                             nsIntRegion* aUpdatedRegionBack) = 0;
 
-#ifdef MOZ_DUMP_PAINTING
-  virtual already_AddRefed<gfxImageSurface> Dump() { return nullptr; }
-#endif
-  
   virtual void SetPaintWillResample(bool aResample) { }
 
 protected:
@@ -93,11 +89,15 @@ public:
   virtual void SetCompositor(Compositor* aCompositor) MOZ_OVERRIDE;
 
 #ifdef MOZ_DUMP_PAINTING
-  virtual already_AddRefed<gfxImageSurface> Dump()
+  virtual already_AddRefed<gfxImageSurface> GetAsSurface()
   {
-    return mTextureHost->Dump();
+    return mTextureHost->GetAsSurface();
   }
 #endif
+
+  virtual void Dump(FILE* aFile=NULL,
+                    const char* aPrefix="",
+                    bool aDumpHtml=false) MOZ_OVERRIDE;
 
   virtual TextureHost* GetTextureHost() MOZ_OVERRIDE;
 
@@ -156,6 +156,10 @@ public:
                                  ISurfaceAllocator* aAllocator,
                                  const TextureInfo& aTextureInfo) MOZ_OVERRIDE;
   virtual void DestroyTextures() MOZ_OVERRIDE;
+
+  virtual void Dump(FILE* aFile=NULL,
+                    const char* aPrefix="",
+                    bool aDumpHtml=false) MOZ_OVERRIDE;
 
 #ifdef MOZ_LAYERS_HAVE_LOG
   virtual void PrintInfo(nsACString& aTo, const char* aPrefix);
@@ -219,9 +223,9 @@ public:
 
   virtual CompositableType GetType() { return BUFFER_CONTENT; }
 
-  virtual void EnsureTextureHost(ISurfaceAllocator* aAllocator,
-                                 const TextureInfo& aTextureInfo,
-                                 const nsIntRect& aBufferRect) MOZ_OVERRIDE;
+  virtual void EnsureTextureHostIncremental(ISurfaceAllocator* aAllocator,
+                                            const TextureInfo& aTextureInfo,
+                                            const nsIntRect& aBufferRect) MOZ_OVERRIDE;
 
   virtual void EnsureTextureHost(TextureIdentifier aTextureId,
                                  const SurfaceDescriptor& aSurface,
@@ -308,17 +312,25 @@ private:
   class TextureUpdateRequest : public Request
   {
   public:
-    TextureUpdateRequest(TextureIdentifier aTextureId,
+    TextureUpdateRequest(ISurfaceAllocator* aDeAllocator,
+                         TextureIdentifier aTextureId,
                          SurfaceDescriptor& aDescriptor,
                          const nsIntRegion& aUpdated,
                          const nsIntRect& aBufferRect,
                          const nsIntPoint& aBufferRotation)
-      : mTextureId(aTextureId)
+      : mDeAllocator(aDeAllocator)
+      , mTextureId(aTextureId)
       , mDescriptor(aDescriptor)
       , mUpdated(aUpdated)
       , mBufferRect(aBufferRect)
       , mBufferRotation(aBufferRotation)
     {}
+
+    ~TextureUpdateRequest()
+    {
+      //TODO: Recycle these?
+      mDeAllocator->DestroySharedSurface(&mDescriptor);
+    }
 
     virtual void Execute(ContentHostIncremental *aHost);
 
@@ -332,6 +344,7 @@ private:
 
     nsIntRect GetQuadrantRectangle(XSide aXSide, YSide aYSide) const;
 
+    ISurfaceAllocator* mDeAllocator;
     TextureIdentifier mTextureId;
     SurfaceDescriptor mDescriptor;
     nsIntRegion mUpdated;

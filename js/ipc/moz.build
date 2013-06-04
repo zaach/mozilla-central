@@ -8,3 +8,14 @@ MODULE = 'js'
 
 XPIDL_SOURCES += ['nsIJavaScriptParent.idl']
 XPIDL_FLAGS += ['-I$(topsrcdir)/dom/interfaces/base']
+
+EXPORTS.mozilla.jsipc += [
+    'JavaScriptParent.h',
+]
+
+CPP_SOURCES += [
+    'JavaScriptChild.cpp',
+    'JavaScriptParent.cpp',
+    'JavaScriptShared.cpp',
+]
+

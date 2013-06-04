@@ -78,6 +78,7 @@
 
 #if defined(MOZ_WIDGET_GONK)
 #include "nsVolume.h"
+#include "nsVolumeService.h"
 #endif
 
 #ifdef XP_WIN
@@ -253,7 +254,7 @@ void SystemMessageHandledObserver::Init()
         mozilla::services::GetObserverService();
 
     if (os) {
-        os->AddObserver(this, "SystemMessageManager:HandleMessageDone",
+        os->AddObserver(this, "handle-system-messages-done",
                         /* ownsWeak */ false);
     }
 }
@@ -1225,9 +1226,10 @@ ContentChild::RecvFileSystemUpdate(const nsString& aFsName,
     nsRefPtr<nsVolume> volume = new nsVolume(aFsName, aVolumeName, aState,
                                              aMountGeneration);
 
-    nsCOMPtr<nsIObserverService> obs = mozilla::services::GetObserverService();
-    NS_ConvertUTF8toUTF16 stateStr(volume->StateStr());
-    obs->NotifyObservers(volume, NS_VOLUME_STATE_CHANGED, stateStr.get());
+    nsRefPtr<nsVolumeService> vs = nsVolumeService::GetSingleton();
+    if (vs) {
+        vs->UpdateVolume(volume);
+    }
 #else
     // Remove warnings about unused arguments
     unused << aFsName;

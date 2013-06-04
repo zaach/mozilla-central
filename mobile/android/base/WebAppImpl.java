@@ -82,7 +82,7 @@ public class WebAppImpl extends GeckoApp {
     }
 
     @Override
-    protected void initializeChrome(String uri, boolean isExternalURL) {
+    protected void loadStartupTab(String uri) {
         String action = getIntent().getAction();
         if (GeckoApp.ACTION_WEBAPP_PREFIX.equals(action)) {
             // This action assumes the uri is not an installed WebApp. We will
@@ -93,8 +93,6 @@ public class WebAppImpl extends GeckoApp {
             startActivity(appIntent);
             finish();
         }
-
-        super.initializeChrome(uri, isExternalURL);
     }
 
     private void showSplash() {
@@ -217,8 +215,8 @@ public class WebAppImpl extends GeckoApp {
     }
 
     @Override
-    protected void connectGeckoLayerClient() {
-        super.connectGeckoLayerClient();
+    protected void geckoConnected() {
+        super.geckoConnected();
         getLayerView().setOverScrollMode(View.OVER_SCROLL_NEVER);
     }
 };

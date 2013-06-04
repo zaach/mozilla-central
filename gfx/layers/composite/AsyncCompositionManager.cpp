@@ -313,7 +313,6 @@ SampleAnimations(Layer* aLayer, TimeStamp aPoint)
                          c->GetInheritedYScale(),
                          1);
       }
-      NS_ASSERTION(!aLayer->GetIsFixedPosition(), "Can't animate transforms on fixed-position layers");
       layerComposite->SetShadowTransform(matrix);
       layerComposite->SetShadowTransformSetByAnimation(true);
       break;
@@ -530,12 +529,11 @@ AsyncCompositionManager::TransformScrollableLayer(Layer* aLayer, const gfx3DMatr
 bool
 AsyncCompositionManager::TransformShadowTree(TimeStamp aCurrentFrame)
 {
-  bool wantNextFrame = false;
   Layer* root = mLayerManager->GetRoot();
 
   // NB: we must sample animations *before* sampling pan/zoom
   // transforms.
-  wantNextFrame |= SampleAnimations(root, aCurrentFrame);
+  bool wantNextFrame = SampleAnimations(root, aCurrentFrame);
 
   const gfx3DMatrix& rootTransform = root->GetTransform();
 

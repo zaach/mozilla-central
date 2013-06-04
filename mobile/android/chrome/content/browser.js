@@ -57,6 +57,16 @@ XPCOMUtils.defineLazyGetter(this, "Sanitizer", function() {
   return Sanitizer;
 });
 
+XPCOMUtils.defineLazyGetter(this, "Prompt", function() {
+  let temp = {};
+  Cu.import("resource://gre/modules/Prompt.jsm", temp);
+  return temp.Prompt;
+});
+
+XPCOMUtils.defineLazyServiceGetter(this, "uuidgen",
+                                   "@mozilla.org/uuid-generator;1",
+                                   "nsIUUIDGenerator");
+
 // Lazily-loaded browser scripts:
 [
   ["HelperApps", "chrome://browser/content/HelperApps.js"],
@@ -238,6 +248,7 @@ var BrowserApp = {
   _tabs: [],
   _selectedTab: null,
   _prefObservers: [],
+  _promptHandlers: {},
 
   get isTablet() {
     let sysInfo = Cc["@mozilla.org/system-info;1"].getService(Ci.nsIPropertyBag2);
@@ -287,6 +298,7 @@ var BrowserApp = {
     Services.obs.addObserver(this, "FormHistory:Init", false);
     Services.obs.addObserver(this, "gather-telemetry", false);
     Services.obs.addObserver(this, "keyword-search", false);
+    Services.obs.addObserver(this, "Prompt:Reply", false);
 
     Services.obs.addObserver(this, "sessionstore-state-purge-complete", false);
 
@@ -318,6 +330,7 @@ var BrowserApp = {
     Downloads.init();
     FormAssistant.init();
     IndexedDB.init();
+    HealthReportStatusListener.init();
     XPInstallObserver.init();
     ClipboardHelper.init();
     CharacterEncoding.init();
@@ -423,13 +436,6 @@ var BrowserApp = {
         let newtabStrings = Strings.browser.GetStringFromName("newprivatetabpopup.opened");
         let label = PluralForm.get(1, newtabStrings).replace("#1", 1);
         NativeWindow.toast.show(label, "short");
-      });
-
-    NativeWindow.contextmenus.add(Strings.browser.GetStringFromName("contextmenu.addToReadingList"),
-      NativeWindow.contextmenus.linkOpenableContext,
-      function(aTarget) {
-        let url = NativeWindow.contextmenus._getLinkURL(aTarget);
-        Services.obs.notifyObservers(null, "Reader:Add", JSON.stringify({ url: url }));
       });
 
     NativeWindow.contextmenus.add(Strings.browser.GetStringFromName("contextmenu.copyLink"),
@@ -611,6 +617,7 @@ var BrowserApp = {
     IndexedDB.uninit();
     ViewportHandler.uninit();
     XPInstallObserver.uninit();
+    HealthReportStatusListener.uninit();
     CharacterEncoding.uninit();
     SearchEngines.uninit();
     WebappsUI.uninit();
@@ -632,7 +639,7 @@ var BrowserApp = {
   // off to the compositor.
   isBrowserContentDocumentDisplayed: function() {
     try {
-      if (window.top.QueryInterface(Ci.nsIInterfaceRequestor).getInterface(Ci.nsIDOMWindowUtils).isFirstPaint)
+      if (!getBridge().isContentDocumentDisplayed())
         return false;
     } catch (e) {
       return false;
@@ -644,8 +651,9 @@ var BrowserApp = {
     return tab.contentDocumentIsDisplayed;
   },
 
-  displayedDocumentChanged: function() {
+  contentDocumentChanged: function() {
     window.top.QueryInterface(Ci.nsIInterfaceRequestor).getInterface(Ci.nsIDOMWindowUtils).isFirstPaint = true;
+    getBridge().contentDocumentChanged();
   },
 
   get tabs() {
@@ -672,7 +680,7 @@ var BrowserApp = {
     Tabs.touch(aTab);
     aTab.setActive(true);
     aTab.setResolution(aTab._zoom, true);
-    this.displayedDocumentChanged();
+    this.contentDocumentChanged();
     this.deck.selectedPanel = aTab.browser;
     // Focus the browser so that things like selection will be styled correctly.
     aTab.browser.focus();
@@ -1419,13 +1427,25 @@ var BrowserApp = {
         browser.contentDocument.mozCancelFullScreen();
         break;
 
+      case "Prompt:Reply":
+        {
+            let data = JSON.parse(aData);
+            let guid = data.guid;
+            let handler = this._promptHandlers[guid];
+            if (!handler)
+              break;
+            this._promptHandlers[guid];
+            handler(data);
+        }
+        break;
+
       case "Viewport:Change":
         if (this.isBrowserContentDocumentDisplayed())
           this.selectedTab.setViewport(JSON.parse(aData));
         break;
 
       case "Viewport:Flush":
-        this.displayedDocumentChanged();
+        this.contentDocumentChanged();
         break;
 
       case "Passwords:Init": {
@@ -1483,9 +1503,12 @@ var BrowserApp = {
   // selecting selIndex(if fromIndex<=selIndex<=toIndex)
   showHistory: function(fromIndex, toIndex, selIndex) {
     let browser = this.selectedBrowser;
+    let guid = uuidgen.generateUUID().toString();
     let result = {
       type: "Prompt:Show",
       multiple: false,
+      async: true,
+      guid: guid,
       selected: [],
       listitems: []
     };
@@ -1502,11 +1525,13 @@ var BrowserApp = {
       result.listitems.push(item);
       result.selected.push(i == selIndex);
     }
-    let data = JSON.parse(sendMessageToJava(result));
-    let selected = data.button;
-    if (selected == -1)
-      return;
-    browser.gotoIndex(toIndex-selected);
+    this._promptHandlers[guid] = function (data) {
+        let selected = data.button;
+        if (selected == -1)
+          return;
+        browser.gotoIndex(toIndex-selected);
+    };
+    sendMessageToJava(result);
   },
 };
 
@@ -1651,7 +1676,7 @@ var NativeWindow = {
       if (this.doorhanger._callbacks[reply_id]) {
         // Pass the value of the optional checkbox to the callback
         let checked = data["checked"];
-        this.doorhanger._callbacks[reply_id].cb(checked);
+        this.doorhanger._callbacks[reply_id].cb(checked, data.inputs);
 
         let prompt = this.doorhanger._callbacks[reply_id].prompt;
         for (let id in this.doorhanger._callbacks) {
@@ -2461,6 +2486,8 @@ function Tab(aURL, aParams) {
   this.originalURI = null;
   this.savedArticle = null;
   this.hasTouchListener = false;
+  this.browserWidth = 0;
+  this.browserHeight = 0;
 
   this.create(aURL, aParams);
 }
@@ -3820,7 +3847,7 @@ Tab.prototype = {
         let contentDocument = aSubject;
         if (contentDocument == this.browser.contentDocument) {
           if (BrowserApp.selectedTab == this) {
-            BrowserApp.displayedDocumentChanged();
+            BrowserApp.contentDocumentChanged();
           }
           this.contentDocumentIsDisplayed = true;
 
@@ -4397,8 +4424,7 @@ var BrowserEventHandler = {
        * - It's a select element showing multiple rows
        */
       if (checkElem) {
-        if (((elem.scrollHeight > elem.clientHeight) ||
-             (elem.scrollWidth > elem.clientWidth)) &&
+        if ((elem.scrollTopMax > 0 || elem.scrollLeftMax > 0) &&
             (this._hasScrollableOverflow(elem) ||
              elem.mozMatchesSelector("html, body, textarea")) ||
             (elem instanceof HTMLSelectElement && (elem.size > 1 || elem.multiple))) {
@@ -4429,10 +4455,10 @@ var BrowserEventHandler = {
 
   _elementCanScroll: function(elem, x, y) {
     let scrollX = (x < 0 && elem.scrollLeft > 0)
-               || (x > 0 && elem.scrollLeft < (elem.scrollWidth - elem.clientWidth));
+               || (x > 0 && elem.scrollLeft < elem.scrollLeftMax);
 
     let scrollY = (y < 0 && elem.scrollTop > 0)
-               || (y > 0 && elem.scrollTop < (elem.scrollHeight - elem.clientHeight));
+               || (y > 0 && elem.scrollTop < elem.scrollTopMax);
 
     return scrollX || scrollY;
   }
@@ -4906,7 +4932,7 @@ var FormAssistant = {
           if (hasResults)
             return;
 
-          if (!this._showValidationMessage(currentElement))
+          if (this._showValidationMessage(currentElement))
             return;
 
           // If we're not showing autocomplete suggestions, hide the form assist popup
@@ -4955,8 +4981,8 @@ var FormAssistant = {
 
         // Supply a label and value, since they can differ for datalist suggestions
         suggestions.push({ label: value, value: value });
-        aCallback(suggestions);
       }
+      aCallback(suggestions);
     };
 
     this._formAutoCompleteService.autoCompleteSearchAsync(aElement.name || aElement.id,
@@ -5073,6 +5099,157 @@ var FormAssistant = {
   _hideFormAssistPopup: function _hideFormAssistPopup() {
     sendMessageToJava({ type: "FormAssist:Hide" });
   }
+};
+
+/**
+ * An object to watch for Gecko status changes -- add-on installs, pref changes
+ * -- and reflect them back to Java.
+ */
+let HealthReportStatusListener = {
+  TELEMETRY_PREF: 
+#ifdef MOZ_TELEMETRY_REPORTING
+    // Telemetry pref differs based on build.
+#ifdef MOZ_TELEMETRY_ON_BY_DEFAULT
+    "toolkit.telemetry.enabledPreRelease",
+#else
+    "toolkit.telemetry.enabled",
+#endif
+#else
+    null,
+#endif
+
+  init: function () {
+    try {
+      AddonManager.addAddonListener(this);
+    } catch (ex) {
+      console.log("Failed to initialize add-on status listener. FHR cannot report add-on state. " + ex);
+    }
+
+    Services.obs.addObserver(this, "Addons:FetchAll", false);
+    Services.prefs.addObserver("extensions.blocklist.enabled", this, false);
+    if (this.TELEMETRY_PREF) {
+      Services.prefs.addObserver(this.TELEMETRY_PREF, this, false);
+    }
+  },
+
+  uninit: function () {
+    Services.obs.removeObserver(this, "Addons:FetchAll");
+    Services.prefs.removeObserver("extensions.blocklist.enabled", this);
+    if (this.TELEMETRY_PREF) {
+      Services.prefs.removeObserver(this.TELEMETRY_PREF, this);
+    }
+
+    AddonManager.removeAddonListener(this);
+  },
+
+  observe: function (aSubject, aTopic, aData) {
+    switch (aTopic) {
+      case "Addons:FetchAll":
+        HealthReportStatusListener.sendAllAddonsToJava();
+        break;
+      case "nsPref:changed":
+        sendMessageToJava({ type: "Pref:Change", pref: aData, value: Services.prefs.getBoolPref(aData) });
+        break
+    }
+  },
+
+  MILLISECONDS_PER_DAY: 24 * 60 * 60 * 1000,
+
+  COPY_FIELDS: [
+    "userDisabled",
+    "appDisabled",
+    "version",
+    "type",
+    "scope",
+    "foreignInstall",
+    "hasBinaryComponents",
+  ],
+
+  // Add-on types for which full details are recorded in FHR.
+  // All other types are ignored.
+  FULL_DETAIL_TYPES: [
+    "plugin",
+    "extension",
+    "service",
+  ],
+
+  /**
+   * Return true if either the add-on has opted out of AMO updates, and thus
+   * we shouldn't provide details to FHR, or it's an add-on type that we
+   * don't want to report details for.
+   * These add-ons will still make it over to Java, but will be filtered out.
+   */
+  _shouldIgnore: function (aAddon) {
+    // TODO: check this pref. If it's false, the add-on has opted out of
+    // AMO updates, and should not be reported.
+    let optOutPref = "extensions." + aAddon.id + ".getAddons.cache.enabled";
+    if (this.FULL_DETAIL_TYPES.indexOf(aAddon.type) == -1) {
+      return true;
+    }
+    return false;
+  },
+
+  _dateToDays: function (aDate) {
+    return Math.floor(aDate.getTime() / this.MILLISECONDS_PER_DAY);
+  },
+
+  jsonForAddon: function (aAddon) {
+    let o = {};
+    if (aAddon.installDate) {
+      o.installDay = this._dateToDays(aAddon.installDate);
+    }
+    if (aAddon.updateDate) {
+      o.updateDay = this._dateToDays(aAddon.updateDate);
+    }
+
+    for (let field of this.COPY_FIELDS) {
+      o[field] = aAddon[field];
+    }
+
+    return o;
+  },
+
+  notifyJava: function (aAddon, aNeedsRestart) {
+    let json = this.jsonForAddon(aAddon);
+    if (this._shouldIgnore(aAddon)) {
+      json.ignore = true;
+    }
+    sendMessageToJava({ type: "Addons:Change", id: aAddon.id, json: json });
+  },
+
+  // Add-on listeners.
+  onEnabling: function (aAddon, aNeedsRestart) {
+    this.notifyJava(aAddon, aNeedsRestart);
+  },
+  onDisabling: function (aAddon, aNeedsRestart) {
+    this.notifyJava(aAddon, aNeedsRestart);
+  },
+  onInstalling: function (aAddon, aNeedsRestart) {
+    this.notifyJava(aAddon, aNeedsRestart);
+  },
+  onUninstalling: function (aAddon, aNeedsRestart) {
+    this.notifyJava(aAddon, aNeedsRestart);
+  },
+  onPropertyChanged: function (aAddon, aProperties) {
+    this.notifyJava(aAddon);
+  },
+
+  sendAllAddonsToJava: function () {
+    AddonManager.getAllAddons(function (aAddons) {
+        let json = {};
+        if (aAddons) {
+          for (let i = 0; i < aAddons.length; ++i) {
+            let addon = aAddons[i];
+            let addonJSON = HealthReportStatusListener.jsonForAddon(addon);
+            if (HealthReportStatusListener._shouldIgnore(addon)) {
+              addonJSON.ignore = true;
+            }
+            json[addon.id] = addonJSON;
+          }
+        }
+        sendMessageToJava({ type: "Addons:All", json: json });
+      });
+  },
 };
 
 var XPInstallObserver = {

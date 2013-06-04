@@ -4,8 +4,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "nsDOMDataContainerEvent.h"
-#include "nsDOMClassInfoID.h"
 #include "nsContentUtils.h"
+#include "nsIXPConnect.h"
 
 nsDOMDataContainerEvent::nsDOMDataContainerEvent(
                                              mozilla::dom::EventTarget* aOwner,
@@ -31,11 +31,8 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 NS_IMPL_ADDREF_INHERITED(nsDOMDataContainerEvent, nsDOMEvent)
 NS_IMPL_RELEASE_INHERITED(nsDOMDataContainerEvent, nsDOMEvent)
 
-DOMCI_DATA(DataContainerEvent, nsDOMDataContainerEvent)
-
 NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION_INHERITED(nsDOMDataContainerEvent)
   NS_INTERFACE_MAP_ENTRY(nsIDOMDataContainerEvent)
-  NS_DOM_INTERFACE_MAP_ENTRY_CLASSINFO(DataContainerEvent)
 NS_INTERFACE_MAP_END_INHERITING(nsDOMEvent)
 
 NS_IMETHODIMP
@@ -63,7 +60,8 @@ nsDOMDataContainerEvent::SetData(const nsAString& aKey, nsIVariant *aData)
 
 void
 nsDOMDataContainerEvent::SetData(JSContext* aCx, const nsAString& aKey,
-                                 JS::Value aVal, mozilla::ErrorResult& aRv)
+                                 JS::Handle<JS::Value> aVal,
+                                 mozilla::ErrorResult& aRv)
 {
   if (!nsContentUtils::XPConnect()) {
     aRv = NS_ERROR_FAILURE;
