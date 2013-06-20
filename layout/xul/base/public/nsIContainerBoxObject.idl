@@ -13,8 +13,6 @@ interface nsIJavaScriptParent;
 interface nsIContainerBoxObject : nsISupports
 {
   readonly attribute nsIDocShell docShell;
-
-  readonly attribute nsIJavaScriptParent jsParent;
 };
 
 %{C++

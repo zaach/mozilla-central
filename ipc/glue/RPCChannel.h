@@ -311,6 +311,10 @@ private:
     //
     typedef std::deque<Message> MessageQueue;
     MessageQueue mPending;
+
+    // List of async and sync messages that have been received while waiting
+    // for an urgent reply, that need to be deferred until that reply has been
+    // received.
     MessageQueue mNonUrgentDeferred;
 
     // 

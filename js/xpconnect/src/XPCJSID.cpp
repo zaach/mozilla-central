@@ -479,10 +479,6 @@ FindObjectForHasInstance(JSContext *cx, HandleObject objArg)
 {
     RootedObject obj(cx, objArg), proto(cx);
 
-    RootedObject unwrapped(cx, js::CheckedUnwrap(obj, /* stopAtOuter = */ false));
-    if (unwrapped && mozilla::jsipc::JavaScriptParent::IsCPOW(unwrapped))
-        return unwrapped;
-
     while (obj && !IS_WRAPPER_CLASS(js::GetObjectClass(obj)) &&
            !IsDOMObject(obj) && !mozilla::jsipc::JavaScriptParent::IsCPOW(obj))
     {

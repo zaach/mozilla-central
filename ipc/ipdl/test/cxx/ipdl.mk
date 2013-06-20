@@ -49,4 +49,5 @@ IPDLSRCS =					\
   PTestSysVShmem.ipdl				\
   PTestBadActor.ipdl                            \
   PTestBadActorSub.ipdl                         \
+  PTestUrgency.ipdl \
   $(NULL)

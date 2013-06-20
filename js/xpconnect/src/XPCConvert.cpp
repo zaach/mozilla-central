@@ -328,15 +328,6 @@ XPCConvert::NativeData2JS(XPCLazyCallContext& lccx, jsval* d, const void* s,
                         return XPCVariant::VariantDataToJS(lccx, variant,
                                                            pErr, d);
                     }
-                    if (JSObject *cpow = UnwrapNativeCPOW(iface)) {
-                        XPCCallContext &ccx = lccx.GetXPCCallContext();
-                        if (!ccx.IsValid())
-                            return false;
-                        if (!JS_WrapObject(ccx, &cpow))
-                            return false;
-                        *d = OBJECT_TO_JSVAL(cpow);
-                        return true;
-                    }
                     // else...
                     xpcObjectHelper helper(iface);
                     if (!NativeInterface2JSObject(lccx, d, nullptr, helper, iid,
@@ -816,8 +807,7 @@ XPCConvert::NativeInterface2JSObject(XPCLazyCallContext& lccx,
     *d = JSVAL_NULL;
     if (dest)
         *dest = nullptr;
-    nsISupports *src = aHelper.Object();
-    if (!src)
+    if (!aHelper.Object())
         return true;
     if (pErr)
         *pErr = NS_ERROR_XPC_BAD_CONVERT_NATIVE;
@@ -906,6 +896,17 @@ XPCConvert::NativeInterface2JSObject(XPCLazyCallContext& lccx,
     XPCCallContext &ccx = lccx.GetXPCCallContext();
     if (!ccx.IsValid())
         return false;
+		
+    // Don't double wrap CPOWs. This is a temporary measure for compatibility
+    // with objects that don't provide necessary QIs (such as objects under
+    // the new DOM bindings). We expect the other side of the CPOW to have
+    // the appropriate wrappers in place.
+    if (JSObject *cpow = UnwrapNativeCPOW(aHelper.GetCanonical())) {
+        if (!JS_WrapObject(cx, &cpow))
+            return false;
+        *d = OBJECT_TO_JSVAL(cpow);
+        return true;
+    }
 
     // We can't simply construct a slim wrapper. Go ahead and create an
     // XPCWrappedNative for this object. At this point, |flat| could be

@@ -12,7 +12,8 @@ using mozilla::void_t;
 namespace mozilla {
 namespace jsipc {
 
-struct JSIID {
+struct JSIID
+{
     uint32_t m0;
     uint16_t m1;
     uint16_t m2;
@@ -26,21 +27,24 @@ struct JSIID {
     uint8_t m3_7;
 };
 
-union JSVariant {
+union JSVariant
+{
     void_t;     /* |undefined| */
     nsString;   /* StringValue(x) */
-    uint32_t;   /* JSObject */
+    uint32_t;   /* ID that maps to a JSObject (cpow on parent, original on child). */
     double;     /* NumberValue(x) */
     bool;       /* BooleanValue(x) */
     JSIID;      /* XPC nsIID */
 };
 
-struct ReturnStatus {
+struct ReturnStatus
+{
     bool ok;        /* True for success, false for failure. */
     JSVariant exn;  /* Exception, if |ok| is false. */
 };
 
-union JSParam {
+union JSParam
+{
     void_t;     /* value is strictly an xpc out param */
     JSVariant;  /* actual value to pass through */
 };
@@ -64,7 +68,8 @@ struct PPropertyDescriptor
     uint32_t    setter;
 };
 
-struct CpowEntry {
+struct CpowEntry
+{
   nsString name;
   JSVariant value;
 };

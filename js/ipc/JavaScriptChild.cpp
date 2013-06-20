@@ -8,9 +8,9 @@
 #include "JavaScriptChild.h"
 #include "mozilla/dom/ContentChild.h"
 #include "nsContentUtils.h"
-#include "nsCxPusher.h"
 #include "xpcprivate.h"
 #include "jsfriendapi.h"
+#include "nsCxPusher.h"
 
 using namespace JS;
 using namespace mozilla;
@@ -57,25 +57,12 @@ JavaScriptChild::init()
 bool
 JavaScriptChild::RecvDropObject(const ObjectId &objId)
 {
-    JSObject *obj = objects_.find(objId);
+    JSObject *obj = findObject(objId);
     if (obj) {
         ids_.remove(obj);
         objects_.remove(objId);
     }
     return true;
-}
-
-
-
-ObjectId
-JavaScriptChild::Send(JSContext *cx, JSObject *obj)
-{
-    ObjectId objId;
-    if (!makeId(cx, obj, &objId)) {
-        JS_ReportError(cx, "child IPC error %d", __LINE__);
-        return 0;
-    }
-    return objId;
 }
 
 bool
@@ -112,11 +99,8 @@ JavaScriptChild::makeId(JSContext *cx, JSObject *obj, ObjectId *idp)
 JSObject *
 JavaScriptChild::unwrap(JSContext *cx, ObjectId id)
 {
-    JSObject *obj = objects_.find(id);
-    if (!obj) {
-        JS_ReportError(cx, "ipc sent unknown object %d", id);
-        return NULL;
-    }
+    JSObject *obj = findObject(id);
+    MOZ_ASSERT(obj);
     return obj;
 }
 
@@ -154,20 +138,20 @@ JavaScriptChild::ok(ReturnStatus *rs)
 }
 
 bool
-JavaScriptChild::AnswerHasHook(const ObjectId &objId, const nsString &id,
+JavaScriptChild::AnswerHas(const ObjectId &objId, const nsString &id,
                                ReturnStatus *rs, bool *bp)
 {
     AutoSafeJSContext cx;
     JSAutoRequest request(cx);
 
-    JSObject *obj = objects_.find(objId);
+    JSObject *obj = findObject(objId);
     if (!obj)
         return false;
 
     JSAutoCompartment comp(cx, obj);
 
     jsid internedId;
-    if (!toId(cx, id, &internedId))
+    if (!convertGeckoStringToId(cx, id, &internedId))
         return fail(cx, rs);
 
     JSBool found;
@@ -179,20 +163,20 @@ JavaScriptChild::AnswerHasHook(const ObjectId &objId, const nsString &id,
 }
 
 bool
-JavaScriptChild::AnswerHasOwnHook(const ObjectId &objId, const nsString &id,
+JavaScriptChild::AnswerHasOwn(const ObjectId &objId, const nsString &id,
                                   ReturnStatus *rs, bool *bp)
 {
     AutoSafeJSContext cx;
     JSAutoRequest request(cx);
 
-    JSObject *obj = objects_.find(objId);
+    JSObject *obj = findObject(objId);
     if (!obj)
         return false;
 
     JSAutoCompartment comp(cx, obj);
 
     jsid internedId;
-    if (!toId(cx, id, &internedId))
+    if (!convertGeckoStringToId(cx, id, &internedId))
         return fail(cx, rs);
 
     JSPropertyDescriptor desc;
@@ -204,25 +188,25 @@ JavaScriptChild::AnswerHasOwnHook(const ObjectId &objId, const nsString &id,
 }
 
 bool
-JavaScriptChild::AnswerGetHook(const ObjectId &objId, const ObjectId &receiverId,
+JavaScriptChild::AnswerGet(const ObjectId &objId, const ObjectId &receiverId,
                                const nsString &id,
                                ReturnStatus *rs, JSVariant *result)
 {
     AutoSafeJSContext cx;
     JSAutoRequest request(cx);
 
-    JSObject *obj = objects_.find(objId);
+    JSObject *obj = findObject(objId);
     if (!obj)
         return false;
 
-    JSObject *receiver = objects_.find(receiverId);
+    JSObject *receiver = findObject(receiverId);
     if (!receiver)
         return false;
 
     JSAutoCompartment comp(cx, obj);
 
     jsid internedId;
-    if (!toId(cx, id, &internedId))
+    if (!convertGeckoStringToId(cx, id, &internedId))
         return fail(cx, rs);
 
     JS::Value val;
@@ -236,7 +220,7 @@ JavaScriptChild::AnswerGetHook(const ObjectId &objId, const ObjectId &receiverId
 }
 
 bool
-JavaScriptChild::AnswerSetHook(const ObjectId &objId, const ObjectId &receiverId,
+JavaScriptChild::AnswerSet(const ObjectId &objId, const ObjectId &receiverId,
                                const nsString &id, const bool &strict,
                                const JSVariant &value,
                                ReturnStatus *rs, JSVariant *result)
@@ -248,18 +232,18 @@ JavaScriptChild::AnswerSetHook(const ObjectId &objId, const ObjectId &receiverId
     // the parent won't read it.
     *result = void_t();
 
-    JSObject *obj = objects_.find(objId);
+    JSObject *obj = findObject(objId);
     if (!obj)
         return false;
 
-    JSObject *receiver = objects_.find(receiverId);
+    JSObject *receiver = findObject(receiverId);
     if (!receiver)
         return false;
 
     JSAutoCompartment comp(cx, obj);
 
     jsid internedId;
-    if (!toId(cx, id, &internedId))
+    if (!convertGeckoStringToId(cx, id, &internedId))
         return fail(cx, rs);
 
     MOZ_ASSERT(obj == receiver);
@@ -279,11 +263,11 @@ JavaScriptChild::AnswerSetHook(const ObjectId &objId, const ObjectId &receiverId
 }
 
 bool
-JavaScriptChild::AnswerCallHook(const ObjectId &objId,
-                                const nsTArray<JSParam> &argv,
-                                ReturnStatus *rs,
-                                JSVariant *result,
-                                nsTArray<JSParam> *outparams)
+JavaScriptChild::AnswerCall(const ObjectId &objId,
+                            const nsTArray<JSParam> &argv,
+                            ReturnStatus *rs,
+                            JSVariant *result,
+                            nsTArray<JSParam> *outparams)
 {
     AutoSafeJSContext cx;
     JSAutoRequest request(cx);
@@ -292,7 +276,7 @@ JavaScriptChild::AnswerCallHook(const ObjectId &objId,
     // the parent won't read it.
     *result = void_t();
 
-    JSObject *obj = objects_.find(objId);
+    JSObject *obj = findObject(objId);
     if (!obj)
         return false;
 
@@ -302,7 +286,7 @@ JavaScriptChild::AnswerCallHook(const ObjectId &objId,
     if (!toValue(cx, argv[0], &objv))
         return fail(cx, rs);
 
-    JSAutoCompartment comp(cx, JSVAL_TO_OBJECT(objv));
+    JSAutoCompartment comp(cx, &objv.toObject());
 
     *result = JSVariant(void_t());
 
@@ -312,13 +296,13 @@ JavaScriptChild::AnswerCallHook(const ObjectId &objId,
         if (argv[i].type() == JSParam::Tvoid_t) {
             // This is an outparam.
             JSCompartment *compartment = js::GetContextCompartment(cx);
-            JSObject *global = JS_GetGlobalForCompartmentOrNull(cx, compartment); 
-            JSObject *obj = xpc_NewOutObject(cx, global);
+            JSObject *global = JS_GetGlobalForCompartmentOrNull(cx, compartment);
+            JSObject *obj = xpc::NewOutObject(cx, global);
             if (!obj)
                 return fail(cx, rs);
-            if (!outobjects.append(OBJECT_TO_JSVAL(obj)))
+            if (!outobjects.append(ObjectValue(*obj)))
                 return fail(cx, rs);
-            if (!vals.append(OBJECT_TO_JSVAL(obj)))
+            if (!vals.append(ObjectValue(*obj)))
                 return fail(cx, rs);
         } else {
             RootedValue v(cx);
@@ -345,14 +329,14 @@ JavaScriptChild::AnswerCallHook(const ObjectId &objId,
 
     // Prefill everything with a dummy jsval.
     for (size_t i = 0; i < outobjects.length(); i++)
-        outparams->AppendElement(JSParam(JSVariant(false)));
+        outparams->AppendElement(JSParam(void_t()));
 
     // Go through each argument that was an outparam, retrieve the "value"
     // field, and add it to a temporary list. We need to do this separately
     // because the outparams vector is not rooted.
     vals.clear();
     for (size_t i = 0; i < outobjects.length(); i++) {
-        JSObject *obj = JSVAL_TO_OBJECT(outobjects[i]);
+        JSObject *obj = &outobjects[i].toObject();
 
         jsval v;
         JSBool found;
@@ -360,8 +344,7 @@ JavaScriptChild::AnswerCallHook(const ObjectId &objId,
             if (!JS_GetProperty(cx, obj, "value", &v))
                 return fail(cx, rs);
         } else {
-            v = JSVAL_VOID;
-            outparams->ReplaceElementAt(i, JSParam(void_t()));
+            v = UndefinedValue();
         }
         if (!vals.append(v))
             return fail(cx, rs);
@@ -370,8 +353,6 @@ JavaScriptChild::AnswerCallHook(const ObjectId &objId,
     // Copy the outparams. If any outparam is already set to a void_t, we
     // treat this as the outparam never having been set.
     for (size_t i = 0; i < vals.length(); i++) {
-        if (outparams->ElementAt(i).type() == JSParam::Tvoid_t)
-            continue;
         JSVariant variant;
         if (!toVariant(cx, vals[i], &variant))
             return fail(cx, rs);
@@ -390,7 +371,7 @@ JavaScriptChild::AnswerInstanceOf(const ObjectId &objId,
     AutoSafeJSContext cx;
     JSAutoRequest request(cx);
 
-    RootedObject obj(cx, objects_.find(objId));
+    RootedObject obj(cx, findObject(objId));
     if (!obj)
         return false;
 
@@ -427,14 +408,14 @@ JavaScriptChild::AnswerGetPropertyDescriptor(const uint32_t &objId,
     AutoSafeJSContext cx;
     JSAutoRequest request(cx);
 
-    JSObject *obj = objects_.find(objId);
+    JSObject *obj = findObject(objId);
     if (!obj)
         return false;
 
     JSAutoCompartment comp(cx, obj);
 
     jsid internedId;
-    if (!toId(cx, id, &internedId))
+    if (!convertGeckoStringToId(cx, id, &internedId))
         return fail(cx, rs);
 
     JSPropertyDescriptor desc;
@@ -446,7 +427,7 @@ JavaScriptChild::AnswerGetPropertyDescriptor(const uint32_t &objId,
         return ok(rs);
     }
 
-    if (!fromDesc(cx, desc, out))
+    if (!fromDescriptor(cx, desc, out))
         return fail(cx, rs);
 
     return ok(rs);
@@ -462,14 +443,14 @@ JavaScriptChild::AnswerGetOwnPropertyDescriptor(const uint32_t &objId,
     AutoSafeJSContext cx;
     JSAutoRequest request(cx);
 
-    JSObject *obj = objects_.find(objId);
+    JSObject *obj = findObject(objId);
     if (!obj)
         return false;
 
     JSAutoCompartment comp(cx, obj);
 
     jsid internedId;
-    if (!toId(cx, id, &internedId))
+    if (!convertGeckoStringToId(cx, id, &internedId))
         return fail(cx, rs);
 
     JSPropertyDescriptor desc;
@@ -481,7 +462,7 @@ JavaScriptChild::AnswerGetOwnPropertyDescriptor(const uint32_t &objId,
         return ok(rs);
     }
 
-    if (!fromDesc(cx, desc, out))
+    if (!fromDescriptor(cx, desc, out))
         return fail(cx, rs);
 
     return ok(rs);
@@ -495,7 +476,7 @@ JavaScriptChild::AnswerGetOwnPropertyNames(const uint32_t &objId,
     AutoSafeJSContext cx;
     JSAutoRequest request(cx);
 
-    JSObject *obj = objects_.find(objId);
+    JSObject *obj = findObject(objId);
     if (!obj)
         return false;
 
@@ -507,7 +488,7 @@ JavaScriptChild::AnswerGetOwnPropertyNames(const uint32_t &objId,
 
     for (size_t i = 0; i < props.length(); i++) {
         nsString name;
-        if (!toGecko(cx, props[i], &name))
+        if (!convertIdToGeckoString(cx, props[i], &name))
             return false;
 
         names->AppendElement(name);
@@ -524,7 +505,7 @@ JavaScriptChild::AnswerKeys(const uint32_t &objId,
     AutoSafeJSContext cx;
     JSAutoRequest request(cx);
 
-    JSObject *obj = objects_.find(objId);
+    JSObject *obj = findObject(objId);
     if (!obj)
         return false;
 
@@ -536,7 +517,7 @@ JavaScriptChild::AnswerKeys(const uint32_t &objId,
 
     for (size_t i = 0; i < props.length(); i++) {
         nsString name;
-        if (!toGecko(cx, props[i], &name))
+        if (!convertIdToGeckoString(cx, props[i], &name))
             return false;
 
         names->AppendElement(name);
@@ -553,7 +534,7 @@ JavaScriptChild::AnswerObjectClassIs(const uint32_t &objId,
     AutoSafeJSContext cx;
     JSAutoRequest request(cx);
 
-    JS::RootedObject obj(cx, objects_.find(objId));
+    JS::RootedObject obj(cx, findObject(objId));
     if (!obj)
         return false;
 
@@ -571,7 +552,7 @@ JavaScriptChild::AnswerClassName(const uint32_t &objId,
     AutoSafeJSContext cx;
     JSAutoRequest request(cx);
 
-    JS::RootedObject obj(cx, objects_.find(objId));
+    JS::RootedObject obj(cx, findObject(objId));
     if (!obj)
         return false;
 
@@ -585,7 +566,7 @@ bool
 JavaScriptChild::AnswerIsExtensible(const uint32_t &objId,
                                     bool *result)
 {
-    JSObject *obj = objects_.find(objId);
+    JSObject *obj = findObject(objId);
     if (!obj)
         return false;
 
@@ -600,7 +581,7 @@ JavaScriptChild::AnswerPreventExtensions(const uint32_t &objId,
     AutoSafeJSContext cx;
     JSAutoRequest request(cx);
 
-    JS::RootedObject obj(cx, objects_.find(objId));
+    JS::RootedObject obj(cx, findObject(objId));
     if (!obj)
         return false;
 

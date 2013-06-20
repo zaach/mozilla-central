@@ -5,8 +5,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef mozilla_jsipc_ContextShared_h__
-#define mozilla_jsipc_ContextShared_h__
+#ifndef mozilla_jsipc_JavaScriptShared_h__
+#define mozilla_jsipc_JavaScriptShared_h__
 
 #include "jsapi.h"
 #include "jspubtd.h"
@@ -42,16 +42,7 @@ class CpowIdHolder : public CpowHolder
 // Map ids -> JSObjects
 class ObjectStore
 {
-    struct TableKeyHasher {
-        typedef ObjectId Lookup;
-
-        static inline uint32_t hash(ObjectId id) {
-            return id;
-        }
-        static inline bool match(ObjectId id1, ObjectId id2) {
-            return id1 == id2;
-        }
-    };
+    typedef js::DefaultHasher<ObjectId> TableKeyHasher;
 
     typedef js::HashMap<ObjectId, JSObject *, TableKeyHasher, js::SystemAllocPolicy> ObjectTable;
 
@@ -103,10 +94,10 @@ class JavaScriptShared
   protected:
     bool toVariant(JSContext *cx, jsval from, JSVariant *to);
     bool toValue(JSContext *cx, const JSVariant &from, JS::MutableHandleValue to);
-    bool fromDesc(JSContext *cx, const JSPropertyDescriptor &desc, PPropertyDescriptor *out);
-    bool toDesc(JSContext *cx, const PPropertyDescriptor &in, JSPropertyDescriptor *out);
-    bool toGecko(JSContext *cx, jsid id, nsString *to);
-    bool toId(JSContext *cx, const nsString &from, jsid *to);
+    bool fromDescriptor(JSContext *cx, const JSPropertyDescriptor &desc, PPropertyDescriptor *out);
+    bool toDescriptor(JSContext *cx, const PPropertyDescriptor &in, JSPropertyDescriptor *out);
+    bool convertIdToGeckoString(JSContext *cx, jsid id, nsString *to);
+    bool convertGeckoStringToId(JSContext *cx, const nsString &from, jsid *to);
 
     bool toValue(JSContext *cx, const JSVariant &from, jsval *to) {
         JS::RootedValue v(cx);
@@ -131,6 +122,10 @@ class JavaScriptShared
 
     static void ConvertID(const nsID &from, JSIID *to);
     static void ConvertID(const JSIID &from, nsID *to);
+
+    JSObject *findObject(uint32_t objId) {
+        return objects_.find(objId);
+    }
 
   protected:
     ObjectStore objects_;

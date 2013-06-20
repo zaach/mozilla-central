@@ -3038,8 +3038,6 @@ private:
     nsXPCWrappedJSClass(JSContext* cx, REFNSIID aIID,
                         nsIInterfaceInfo* aInfo);
 
-    JSObject* NewInOutObject(JSContext* cx, JSObject* scope);
-
     JSBool IsReflectable(uint16_t i) const
         {return (JSBool)(mDescriptors[i/32] & (1 << (i%32)));}
     void SetReflectable(uint16_t i, JSBool b)
@@ -3076,9 +3074,6 @@ private:
     nsIID mIID;
     uint32_t* mDescriptors;
 };
-
-JSObject *xpc_NewOutObject(JSContext* cx, JSObject* scope);
-bool xpc_IsOutObject(JSContext* cx, JSObject* obj);
 
 /*************************/
 // nsXPCWrappedJS is a wrapper for a single JSObject for use from native code.
@@ -4224,6 +4219,10 @@ GetObjectScope(JSObject *obj)
 
 extern JSBool gDebugMode;
 extern JSBool gDesiredDebugMode;
+
+JSObject* NewInOutObject(JSContext* cx, JSObject* scope);
+JSObject* NewOutObject(JSContext* cx, JSObject* scope);
+bool IsOutObject(JSContext* cx, JSObject* obj);
 
 // Internal use only.
 bool PushJSContext(JSContext *aCx);

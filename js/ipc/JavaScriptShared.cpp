@@ -107,7 +107,7 @@ JavaScriptShared::init()
 }
 
 bool
-JavaScriptShared::toGecko(JSContext *cx, jsid id, nsString *to)
+JavaScriptShared::convertIdToGeckoString(JSContext *cx, jsid id, nsString *to)
 {
     jsval idval;
     if (!JS_IdToValue(cx, id, &idval))
@@ -126,13 +126,13 @@ JavaScriptShared::toGecko(JSContext *cx, jsid id, nsString *to)
 }
 
 bool
-JavaScriptShared::toId(JSContext *cx, const nsString &from, jsid *to)
+JavaScriptShared::convertGeckoStringToId(JSContext *cx, const nsString &from, jsid *to)
 {
     JSString *str = JS_NewUCStringCopyN(cx, from.BeginReading(), from.Length());
     if (!str)
         return false;
 
-    return JS_ValueToId(cx, STRING_TO_JSVAL(str), to);
+    return JS_ValueToId(cx, StringValue(str), to);
 }
 
 bool
@@ -152,7 +152,7 @@ JavaScriptShared::toVariant(JSContext *cx, jsval from, JSVariant *to)
       case JSTYPE_OBJECT:
       case JSTYPE_FUNCTION:
       {
-        JSObject *obj = JSVAL_TO_OBJECT(from);
+        JSObject *obj = from.toObjectOrNull();
         if (!obj) {
             JS_ASSERT(from == JSVAL_NULL);
             *to = uint32_t(0);
@@ -185,13 +185,13 @@ JavaScriptShared::toVariant(JSContext *cx, jsval from, JSVariant *to)
 
       case JSTYPE_NUMBER:
         if (JSVAL_IS_INT(from))
-            *to = double(JSVAL_TO_INT(from));
+            *to = double(from.toInt32());
         else
-            *to = JSVAL_TO_DOUBLE(from);
+            *to = from.toDouble();
         return true;
 
       case JSTYPE_BOOLEAN:
-        *to = !!JSVAL_TO_BOOLEAN(from);
+        *to = from.toBoolean();
         return true;
 
       default:
@@ -205,7 +205,7 @@ JavaScriptShared::toValue(JSContext *cx, const JSVariant &from, MutableHandleVal
 {
     switch (from.type()) {
         case JSVariant::Tvoid_t:
-          to.set(JSVAL_VOID);
+          to.set(UndefinedValue());
           return true;
 
         case JSVariant::Tuint32_t:
@@ -215,7 +215,7 @@ JavaScriptShared::toValue(JSContext *cx, const JSVariant &from, MutableHandleVal
               JSObject *obj = unwrap(cx, id);
               if (!obj)
                   return false;
-              to.set(OBJECT_TO_JSVAL(obj));
+              to.set(ObjectValue(*obj));
           } else {
               to.set(JSVAL_NULL);
           }
@@ -236,7 +236,7 @@ JavaScriptShared::toValue(JSContext *cx, const JSVariant &from, MutableHandleVal
           JSString *str = JS_NewUCStringCopyN(cx, old.BeginReading(), old.Length());
           if (!str)
               return false;
-          to.set(STRING_TO_JSVAL(str));
+          to.set(StringValue(str));
           return true;
         }
 
@@ -251,7 +251,7 @@ JavaScriptShared::toValue(JSContext *cx, const JSVariant &from, MutableHandleVal
           JSObject *obj = xpc_NewIDObject(cx, global, iid);
           if (!obj)
               return false;
-          to.set(OBJECT_TO_JSVAL(obj));
+          to.set(ObjectValue(*obj));
           return true;
         }
 
@@ -297,14 +297,13 @@ static const uint32_t GetterOnlyPropertyStub = 2;
 static const uint32_t UnknownPropertyOp = 3;
 
 bool
-JavaScriptShared::fromDesc(JSContext *cx, const JSPropertyDescriptor &desc, PPropertyDescriptor *out)
+JavaScriptShared::fromDescriptor(JSContext *cx, const JSPropertyDescriptor &desc, PPropertyDescriptor *out)
 {
     out->attrs() = desc.attrs;
     out->shortid() = desc.shortid;
     if (!toVariant(cx, desc.value, &out->value()))
         return false;
 
-    // rooting.
     if (!makeId(cx, desc.obj, &out->objId()))
         return false;
 
@@ -354,7 +353,7 @@ UnknownStrictPropertyStub(JSContext *cx, JSHandleObject obj, JSHandleId id, JSBo
 }
 
 bool
-JavaScriptShared::toDesc(JSContext *cx, const PPropertyDescriptor &in, JSPropertyDescriptor *out)
+JavaScriptShared::toDescriptor(JSContext *cx, const PPropertyDescriptor &in, JSPropertyDescriptor *out)
 {
     out->attrs = in.attrs();
     out->shortid = in.shortid();
@@ -450,7 +449,7 @@ JavaScriptShared::Wrap(JSContext *cx, JSObject *aObj, InfallibleTArray<CpowEntry
         jsid id = ids[i];
 
         nsString str;
-        if (!toGecko(cx, id, &str))
+        if (!convertIdToGeckoString(cx, id, &str))
             return false;
 
         jsval v;

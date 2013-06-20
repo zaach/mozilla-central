@@ -4,8 +4,9 @@
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-#ifndef mozilla_jsipc_JavaScriptWrapperChild_h_
-#define mozilla_jsipc_JavaScriptWrapperChild_h_
+
+#ifndef mozilla_jsipc_JavaScriptChild_h_
+#define mozilla_jsipc_JavaScriptChild_h_
 
 #include "mozilla/jsipc/PJavaScriptChild.h"
 #include "JavaScriptShared.h"
@@ -26,18 +27,18 @@ class JavaScriptChild
 
     bool RecvDropObject(const ObjectId &objId);
 
-    bool AnswerHasHook(const ObjectId &objId, const nsString &id,
+    bool AnswerHas(const ObjectId &objId, const nsString &id,
                        ReturnStatus *rs, bool *bp);
-    bool AnswerHasOwnHook(const ObjectId &objId, const nsString &id,
+    bool AnswerHasOwn(const ObjectId &objId, const nsString &id,
                           ReturnStatus *rs, bool *bp);
-    bool AnswerGetHook(const ObjectId &objId, const ObjectId &receiverId,
+    bool AnswerGet(const ObjectId &objId, const ObjectId &receiverId,
                        const nsString &id,
                        ReturnStatus *rs, JSVariant *result);
-    bool AnswerSetHook(const ObjectId &objId, const ObjectId &receiverId,
+    bool AnswerSet(const ObjectId &objId, const ObjectId &receiverId,
                        const nsString &id, const bool &strict,
                        const JSVariant &value,
                        ReturnStatus *rs, JSVariant *result);
-    bool AnswerCallHook(const ObjectId &objId,
+    bool AnswerCall(const ObjectId &objId,
                         const nsTArray<JSParam> &argv,
                         ReturnStatus *rs,
                         JSVariant *result,
@@ -72,9 +73,6 @@ class JavaScriptChild
                             bool *result);
     bool AnswerPreventExtensions(const uint32_t &objId,
                                  ReturnStatus *rs);
-
-    ObjectId Send(JSContext *cx, JSObject *obj);
-
   protected:
     JSObject *unwrap(JSContext *cx, ObjectId id);
 

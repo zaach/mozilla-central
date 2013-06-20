@@ -358,39 +358,6 @@ GetParamsForMessage(JSContext* aCx,
 // nsISyncMessageSender
 
 NS_IMETHODIMP
-nsFrameMessageManager::Wrap(JS::Value const& val, JSContext* cx, unsigned int* retval)
-{
-  MOZ_ASSERT(!IsGlobal());
-  MOZ_ASSERT(!IsWindowLevel());
-  MOZ_ASSERT(!mParentManager);
-
-  *retval = 0;
-
-  ContentChild* cc = ContentChild::GetSingleton();
-  if (!cc) {
-    return NS_ERROR_ABORT;
-  }
-
-  JavaScriptChild* js = cc->GetJavaScript();
-  if (val.isNull()) {
-    return NS_OK;
-  }
-
-  if (!val.isObject()) {
-    return NS_ERROR_ILLEGAL_VALUE;
-  }
-
-  JSObject *obj = &val.toObject();
-  ObjectId objId = js->Send(cx, obj);
-  if (!objId) {
-    return NS_ERROR_ABORT;
-  }
-
-  *retval = objId;
-  return NS_OK;
-}
-
-NS_IMETHODIMP
 nsFrameMessageManager::SendSyncMessage(const nsAString& aMessageName,
                                        const JS::Value& aObject,
                                        const jsval& aRemote,

@@ -102,9 +102,7 @@ SyncChannel::ProcessUrgentMessages()
 bool
 SyncChannel::Send(Message* _msg, Message* reply)
 {
-    NS_ABORT_IF_FALSE(!mPendingReply, "cannot nest sync");
-    if (mPendingReply)
-        return false;
+    MOZ_ASSERT(!mPendingReply);
 
     nsAutoPtr<Message> msg(_msg);
 
@@ -159,6 +157,7 @@ SyncChannel::Send(Message* _msg, Message* reply)
 
         if (!Connected()) {
             ReportConnectionError("SyncChannel");
+
             return false;
         }
 
@@ -167,7 +166,7 @@ SyncChannel::Send(Message* _msg, Message* reply)
         if (!ProcessUrgentMessages())
             return false;
 
-        if (mRecvd.type() != 0) {
+        if (mRecvd.is_reply_error() || mRecvd.type() != 0) {
             // we just received a synchronous message from the other side.
             // If it's not the reply we were awaiting, there's a serious
             // error: either a mistimed/malformed message or a sync in-message
@@ -246,11 +245,17 @@ SyncChannel::OnMessageReceivedFromLink(const Message& msg)
     if (MaybeInterceptSpecialIOMessage(msg))
         return;
 
-    if (AwaitingSyncReply() && msg.priority() == IPC::Message::PRIORITY_HIGH) {
+    if (msg.priority() == IPC::Message::PRIORITY_HIGH) {
         // If the message is high priority, we skip the worker entirely, and
         // wake up the loop that's spinning for a reply.
-        mUrgent.push_back(msg);
-        NotifyWorkerThread();
+        if (!AwaitingSyncReply()) {
+            mWorkerLoop->PostTask(
+                FROM_HERE,
+                NewRunnableMethod(this, &SyncChannel::OnDispatchMessage, msg));
+        } else {
+            mUrgent.push_back(msg);
+            NotifyWorkerThread();
+        }
         return;
     }
 
@@ -259,11 +264,8 @@ SyncChannel::OnMessageReceivedFromLink(const Message& msg)
         return;
     }
 
-    if (!AwaitingSyncReply() || mRecvd.type() != 0) {
-        // Since we process urgent messages before the reply, we could
-        // potentially receive another synchronous message. To avoid
-        // overwriting mRecvd, we let the second message go to the normal
-        // event loop.
+    if (!AwaitingSyncReply()) {
+        // wake up the worker, there's work to do
         mWorkerLoop->PostTask(
             FROM_HERE,
             NewRunnableMethod(this, &SyncChannel::OnDispatchMessage, msg));

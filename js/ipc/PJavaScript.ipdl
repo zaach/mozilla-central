@@ -22,12 +22,12 @@ child:
     // The parent process no longer holds any references to the child object.
     async DropObject(uint32_t objId);
 
-    // JSAPI call wrappers.
-    urgent HasHook(uint32_t objId, nsString id) returns (ReturnStatus rs, bool has);
-    urgent HasOwnHook(uint32_t objId, nsString id) returns (ReturnStatus rs, bool has);
-    urgent GetHook(uint32_t objId, uint32_t receiverId, nsString id) returns (ReturnStatus rs, JSVariant result);
-    urgent SetHook(uint32_t objId, uint32_t receiverId, nsString id, bool strict, JSVariant value) returns (ReturnStatus rs, JSVariant result);
-    urgent CallHook(uint32_t objId, JSParam[] argv) returns (ReturnStatus rs, JSVariant result, JSParam[] outparams);
+    // These roughly map to the ProxyHandler hooks that CPOWs need.
+    urgent Has(uint32_t objId, nsString id) returns (ReturnStatus rs, bool has);
+    urgent HasOwn(uint32_t objId, nsString id) returns (ReturnStatus rs, bool has);
+    urgent Get(uint32_t objId, uint32_t receiverId, nsString id) returns (ReturnStatus rs, JSVariant result);
+    urgent Set(uint32_t objId, uint32_t receiverId, nsString id, bool strict, JSVariant value) returns (ReturnStatus rs, JSVariant result);
+    urgent Call(uint32_t objId, JSParam[] argv) returns (ReturnStatus rs, JSVariant result, JSParam[] outparams);
 
     urgent InstanceOf(uint32_t objId, JSIID iid) returns (ReturnStatus rs, bool instanceof);
     urgent GetPropertyDescriptor(uint32_t objId, nsString id, uint32_t flags) returns (ReturnStatus rs, PPropertyDescriptor result);

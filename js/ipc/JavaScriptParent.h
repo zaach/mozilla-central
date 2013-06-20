@@ -10,7 +10,6 @@
 #define mozilla_jsipc_JavaScriptParent__
 
 #include "mozilla/jsipc/PJavaScriptParent.h"
-#include "nsIJavaScriptParent.h"
 #include "JavaScriptShared.h"
 #include "jsclass.h"
 
@@ -39,23 +38,6 @@ class JavaScriptParent
     bool set(JSContext *cx, JS::HandleObject proxy, JS::HandleObject receiver,
              JS::HandleId id, bool strict, JS::MutableHandleValue vp);
     bool call(JSContext *cx, JS::HandleObject proxy, const JS::CallArgs &args);
-
-    JSObject *Unwrap(JSContext *cx, ObjectId objId) {
-        JSAutoRequest request(cx);
-        return unwrap(cx, objId);
-    }
-
-    void GetUtils(nsIJavaScriptParent **parent);
-    void DecRef();
-    void IncRef();
-    void DestroyFromContent();
-
-    void drop(JSObject *obj);
-
-    static bool IsCPOW(JSObject *obj);
-    static nsresult InstanceOf(JSObject *obj, const nsID *id, bool *bp);
-
-    nsresult instanceOf(JSObject *obj, const nsID *id, bool *bp);
     bool getPropertyDescriptor(JSContext *cx, JS::HandleObject proxy, JS::HandleId id,
                                JSPropertyDescriptor *desc, unsigned flags);
     bool getOwnPropertyDescriptor(JSContext *cx, JS::HandleObject proxy, JS::HandleId id,
@@ -67,12 +49,23 @@ class JavaScriptParent
     bool preventExtensions(JSContext *cx, JS::HandleObject proxy);
     bool isExtensible(JSObject *proxy);
 
+    void decref();
+    void incref();
+    void destroyFromContent();
+
+    void drop(JSObject *obj);
+
+    static bool IsCPOW(JSObject *obj);
+    static nsresult InstanceOf(JSObject *obj, const nsID *id, bool *bp);
+
+    nsresult instanceOf(JSObject *obj, const nsID *id, bool *bp);
+
   protected:
     JSObject *unwrap(JSContext *cx, ObjectId objId);
 
   private:
     bool makeId(JSContext *cx, JSObject *obj, ObjectId *idp);
-    ObjectId IdOf(JSObject *obj);
+    ObjectId idOf(JSObject *obj);
 
     // Catastrophic IPC failure.
     JSBool ipcfail(JSContext *cx);
@@ -81,8 +74,7 @@ class JavaScriptParent
     bool ok(JSContext *cx, const ReturnStatus &status);
 
   private:
-    nsCOMPtr<nsIJavaScriptParent> utils_;
-    uint64_t refcount_;
+    uintptr_t refcount_;
     bool inactive_;
 };
 
