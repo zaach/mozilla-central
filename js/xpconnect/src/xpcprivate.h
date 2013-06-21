@@ -4221,8 +4221,7 @@ extern JSBool gDebugMode;
 extern JSBool gDesiredDebugMode;
 
 JSObject* NewInOutObject(JSContext* cx, JSObject* scope);
-JSObject* NewOutObject(JSContext* cx, JSObject* scope);
-bool IsOutObject(JSContext* cx, JSObject* obj);
+bool IsInOutObject(JSContext* cx, JSObject* obj);
 
 // Internal use only.
 bool PushJSContext(JSContext *aCx);

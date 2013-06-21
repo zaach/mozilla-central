@@ -1349,11 +1349,7 @@ nsXPCWrappedJSClass::CallMethod(nsXPCWrappedJS* wrapper, uint16_t methodIndex,
 
         if (param.IsOut() || param.IsDipper()) {
             // create an 'out' object
-            RootedObject out_obj(cx);
-            if  (param.IsIn())
-                out_obj = NewInOutObject(cx, obj);
-            else
-                out_obj = NewOutObject(cx, obj);
+            RootedObject out_obj(cx, NewInOutObject(cx, obj));
             if (!out_obj) {
                 retval = NS_ERROR_OUT_OF_MEMORY;
                 goto pre_call_clean_up;
@@ -1678,15 +1674,9 @@ static JSClass XPCOutParamClass = {
 };
 
 bool
-xpc::IsOutObject(JSContext* cx, JSObject* obj)
+xpc::IsInOutObject(JSContext* cx, JSObject* obj)
 {
     return js::GetObjectJSClass(obj) == &XPCOutParamClass;
-}
-
-JSObject *
-xpc::NewOutObject(JSContext* cx, JSObject* scope)
-{
-    return JS_NewObject(cx, &XPCOutParamClass, nullptr, JS_GetGlobalForObject(cx, scope));
 }
 
 JSObject*

@@ -391,7 +391,16 @@ JavaScriptParent::call(JSContext *cx, HandleObject proxy, const CallArgs &args)
         v = args.base()[i];
         if (v.isObject()) {
             JSObject *obj = &v.toObject();
-            if (xpc::IsOutObject(cx, obj)) {
+            if (xpc::IsInOutObject(cx, obj)) {
+                // Make sure it is not an in-out object.
+                JSBool found;
+                if (!JS_HasProperty(cx, obj, "value", &found))
+                    return false;
+                if (found) {
+                    JS_ReportError(cx, "in-out objects cannot be sent via CPOWs yet");
+                    return false;
+                }
+
                 vals.AppendElement(JSParam(void_t()));
                 if (!outobjects.append(ObjectValue(*obj)))
                     return false;

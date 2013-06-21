@@ -297,7 +297,7 @@ JavaScriptChild::AnswerCall(const ObjectId &objId,
             // This is an outparam.
             JSCompartment *compartment = js::GetContextCompartment(cx);
             JSObject *global = JS_GetGlobalForCompartmentOrNull(cx, compartment);
-            JSObject *obj = xpc::NewOutObject(cx, global);
+            JSObject *obj = xpc::NewInOutObject(cx, global);
             if (!obj)
                 return fail(cx, rs);
             if (!outobjects.append(ObjectValue(*obj)))
