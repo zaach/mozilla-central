@@ -31,7 +31,7 @@ union JSVariant
 {
     void_t;     /* |undefined| */
     nsString;   /* StringValue(x) */
-    uint32_t;   /* ID that maps to a JSObject (cpow on parent, original on child). */
+    uint64_t;   /* ID that maps to a JSObject (cpow on parent, original on child). */
     double;     /* NumberValue(x) */
     bool;       /* BooleanValue(x) */
     JSIID;      /* XPC nsIID */
@@ -51,7 +51,7 @@ union JSParam
 
 struct PPropertyDescriptor
 {
-    uint32_t    objId;
+    uint64_t    objId;
     uint32_t    attrs;
     uint32_t    shortid;
     JSVariant   value;
@@ -64,8 +64,8 @@ struct PPropertyDescriptor
     //  1 - Default getter or setter.
     //  2 - js_GetterOnlyPropertyStub (setter only)
     //  3 - Unknown
-    uint32_t    getter;
-    uint32_t    setter;
+    uint64_t    getter;
+    uint64_t    setter;
 };
 
 struct CpowEntry

@@ -134,7 +134,7 @@ public:
     TestShellParent* CreateTestShell();
     bool DestroyTestShell(TestShellParent* aTestShell);
     TestShellParent* GetTestShellSingleton();
-    jsipc::JavaScriptParent *GetJavaScript();
+    jsipc::JavaScriptParent *GetCPOWManager();
 
     void ReportChildAlreadyBlocked();
     bool RequestRunToCompletion();

@@ -1031,7 +1031,7 @@ ContentParent::NotifyTabDestroyed(PBrowserParent* aTab,
 }
 
 jsipc::JavaScriptParent*
-ContentParent::GetJavaScript()
+ContentParent::GetCPOWManager()
 {
     MOZ_ASSERT(ManagedPJavaScriptParent().Length() == 1);
     return static_cast<JavaScriptParent*>(ManagedPJavaScriptParent()[0]);
@@ -2337,7 +2337,7 @@ ContentParent::RecvSyncMessage(const nsString& aMsg,
   nsRefPtr<nsFrameMessageManager> ppm = mMessageManager;
   if (ppm) {
     StructuredCloneData cloneData = ipc::UnpackClonedMessageDataForParent(aData);
-    CpowIdHolder cpows(GetJavaScript(), aCpows);
+    CpowIdHolder cpows(GetCPOWManager(), aCpows);
     ppm->ReceiveMessage(static_cast<nsIContentFrameMessageManager*>(ppm.get()),
                         aMsg, true, &cloneData, &cpows, aRetvals);
   }
@@ -2352,7 +2352,7 @@ ContentParent::RecvAsyncMessage(const nsString& aMsg,
   nsRefPtr<nsFrameMessageManager> ppm = mMessageManager;
   if (ppm) {
     StructuredCloneData cloneData = ipc::UnpackClonedMessageDataForParent(aData);
-    CpowIdHolder cpows(GetJavaScript(), aCpows);
+    CpowIdHolder cpows(GetCPOWManager(), aCpows);
     ppm->ReceiveMessage(static_cast<nsIContentFrameMessageManager*>(ppm.get()),
                         aMsg, false, &cloneData, &cpows, nullptr);
   }
@@ -2568,7 +2568,7 @@ ContentParent::DoSendAsyncMessage(JSContext* aCx,
     return false;
   }
   InfallibleTArray<CpowEntry> cpows;
-  if (!GetJavaScript()->Wrap(aCx, aCpows, &cpows)) {
+  if (!GetCPOWManager()->Wrap(aCx, aCpows, &cpows)) {
       return false;
   }
   return SendAsyncMessage(nsString(aMessage), data, cpows);

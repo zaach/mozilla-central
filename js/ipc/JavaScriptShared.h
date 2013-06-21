@@ -19,7 +19,7 @@
 namespace mozilla {
 namespace jsipc {
 
-typedef uint32_t ObjectId;
+typedef uint64_t ObjectId;
 
 class JavaScriptShared;
 
@@ -130,6 +130,9 @@ class JavaScriptShared
   protected:
     ObjectStore objects_;
 };
+
+// Use 47 at most, to be safe, since jsval privates are encoded as doubles.
+static const uint64_t MAX_CPOW_IDS = (uint64_t(1) << 47) - 1;
 
 } // namespace jsipc
 } // namespace mozilla

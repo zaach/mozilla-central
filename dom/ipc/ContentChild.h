@@ -132,7 +132,7 @@ public:
     virtual PTestShellChild* AllocPTestShell();
     virtual bool DeallocPTestShell(PTestShellChild*);
 
-    jsipc::JavaScriptChild *GetJavaScript();
+    jsipc::JavaScriptChild *GetCPOWManager();
 
     virtual PNeckoChild* AllocPNecko();
     virtual bool DeallocPNecko(PNeckoChild*);

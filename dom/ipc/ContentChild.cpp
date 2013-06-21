@@ -321,7 +321,7 @@ ContentChild::Init(MessageLoop* aIOLoop,
 
     SendGetProcessAttributes(&mID, &mIsForApp, &mIsForBrowser);
 
-    GetJavaScript();
+    GetCPOWManager();
 
     if (mIsForApp && !mIsForBrowser) {
         SetProcessName(NS_LITERAL_STRING("(Preallocated app)"));
@@ -792,7 +792,7 @@ ContentChild::DeallocPTestShell(PTestShellChild* shell)
 }
 
 jsipc::JavaScriptChild *
-ContentChild::GetJavaScript()
+ContentChild::GetCPOWManager()
 {
     if (ManagedPJavaScriptChild().Length()) {
         return static_cast<JavaScriptChild*>(ManagedPJavaScriptChild()[0]);
@@ -1060,7 +1060,7 @@ ContentChild::RecvAsyncMessage(const nsString& aMsg,
   nsRefPtr<nsFrameMessageManager> cpm = nsFrameMessageManager::sChildProcessManager;
   if (cpm) {
     StructuredCloneData cloneData = ipc::UnpackClonedMessageDataForChild(aData);
-    CpowIdHolder cpows(GetJavaScript(), aCpows);
+    CpowIdHolder cpows(GetCPOWManager(), aCpows);
     cpm->ReceiveMessage(static_cast<nsIContentFrameMessageManager*>(cpm.get()),
                         aMsg, false, &cloneData, &cpows, nullptr, nullptr);
   }

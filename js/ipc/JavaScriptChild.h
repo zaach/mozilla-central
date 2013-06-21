@@ -48,30 +48,30 @@ class JavaScriptChild
                           const JSIID &iid,
                           ReturnStatus *rs,
                           bool *instanceof);
-    bool AnswerGetPropertyDescriptor(const uint32_t &objId,
+    bool AnswerGetPropertyDescriptor(const ObjectId &objId,
                                      const nsString &id,
                                      const uint32_t &flags,
                                      ReturnStatus *rs,
                                      PPropertyDescriptor *out);
-    bool AnswerGetOwnPropertyDescriptor(const uint32_t &objId,
+    bool AnswerGetOwnPropertyDescriptor(const ObjectId &objId,
                                         const nsString &id,
                                         const uint32_t &flags,
                                         ReturnStatus *rs,
                                         PPropertyDescriptor *out);
-    bool AnswerGetOwnPropertyNames(const uint32_t &objId,
+    bool AnswerGetOwnPropertyNames(const ObjectId &objId,
                                    ReturnStatus *rs,
                                    nsTArray<nsString> *names);
-    bool AnswerKeys(const uint32_t &objId,
+    bool AnswerKeys(const ObjectId &objId,
                     ReturnStatus *rs,
                     nsTArray<nsString> *names);
-    bool AnswerObjectClassIs(const uint32_t &objId,
+    bool AnswerObjectClassIs(const ObjectId &objId,
                              const uint32_t &classValue,
                              bool *result);
-    bool AnswerClassName(const uint32_t &objId,
+    bool AnswerClassName(const ObjectId &objId,
                              nsString *result);
-    bool AnswerIsExtensible(const uint32_t &objId,
+    bool AnswerIsExtensible(const ObjectId &objId,
                             bool *result);
-    bool AnswerPreventExtensions(const uint32_t &objId,
+    bool AnswerPreventExtensions(const ObjectId &objId,
                                  ReturnStatus *rs);
   protected:
     JSObject *unwrap(JSContext *cx, ObjectId id);

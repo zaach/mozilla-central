@@ -145,7 +145,7 @@ JavaScriptShared::toVariant(JSContext *cx, jsval from, JSVariant *to)
 
       case JSTYPE_NULL:
       {
-        *to = uint32_t(0);
+        *to = uint64_t(0);
         return true;
       }
 
@@ -155,7 +155,7 @@ JavaScriptShared::toVariant(JSContext *cx, jsval from, JSVariant *to)
         JSObject *obj = from.toObjectOrNull();
         if (!obj) {
             JS_ASSERT(from == JSVAL_NULL);
-            *to = uint32_t(0);
+            *to = uint64_t(0);
             return true;
         }
 
@@ -170,7 +170,7 @@ JavaScriptShared::toVariant(JSContext *cx, jsval from, JSVariant *to)
         ObjectId id;
         if (!makeId(cx, obj, &id))
             return false;
-        *to = uint32_t(id);
+        *to = uint64_t(id);
         return true;
       }
 
@@ -208,9 +208,9 @@ JavaScriptShared::toValue(JSContext *cx, const JSVariant &from, MutableHandleVal
           to.set(UndefinedValue());
           return true;
 
-        case JSVariant::Tuint32_t:
+        case JSVariant::Tuint64_t:
         {
-          uint32_t id = from.get_uint32_t();
+          ObjectId id = from.get_uint64_t();
           if (id) {
               JSObject *obj = unwrap(cx, id);
               if (!obj)

@@ -1324,7 +1324,7 @@ public:
       return false;
     }
     InfallibleTArray<mozilla::jsipc::CpowEntry> cpows;
-    if (!cc->GetJavaScript()->Wrap(aCx, aCpows, &cpows)) {
+    if (!cc->GetCPOWManager()->Wrap(aCx, aCpows, &cpows)) {
       return false;
     }
     return cc->SendSyncMessage(nsString(aMessage), data, cpows, aJSONRetVal);
@@ -1345,7 +1345,7 @@ public:
       return false;
     }
     InfallibleTArray<mozilla::jsipc::CpowEntry> cpows;
-    if (!cc->GetJavaScript()->Wrap(aCx, aCpows, &cpows)) {
+    if (!cc->GetCPOWManager()->Wrap(aCx, aCpows, &cpows)) {
       return false;
     }
     return cc->SendAsyncMessage(nsString(aMessage), data, cpows);

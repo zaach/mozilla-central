@@ -2014,7 +2014,7 @@ TabChild::RecvAsyncMessage(const nsString& aMessage,
     StructuredCloneData cloneData = UnpackClonedMessageDataForChild(aData);
     nsRefPtr<nsFrameMessageManager> mm =
       static_cast<nsFrameMessageManager*>(mTabChildGlobal->mMessageManager.get());
-    CpowIdHolder cpows(static_cast<ContentChild*>(Manager())->GetJavaScript(), aCpows);
+    CpowIdHolder cpows(static_cast<ContentChild*>(Manager())->GetCPOWManager(), aCpows);
     mm->ReceiveMessage(static_cast<EventTarget*>(mTabChildGlobal),
                        aMessage, false, &cloneData, &cpows, nullptr);
   }
@@ -2321,7 +2321,7 @@ TabChild::DoSendSyncMessage(JSContext* aCx,
     return false;
   }
   InfallibleTArray<CpowEntry> cpows;
-  if (!cc->GetJavaScript()->Wrap(aCx, aCpows, &cpows)) {
+  if (!cc->GetCPOWManager()->Wrap(aCx, aCpows, &cpows)) {
     return false;
   }
   return SendSyncMessage(nsString(aMessage), data, cpows, aJSONRetVal);
@@ -2339,7 +2339,7 @@ TabChild::DoSendAsyncMessage(JSContext* aCx,
     return false;
   }
   InfallibleTArray<CpowEntry> cpows;
-  if (!cc->GetJavaScript()->Wrap(aCx, aCpows, &cpows)) {
+  if (!cc->GetCPOWManager()->Wrap(aCx, aCpows, &cpows)) {
     return false;
   }
   return SendAsyncMessage(nsString(aMessage), data, cpows);

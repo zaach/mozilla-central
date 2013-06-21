@@ -80,7 +80,7 @@ JavaScriptChild::makeId(JSContext *cx, JSObject *obj, ObjectId *idp)
     }
 
     id = ++lastId_;
-    if (id > (unsigned(JSVAL_INT_MAX) >> OBJECT_EXTRA_BITS))
+    if (id > MAX_CPOW_IDS)
         return false;
 
     id <<= OBJECT_EXTRA_BITS;
@@ -399,7 +399,7 @@ EmptyDesc(PPropertyDescriptor *desc)
 }
 
 bool
-JavaScriptChild::AnswerGetPropertyDescriptor(const uint32_t &objId,
+JavaScriptChild::AnswerGetPropertyDescriptor(const ObjectId &objId,
                                              const nsString &id,
                                              const uint32_t &flags,
                                              ReturnStatus *rs,
@@ -434,7 +434,7 @@ JavaScriptChild::AnswerGetPropertyDescriptor(const uint32_t &objId,
 }
 
 bool
-JavaScriptChild::AnswerGetOwnPropertyDescriptor(const uint32_t &objId,
+JavaScriptChild::AnswerGetOwnPropertyDescriptor(const ObjectId &objId,
                                                 const nsString &id,
                                                 const uint32_t &flags,
                                                 ReturnStatus *rs,
@@ -469,7 +469,7 @@ JavaScriptChild::AnswerGetOwnPropertyDescriptor(const uint32_t &objId,
 }
 
 bool
-JavaScriptChild::AnswerGetOwnPropertyNames(const uint32_t &objId,
+JavaScriptChild::AnswerGetOwnPropertyNames(const ObjectId &objId,
                                            ReturnStatus *rs,
                                            nsTArray<nsString> *names)
 {
@@ -498,7 +498,7 @@ JavaScriptChild::AnswerGetOwnPropertyNames(const uint32_t &objId,
 }
 
 bool
-JavaScriptChild::AnswerKeys(const uint32_t &objId,
+JavaScriptChild::AnswerKeys(const ObjectId &objId,
                             ReturnStatus *rs,
                             nsTArray<nsString> *names)
 {
@@ -527,7 +527,7 @@ JavaScriptChild::AnswerKeys(const uint32_t &objId,
 }
 
 bool
-JavaScriptChild::AnswerObjectClassIs(const uint32_t &objId,
+JavaScriptChild::AnswerObjectClassIs(const ObjectId &objId,
                                      const uint32_t &classValue,
                                      bool *result)
 {
@@ -546,7 +546,7 @@ JavaScriptChild::AnswerObjectClassIs(const uint32_t &objId,
 }
 
 bool
-JavaScriptChild::AnswerClassName(const uint32_t &objId,
+JavaScriptChild::AnswerClassName(const ObjectId &objId,
                                  nsString *name)
 {
     AutoSafeJSContext cx;
@@ -563,7 +563,7 @@ JavaScriptChild::AnswerClassName(const uint32_t &objId,
 }
 
 bool
-JavaScriptChild::AnswerIsExtensible(const uint32_t &objId,
+JavaScriptChild::AnswerIsExtensible(const ObjectId &objId,
                                     bool *result)
 {
     JSObject *obj = findObject(objId);
@@ -575,7 +575,7 @@ JavaScriptChild::AnswerIsExtensible(const uint32_t &objId,
 }
 
 bool
-JavaScriptChild::AnswerPreventExtensions(const uint32_t &objId,
+JavaScriptChild::AnswerPreventExtensions(const ObjectId &objId,
                                          ReturnStatus *rs)
 {
     AutoSafeJSContext cx;
