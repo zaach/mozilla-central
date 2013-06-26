@@ -55,10 +55,11 @@ namespace dom {
 class ImageListener : public MediaDocumentStreamListener
 {
 public:
-  NS_DECL_NSIREQUESTOBSERVER
-
   ImageListener(ImageDocument* aDocument);
   virtual ~ImageListener();
+
+  /* nsIRequestObserver */
+  NS_IMETHOD OnStartRequest(nsIRequest* request, nsISupports *ctxt);
 };
 
 ImageListener::ImageListener(ImageDocument* aDocument)
@@ -122,16 +123,6 @@ ImageListener::OnStartRequest(nsIRequest* request, nsISupports *ctxt)
   imageLoader->LoadImageWithChannel(channel, getter_AddRefs(mNextStream));
 
   return MediaDocumentStreamListener::OnStartRequest(request, ctxt);
-}
-
-NS_IMETHODIMP
-ImageListener::OnStopRequest(nsIRequest* request, nsISupports* ctxt, nsresult status)
-{
-  ImageDocument *imgDoc = static_cast<ImageDocument*>(mDocument.get());
-  nsContentUtils::DispatchTrustedEvent(imgDoc, static_cast<nsIDocument*>(imgDoc),
-                                       NS_LITERAL_STRING("ImageContentLoaded"),
-                                       true, true);
-  return MediaDocumentStreamListener::OnStopRequest(request, ctxt, status);
 }
 
 ImageDocument::ImageDocument()

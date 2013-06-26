@@ -239,23 +239,6 @@
         </setter>
       </property>
 
-      <property name="imageDocument"
-                readonly="true">
-        <getter>
-          <![CDATA[
-            var document = this.contentDocument;
-            if (!document || !(document instanceof Ci.nsIImageDocument))
-              return null;
-
-            try {
-                return {width: document.imageRequest.image.width, height: document.imageRequest.image.height };
-            } catch (e) {}
-            return null;
-          ]]>
-        </getter>
-      </property>
-
-
       <property name="isRemoteBrowser"
                 onget="return (this.getAttribute('remote') == 'true');"
                 readonly="true"/>
