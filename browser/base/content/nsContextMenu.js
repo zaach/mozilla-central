@@ -966,7 +966,7 @@ nsContextMenu.prototype = {
     // Let's try to unescape it using a character set
     // in case the address is not ASCII.
     try {
-      var characterSet = this.target.ownerDocument.characterSet;
+      var characterSet = this.browser.characterSet;
       const textToSubURI = Cc["@mozilla.org/intl/texttosuburi;1"].
                            getService(Ci.nsITextToSubURI);
       addresses = textToSubURI.unEscapeURIForUI(characterSet, addresses);
@@ -978,6 +978,26 @@ nsContextMenu.prototype = {
     var clipboard = Cc["@mozilla.org/widget/clipboardhelper;1"].
                     getService(Ci.nsIClipboardHelper);
     clipboard.copyString(addresses, document);
+  },
+
+  copyLink: function() {
+    var url = this.linkURL;
+
+    // Let's try to unescape it using a character set
+    // in case the address is not ASCII.
+    try {
+      var characterSet = this.browser.characterSet;
+      const textToSubURI = Cc["@mozilla.org/intl/texttosuburi;1"].
+                           getService(Ci.nsITextToSubURI);
+      url = textToSubURI.unEscapeURIForUI(characterSet, url);
+    }
+    catch(ex) {
+      // Do nothing.
+    }
+
+    var clipboard = Cc["@mozilla.org/widget/clipboardhelper;1"].
+                    getService(Ci.nsIClipboardHelper);
+    clipboard.copyString(url, document);
   },
 
   ///////////////
