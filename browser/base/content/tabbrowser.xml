@@ -777,28 +777,24 @@
             var browser = this.getBrowserForTab(aTab);
             var docURIObject = browser.contentDocument.documentURIObject;
             var icon = null;
-            /*
-            if (browser.contentDocument instanceof ImageDocument) {
+
+            if (browser.imageDocument) {
               if (Services.prefs.getBoolPref("browser.chrome.site_icons")) {
                 let sz = Services.prefs.getIntPref("browser.chrome.image_icons.max_size");
-                try {
-                  let req = browser.contentDocument.imageRequest;
-                  if (req &&
-                      req.image &&
-                      req.image.width <= sz &&
-                      req.image.height <= sz)
-                    icon = browser.currentURI;
-                } catch (e) { }
+                if (browser.imageDocument.width <= sz &&
+                    browser.imageDocument.height <= sz) {
+                  icon = browser.currentURI;
+                }
               }
             }
-            */
             // Use documentURIObject in the check for shouldLoadFavIcon so that we
             // do the right thing with about:-style error pages.  Bug 453442
-            if (this.shouldLoadFavIcon(docURIObject)) {
+            else if (!icon && this.shouldLoadFavIcon(docURIObject)) {
               let url = docURIObject.prePath + "/favicon.ico";
               if (!this.isFailedIcon(url))
                 icon = url;
             }
+            dump("icon" + icon.spec)
             this.setIcon(aTab, icon);
           ]]>
         </body>
