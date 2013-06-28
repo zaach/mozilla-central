@@ -393,7 +393,20 @@ struct nsCSSRendering {
                                        const nsRect& aBorderArea,
                                        const nsRect& aClipRect,
                                        const nsStyleBackground& aBackground,
-                                       const nsStyleBackground::Layer& aLayer);
+                                       const nsStyleBackground::Layer& aLayer,
+                                       uint32_t aFlags);
+
+  /**
+   * Checks if image in layer aLayer of aBackground is currently decoded.
+   */
+  static bool IsBackgroundImageDecodedForStyleContextAndLayer(
+    const nsStyleBackground *aBackground, uint32_t aLayer);
+
+  /**
+   * Checks if all images that are part of the background for aFrame are
+   * currently decoded.
+   */
+  static bool AreAllBackgroundImagesDecodedForFrame(nsIFrame* aFrame);
 
   /**
    * Called when we start creating a display list. The frame tree will not

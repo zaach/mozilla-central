@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef jsion_codegen_h__
-#define jsion_codegen_h__
+#ifndef ion_CodeGenerator_h
+#define ion_CodeGenerator_h
 
 #if defined(JS_CPU_X86)
 # include "x86/CodeGenerator-x86.h"
@@ -75,6 +75,7 @@ class CodeGenerator : public CodeGeneratorSpecific
     bool visitTypeObjectDispatch(LTypeObjectDispatch *lir);
     bool visitPolyInlineDispatch(LPolyInlineDispatch *lir);
     bool visitIntToString(LIntToString *lir);
+    bool visitDoubleToString(LDoubleToString *lir);
     bool visitInteger(LInteger *lir);
     bool visitRegExp(LRegExp *lir);
     bool visitRegExpTest(LRegExpTest *lir);
@@ -154,6 +155,7 @@ class CodeGenerator : public CodeGeneratorSpecific
     bool visitSetPropertyPolymorphicV(LSetPropertyPolymorphicV *ins);
     bool visitSetPropertyPolymorphicT(LSetPropertyPolymorphicT *ins);
     bool visitAbsI(LAbsI *lir);
+    bool visitAtan2D(LAtan2D *lir);
     bool visitPowI(LPowI *lir);
     bool visitPowD(LPowD *lir);
     bool visitRandom(LRandom *lir);
@@ -171,6 +173,7 @@ class CodeGenerator : public CodeGeneratorSpecific
     bool visitEmulatesUndefined(LEmulatesUndefined *lir);
     bool visitEmulatesUndefinedAndBranch(LEmulatesUndefinedAndBranch *lir);
     bool visitConcat(LConcat *lir);
+    bool visitParConcat(LParConcat *lir);
     bool visitCharCodeAt(LCharCodeAt *lir);
     bool visitFromCharCode(LFromCharCode *lir);
     bool visitFunctionEnvironment(LFunctionEnvironment *lir);
@@ -237,6 +240,7 @@ class CodeGenerator : public CodeGeneratorSpecific
     bool visitCallDOMNative(LCallDOMNative *lir);
     bool visitCallGetIntrinsicValue(LCallGetIntrinsicValue *lir);
     bool visitIsCallable(LIsCallable *lir);
+    bool visitHaveSameClass(LHaveSameClass *lir);
     bool visitAsmJSCall(LAsmJSCall *lir);
     bool visitAsmJSParameter(LAsmJSParameter *lir);
     bool visitAsmJSReturn(LAsmJSReturn *ret);
@@ -346,4 +350,4 @@ class CodeGenerator : public CodeGeneratorSpecific
 } // namespace ion
 } // namespace js
 
-#endif // jsion_codegen_h__
+#endif /* ion_CodeGenerator_h */

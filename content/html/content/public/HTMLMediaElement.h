@@ -44,6 +44,7 @@ class MediaDecoder;
 }
 
 class nsITimer;
+class nsRange;
 
 namespace mozilla {
 namespace dom {
@@ -502,8 +503,6 @@ public:
 
   JSObject* MozGetMetadata(JSContext* aCx, ErrorResult& aRv);
 
-  void MozLoadFrom(HTMLMediaElement& aOther, ErrorResult& aRv);
-
   double MozFragmentEnd();
 
   // XPCOM GetMozAudioChannelType() is OK
@@ -884,7 +883,7 @@ protected:
 
   // Points to the child source elements, used to iterate through the children
   // when selecting a resource to load.
-  nsCOMPtr<nsIDOMRange> mSourcePointer;
+  nsRefPtr<nsRange> mSourcePointer;
 
   // Points to the document whose load we're blocking. This is the document
   // we're bound to when loading starts.
@@ -1119,6 +1118,9 @@ protected:
 
   // Is this media element playing?
   bool mPlayingThroughTheAudioChannel;
+
+  // Has this element been in a document?
+  bool mWasInDocument;
 
   // An agent used to join audio channel service.
   nsCOMPtr<nsIAudioChannelAgent> mAudioChannelAgent;

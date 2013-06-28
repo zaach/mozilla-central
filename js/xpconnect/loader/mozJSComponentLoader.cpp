@@ -1,6 +1,6 @@
-/* -*- Mode: C; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*-
- *
- * This Source Code Form is subject to the terms of the Mozilla Public
+/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
+/* vim: set ts=8 sts=4 et sw=4 tw=99: */
+/* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
@@ -517,6 +517,7 @@ mozJSComponentLoader::LoadModule(FileLocation &aFile)
 
     nsAutoPtr<ModuleEntry> entry(new ModuleEntry);
 
+    JSAutoRequest ar(mContext);
     RootedValue dummy(mContext);
     rv = ObjectForLocation(file, uri, &entry->obj,
                            &entry->location, false, &dummy);
@@ -668,7 +669,7 @@ void
 mozJSComponentLoader::NoteSubScript(HandleScript aScript, HandleObject aThisObject)
 {
   if (!mInitialized && NS_FAILED(ReallyInit())) {
-      MOZ_NOT_REACHED();
+      MOZ_CRASH();
   }
 
   mThisObjects.Put(aScript, aThisObject);
@@ -1126,6 +1127,7 @@ mozJSComponentLoader::UnloadModules()
     if (mLoaderGlobal) {
         MOZ_ASSERT(mReuseLoaderGlobal, "How did this happen?");
 
+        JSAutoRequest ar(mContext);
         RootedObject global(mContext, mLoaderGlobal->GetJSObject());
         if (global) {
             JS_SetAllNonReservedSlotsToUndefined(mContext, global);
@@ -1142,8 +1144,7 @@ mozJSComponentLoader::UnloadModules()
 
     mModules.Enumerate(ClearModules, NULL);
 
-    // Destroying our context will force a GC.
-    JS_DestroyContext(mContext);
+    JS_DestroyContextNoGC(mContext);
     mContext = nullptr;
 
     mRuntimeService = nullptr;
@@ -1475,7 +1476,7 @@ mozJSComponentLoader::ModuleEntry::GetFactory(const mozilla::Module& module,
     nsCOMPtr<nsIFactory> f;
     nsresult rv = self.getfactoryobj->Get(*entry.cid, getter_AddRefs(f));
     if (NS_FAILED(rv))
-        return NULL;
+        return nullptr;
 
     return f.forget();
 }

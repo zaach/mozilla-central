@@ -7,7 +7,10 @@
 #include "jscntxt.h"
 
 #include "jscntxtinlines.h"
-#include "jsobjinlines.h"
+
+#ifdef JSGC_GENERATIONAL
+#include "vm/Shape-inl.h"
+#endif
 
 using namespace js;
 

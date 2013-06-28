@@ -17,7 +17,7 @@
 #include "nsCOMPtr.h"
 #include "nsIConstraintValidation.h"
 #include "nsDOMFile.h"
-#include "nsHTMLFormElement.h" // for ShouldShowInvalidUI()
+#include "mozilla/dom/HTMLFormElement.h" // for ShouldShowInvalidUI()
 #include "nsIFile.h"
 #include "nsIFilePicker.h"
 #include "nsIContentPrefService2.h"
@@ -223,6 +223,7 @@ public:
 
   virtual nsresult Clone(nsINodeInfo *aNodeInfo, nsINode **aResult) const MOZ_OVERRIDE;
 
+  void MaybeFireAsyncClickHandler(nsEventChainPostVisitor& aVisitor);
   NS_IMETHOD FireAsyncClickHandler();
 
   NS_DECL_CYCLE_COLLECTION_CLASS_INHERITED(HTMLInputElement,

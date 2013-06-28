@@ -10,11 +10,13 @@ import java.util.EnumSet;
 import org.mozilla.gecko.GeckoApplication;
 import org.mozilla.gecko.LightweightTheme;
 import org.mozilla.gecko.R;
+import org.mozilla.gecko.ScrollAnimator;
 import org.mozilla.gecko.db.BrowserContract;
 
 import android.app.Activity;
 import android.content.res.Configuration;
 import android.database.ContentObserver;
+import android.os.Build;
 import android.os.Bundle;
 import android.support.v4.app.Fragment;
 import android.view.ContextMenu.ContextMenuInfo;
@@ -43,8 +45,7 @@ public class AboutHome extends Fragment {
     private LastTabsSection mLastTabsSection;
     private RemoteTabsSection mRemoteTabsSection;
     private TopSitesView mTopSitesView;
-
-    private static final String STATE_TOP_PADDING = "top_padding";
+    private ScrollAnimator mScrollAnimator;
 
     public interface UriLoadListener {
         public void onAboutHomeUriLoad(String uriSpec);
@@ -63,10 +64,6 @@ public class AboutHome extends Fragment {
         super.onCreate(savedInstanceState);
 
         mLightweightTheme = ((GeckoApplication) getActivity().getApplication()).getLightweightTheme();
-
-        if (savedInstanceState != null) {
-            mTopPadding = savedInstanceState.getInt(STATE_TOP_PADDING, 0);
-        }
     }
 
     @Override
@@ -109,6 +106,13 @@ public class AboutHome extends Fragment {
         mAboutHomeView.setLightweightTheme(mLightweightTheme);
         mLightweightTheme.addListener(mAboutHomeView);
 
+        // ScrollAnimator implements the View.OnGenericMotionListener
+        // interface, which was added in API level 12.
+        if (Build.VERSION.SDK_INT >= 12) {
+            mScrollAnimator = new ScrollAnimator();
+            mAboutHomeView.setOnGenericMotionListener(mScrollAnimator);
+        }
+
         return mAboutHomeView;
     }
 
@@ -142,6 +146,11 @@ public class AboutHome extends Fragment {
         mLightweightTheme.removeListener(mAboutHomeView);
         getActivity().getContentResolver().unregisterContentObserver(mTabsContentObserver);
         mTopSitesView.onDestroy();
+
+        if (mScrollAnimator != null) {
+            mScrollAnimator.cancel();
+        }
+        mScrollAnimator = null;
 
         mAboutHomeView = null;
         mAddonsSection = null;
@@ -257,9 +266,7 @@ public class AboutHome extends Fragment {
         mTopPadding = topPadding;
     }
 
-    @Override
-    public void onSaveInstanceState(Bundle outState) {
-        super.onSaveInstanceState(outState);
-        outState.putInt(STATE_TOP_PADDING, mTopPadding);
+    public int getTopPadding() {
+        return mTopPadding;
     }
 }

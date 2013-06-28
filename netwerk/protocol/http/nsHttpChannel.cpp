@@ -4,6 +4,9 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+// HttpLog.h should generally be included first
+#include "HttpLog.h"
+
 #include "nsHttp.h"
 #include "nsHttpChannel.h"
 #include "nsHttpHandler.h"
@@ -248,10 +251,10 @@ private:
     const uint32_t mLoadFlags;
     const bool mCacheForOfflineUse;
     const bool mFallbackChannel;
-    const InfallableCopyCString mClientID;
+    const nsCString mClientID;
     const nsCacheStoragePolicy mStoragePolicy;
     const bool mUsingPrivateBrowsing;
-    const InfallableCopyCString mCacheKey;
+    const nsCString mCacheKey;
     const nsCacheAccessMode mAccessToRequest;
     const bool mNoWait;
     const bool mUsingSSL;
@@ -379,18 +382,6 @@ nsHttpChannel::Connect()
         if (NS_SUCCEEDED(rv) && isStsHost) {
             LOG(("nsHttpChannel::Connect() STS permissions found\n"));
             return AsyncCall(&nsHttpChannel::HandleAsyncRedirectChannelToHttps);
-        }
-
-        // Check for a previous SPDY Alternate-Protocol directive
-        if (gHttpHandler->IsSpdyEnabled() && mAllowSpdy) {
-            nsAutoCString hostPort;
-
-            if (NS_SUCCEEDED(mURI->GetHostPort(hostPort)) &&
-                gHttpHandler->ConnMgr()->GetSpdyAlternateProtocol(hostPort)) {
-                LOG(("nsHttpChannel::Connect() Alternate-Protocol found\n"));
-                return AsyncCall(
-                    &nsHttpChannel::HandleAsyncRedirectChannelToHttps);
-            }
         }
     }
 
@@ -2246,12 +2237,12 @@ nsHttpChannel::ProcessFallback(bool *waitingForRedirectCallback)
     // fallback.
     if (mOfflineCacheEntry) {
         mOfflineCacheEntry->AsyncDoom(nullptr);
-        mOfflineCacheEntry = 0;
+        mOfflineCacheEntry = nullptr;
         mOfflineCacheAccess = 0;
     }
 
     mApplicationCacheForWrite = nullptr;
-    mOfflineCacheEntry = 0;
+    mOfflineCacheEntry = nullptr;
     mOfflineCacheAccess = 0;
 
     // Close the current cache entry.
@@ -3575,8 +3566,8 @@ nsHttpChannel::CloseCacheEntry(bool doomOnFailure)
 
     mCachedResponseHead = nullptr;
 
-    mCachePump = 0;
-    mCacheEntry = 0;
+    mCachePump = nullptr;
+    mCacheEntry = nullptr;
     mCacheAccess = 0;
     mInitedCacheEntry = false;
 }
@@ -3599,7 +3590,7 @@ nsHttpChannel::CloseOfflineCacheEntry()
             mOfflineCacheEntry->AsyncDoom(nullptr);
     }
 
-    mOfflineCacheEntry = 0;
+    mOfflineCacheEntry = nullptr;
     mOfflineCacheAccess = 0;
 }
 
@@ -3699,7 +3690,7 @@ nsHttpChannel::AddCacheEntryHeaders(nsICacheEntryDescriptor *entry)
 {
     nsresult rv;
 
-    LOG(("nsHttpChannel::AddCacheEntryHeaders [this=%x] begin", this));
+    LOG(("nsHttpChannel::AddCacheEntryHeaders [this=%p] begin", this));
     // Store secure data in memory only
     if (mSecurityInfo)
         entry->SetSecurityInfo(mSecurityInfo);
@@ -3734,7 +3725,7 @@ nsHttpChannel::AddCacheEntryHeaders(nsICacheEntryDescriptor *entry)
             char *val = buf.BeginWriting(); // going to munge buf
             char *token = nsCRT::strtok(val, NS_HTTP_HEADER_SEPS, &val);
             while (token) {
-                LOG(("nsHttpChannel::AddCacheEntryHeaders [this=%x] " \
+                LOG(("nsHttpChannel::AddCacheEntryHeaders [this=%p] " \
                         "processing %s", this, token));
                 if (*token != '*') {
                     nsHttpAtom atom = nsHttp::ResolveAtom(token);
@@ -3743,7 +3734,7 @@ nsHttpChannel::AddCacheEntryHeaders(nsICacheEntryDescriptor *entry)
                     if (val) {
                         // If cookie-header, store a hash of the value
                         if (atom == nsHttp::Cookie) {
-                            LOG(("nsHttpChannel::AddCacheEntryHeaders [this=%x] " \
+                            LOG(("nsHttpChannel::AddCacheEntryHeaders [this=%p] " \
                                     "cookie-value %s", this, val));
                             rv = Hash(val, hash);
                             // If hash failed, store a string not very likely
@@ -3760,7 +3751,7 @@ nsHttpChannel::AddCacheEntryHeaders(nsICacheEntryDescriptor *entry)
                         metaKey = prefix + nsDependentCString(token);
                         entry->SetMetaDataElement(metaKey.get(), val);
                     } else {
-                        LOG(("nsHttpChannel::AddCacheEntryHeaders [this=%x] " \
+                        LOG(("nsHttpChannel::AddCacheEntryHeaders [this=%p] " \
                                 "clearing metadata for %s", this, token));
                         metaKey = prefix + nsDependentCString(token);
                         entry->SetMetaDataElement(metaKey.get(), nullptr);
@@ -4416,20 +4407,6 @@ nsHttpChannel::BeginConnect()
     LOG(("nsHttpChannel::BeginConnect [this=%p]\n", this));
     nsresult rv;
 
-    // notify "http-on-modify-request" observers
-    CallOnModifyRequestObservers();
-
-    // Check to see if we should redirect this channel elsewhere by
-    // nsIHttpChannel.redirectTo API request
-    if (mAPIRedirectToURI) {
-        return AsyncCall(&nsHttpChannel::HandleAsyncAPIRedirect);
-    }
-
-    // If mTimingEnabled flag is not set after OnModifyRequest() then
-    // clear the already recorded AsyncOpen value for consistency.
-    if (!mTimingEnabled)
-        mAsyncOpenTime = TimeStamp();
-
     // Construct connection info object
     nsAutoCString host;
     int32_t port = -1;
@@ -4467,6 +4444,20 @@ nsHttpChannel::BeginConnect()
 
     // check to see if authorization headers should be included
     mAuthProvider->AddAuthorizationHeaders();
+
+    // notify "http-on-modify-request" observers
+    CallOnModifyRequestObservers();
+
+    // Check to see if we should redirect this channel elsewhere by
+    // nsIHttpChannel.redirectTo API request
+    if (mAPIRedirectToURI) {
+        return AsyncCall(&nsHttpChannel::HandleAsyncAPIRedirect);
+    }
+
+    // If mTimingEnabled flag is not set after OnModifyRequest() then
+    // clear the already recorded AsyncOpen value for consistency.
+    if (!mTimingEnabled)
+        mAsyncOpenTime = TimeStamp();
 
     // when proxying only use the pipeline bit if ProxyPipelining() allows it.
     if (!mConnectionInfo->UsingConnect() && mConnectionInfo->UsingHttpProxy()) {
@@ -4553,7 +4544,7 @@ nsHttpChannel::SetupFallbackChannel(const char *aFallbackKey)
 {
     ENSURE_CALLED_BEFORE_CONNECT();
 
-    LOG(("nsHttpChannel::SetupFallbackChannel [this=%x, key=%s]",
+    LOG(("nsHttpChannel::SetupFallbackChannel [this=%p, key=%s]",
          this, aFallbackKey));
     mFallbackChannel = true;
     mFallbackKey = aFallbackKey;
@@ -4884,16 +4875,6 @@ nsHttpChannel::OnStartRequest(nsIRequest *request, nsISupports *ctxt)
         mSecurityInfo = mTransaction->SecurityInfo();
     }
 
-    if (!mCachePump && NS_FAILED(mStatus) &&
-        (mLoadFlags & LOAD_REPLACE) && mOriginalURI && mAllowSpdy) {
-        // For sanity's sake we may want to cancel an alternate protocol
-        // redirection involving the original host name
-
-        nsAutoCString hostPort;
-        if (NS_SUCCEEDED(mOriginalURI->GetHostPort(hostPort)))
-            gHttpHandler->ConnMgr()->RemoveSpdyAlternateProtocol(hostPort);
-    }
-
     // don't enter this block if we're reading from the cache...
     if (NS_SUCCEEDED(mStatus) && !mCachePump && mTransaction) {
         // mTransactionPump doesn't hit OnInputStreamReady and call this until
@@ -5034,7 +5015,7 @@ nsHttpChannel::OnStopRequest(nsIRequest *request, nsISupports *ctxt, nsresult st
         // at this point, we're done with the transaction
         mTransactionTimings = mTransaction->Timings();
         mTransaction = nullptr;
-        mTransactionPump = 0;
+        mTransactionPump = nullptr;
 
         // We no longer need the dns prefetch object
         if (mDNSPrefetch && mDNSPrefetch->TimingsValid()) {

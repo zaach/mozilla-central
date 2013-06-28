@@ -22,7 +22,7 @@ pref("metro.debug.selection.dumpRanges", false);
 pref("metro.debug.selection.dumpEvents", false);
 
 // Enable off main thread compositing
-pref("layers.offmainthreadcomposition.enabled", false);
+pref("layers.offmainthreadcomposition.enabled", true);
 
 // Enable Microsoft TSF support by default for imes.
 pref("intl.enable_tsf_support", true);
@@ -261,6 +261,8 @@ pref("places.favicons.optimizeToDimension", 25);
 
 // various and sundry awesomebar prefs (should remove/re-evaluate
 // these once bug 447900 is fixed)
+pref("browser.urlbar.trimURLs", true);
+pref("browser.urlbar.formatting.enabled", true);
 pref("browser.urlbar.clickSelectsAll", true);
 pref("browser.urlbar.doubleClickSelectsAll", true);
 pref("browser.urlbar.autoFill", false);
@@ -383,7 +385,7 @@ pref("breakpad.reportURL", "https://crash-stats.mozilla.com/report/index/");
 // TODO: This is not the correct article for metro!!!
 pref("app.sync.tutorialURL", "https://support.mozilla.org/kb/sync-firefox-between-desktop-and-mobile");
 pref("app.support.baseURL", "https://support.mozilla.org/1/firefox/%VERSION%/%OS%/%LOCALE%/");
-pref("app.privacyURL", "https://www.mozilla.org/legal/privacy/");
+pref("app.privacyURL", "http://www.mozilla.org/%LOCALE%/legal/privacy/firefox.html");
 pref("app.creditsURL", "http://www.mozilla.org/credits/");
 pref("app.channelURL", "http://www.mozilla.org/%LOCALE%/firefox/channel/");
 
@@ -415,6 +417,10 @@ pref("app.update.auto", true);
 //
 // See chart in nsUpdateService.js source for more details
 pref("app.update.mode", 0);
+
+// Enables update checking in the Metro environment.
+// add-on incompatibilities are ignored by updates in Metro.
+pref("app.update.metro.enabled", true);
 
 // If set to true, the Update Service will present no UI for any event.
 pref("app.update.silent", true);

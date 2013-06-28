@@ -193,6 +193,7 @@ let FormAssistant = {
     addMessageListener("Forms:Input:Value", this);
     addMessageListener("Forms:Select:Blur", this);
     addMessageListener("Forms:SetSelectionRange", this);
+    addMessageListener("Forms:ReplaceSurroundingText", this);
   },
 
   ignoredInputTypes: new Set([
@@ -207,6 +208,7 @@ let FormAssistant = {
   _documentEncoder: null,
   _editor: null,
   _editing: false,
+  _ignoreEditActionOnce: false,
 
   get focusedElement() {
     if (this._focusedElement && Cu.isDeadWrapper(this._focusedElement))
@@ -258,11 +260,18 @@ let FormAssistant = {
     return this._documentEncoder;
   },
 
+  // Get the nsIPlaintextEditor object of current input field.
+  get editor() {
+    return this._editor;
+  },
+
   // Implements nsIEditorObserver get notification when the text content of
   // current input field has changed.
   EditAction: function fa_editAction() {
     if (this._editing) {
-      this._editing = false;
+      return;
+    } else if (this._ignoreEditActionOnce) {
+      this._ignoreEditActionOnce = false;
       return;
     }
     this.sendKeyboardState(this.focusedElement);
@@ -358,7 +367,7 @@ let FormAssistant = {
 
       case "keydown":
         // Don't monitor the text change resulting from key event.
-        this._editing = true;
+        this._ignoreEditActionOnce = true;
 
         // We use 'setTimeout' to wait until the input element accomplishes the
         // change in selection range.
@@ -368,7 +377,7 @@ let FormAssistant = {
         break;
 
       case "keyup":
-        this._editing = false;
+        this._ignoreEditActionOnce = false;
         break;
     }
   },
@@ -427,6 +436,15 @@ let FormAssistant = {
         let end =  json.selectionEnd;
         setSelectionRange(target, start, end);
         this.updateSelection();
+        break;
+      }
+
+      case "Forms:ReplaceSurroundingText": {
+        let text = json.text;
+        let beforeLength = json.beforeLength;
+        let afterLength = json.afterLength;
+        replaceSurroundingText(target, text, this.selectionStart, beforeLength,
+                               afterLength);
         break;
       }
     }
@@ -783,4 +801,38 @@ function getPlaintextEditor(element) {
     editor.QueryInterface(Ci.nsIPlaintextEditor);
   }
   return editor;
+}
+
+function replaceSurroundingText(element, text, selectionStart, beforeLength,
+                                afterLength) {
+  let editor = FormAssistant.editor;
+  if (!editor) {
+    return;
+  }
+
+  // Check the parameters.
+  if (beforeLength < 0) {
+    beforeLength = 0;
+  }
+  if (afterLength < 0) {
+    afterLength = 0;
+  }
+
+  let start = selectionStart - beforeLength;
+  let end = selectionStart + afterLength;
+
+  if (beforeLength != 0 || afterLength != 0) {
+    // Change selection range before replacing.
+    setSelectionRange(element, start, end);
+  }
+
+  if (start != end) {
+    // Delete the selected text.
+    editor.deleteSelection(Ci.nsIEditor.ePrevious, Ci.nsIEditor.eStrip);
+  }
+
+  if (text) {
+    // Insert the text to be replaced with.
+    editor.insertText(text);
+  }
 }

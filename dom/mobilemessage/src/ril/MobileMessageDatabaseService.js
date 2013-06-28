@@ -20,6 +20,9 @@ const RIL_GETTHREADSCURSOR_CID =
   Components.ID("{95ee7c3e-d6f2-4ec4-ade5-0c453c036d35}");
 
 const DEBUG = false;
+const DISABLE_MMS_GROUPING_FOR_RECEIVING = true;
+
+
 const DB_NAME = "sms";
 const DB_VERSION = 11;
 const MESSAGE_STORE_NAME = "sms";
@@ -31,6 +34,7 @@ const DELIVERY_SENDING = "sending";
 const DELIVERY_SENT = "sent";
 const DELIVERY_RECEIVED = "received";
 const DELIVERY_NOT_DOWNLOADED = "not-downloaded";
+const DELIVERY_ERROR = "error";
 
 const DELIVERY_STATUS_NOT_APPLICABLE = "not-applicable";
 const DELIVERY_STATUS_SUCCESS = "success";
@@ -105,6 +109,7 @@ function MobileMessageDatabaseService() {
       }
     };
   });
+  this.updatePendingTransactionToError();
 }
 MobileMessageDatabaseService.prototype = {
 
@@ -276,6 +281,79 @@ MobileMessageDatabaseService.prototype = {
         }
       }
       callback(null, txn, stores);
+    });
+  },
+
+  /**
+   * Sometimes user might reboot or remove battery while sending/receiving
+   * message. This is function set the status of message records to error.
+   */
+  updatePendingTransactionToError: function updatePendingTransactionToError() {
+    this.newTxn(READ_WRITE, function (error, txn, messageStore) {
+      if (DEBUG) {
+        txn.onerror = function onerror(event) {
+          debug("updatePendingTransactionToError fail, event = " + event);
+        };
+      }
+
+      let deliveryIndex = messageStore.index("delivery");
+
+      // Set all 'delivery: sending' records to 'delivery: error' and 'deliveryStatus:
+      // error'.
+      let keyRange = IDBKeyRange.bound([DELIVERY_SENDING, 0], [DELIVERY_SENDING, ""]);
+      let cursorRequestSending = deliveryIndex.openCursor(keyRange);
+      cursorRequestSending.onsuccess = function(event) {
+        let messageCursor = event.target.result;
+        if (!messageCursor) {
+          return;
+        }
+
+        let messageRecord = messageCursor.value;
+
+        // Set delivery to error.
+        messageRecord.delivery = DELIVERY_ERROR;
+        messageRecord.deliveryIndex = [DELIVERY_ERROR, messageRecord.timestamp];
+
+        if (messageRecord.type == "sms") {
+          messageRecord.deliveryStatus = DELIVERY_STATUS_ERROR;
+        } else {
+          // Set delivery status to error.
+          for (let i = 0; i < messageRecord.deliveryStatus.length; i++) {
+            messageRecord.deliveryStatus[i] = DELIVERY_STATUS_ERROR;
+          }
+        }
+
+        messageCursor.update(messageRecord);
+        messageCursor.continue();
+      };
+
+      // Set all 'delivery: not-downloaded' and 'deliveryStatus: pending'
+      // records to 'delivery: not-downloaded' and 'deliveryStatus: error'.
+      keyRange = IDBKeyRange.bound([DELIVERY_NOT_DOWNLOADED, 0], [DELIVERY_NOT_DOWNLOADED, ""]);
+      let cursorRequestNotDownloaded = deliveryIndex.openCursor(keyRange);
+      cursorRequestNotDownloaded.onsuccess = function(event) {
+        let messageCursor = event.target.result;
+        if (!messageCursor) {
+          return;
+        }
+
+        let messageRecord = messageCursor.value;
+
+        // We have no "not-downloaded" SMS messages.
+        if (messageRecord.type == "sms") {
+          messageCursor.continue();
+          return;
+        }
+
+        // Set delivery status to error.
+        if (messageRecord.deliveryStatus.length == 1 &&
+            messageRecord.deliveryStatus[0] == DELIVERY_STATUS_PENDING) {
+          messageRecord.deliveryStatus = [DELIVERY_STATUS_ERROR];
+        }
+
+        messageCursor.update(messageRecord);
+        messageCursor.continue();
+      };
     });
   },
 
@@ -1058,13 +1136,15 @@ MobileMessageDatabaseService.prototype = {
     let self = this.getRilIccInfoMsisdn();
     let threadParticipants = [aMessage.sender];
     if (aMessage.type == "sms") {
-      // TODO Bug 853384 - for some SIMs we cannot retrieve the vaild
-      // phone number, thus setting the SMS' receiver to be null.
+      // For some SIMs we cannot retrieve the vaild MSISDN (i.e. the user's own
+      // phone number), thus setting the SMS' receiver to be null.
       aMessage.receiver = self;
-    } else if (aMessage.type == "mms") {
+    } else if (aMessage.type == "mms" && !DISABLE_MMS_GROUPING_FOR_RECEIVING) {
       let receivers = aMessage.receivers;
-      // We need to add the receivers (excluding our own) into the participants
-      // of a thread. Some cases we might encounter here:
+      // If we don't want to disable the MMS grouping for receiving, we need to
+      // add the receivers (excluding the user's own number) to the participants
+      // for creating the thread. Some cases might be investigated as below:
+      //
       // 1. receivers.length == 0
       //    This usually happens when receiving an MMS notification indication
       //    which doesn't carry any receivers.
@@ -1073,18 +1153,25 @@ MobileMessageDatabaseService.prototype = {
       //    add it into participants because we know that number is our own.
       // 3. receivers.length >= 2
       //    If the receivers contain multiple phone numbers, we need to add all
-      //    of them but not our own into participants.
+      //    of them but not the user's own number into participants.
       if (receivers.length >= 2) {
-        // TODO Bug 853384 - for some SIM cards, the phone number might not be
-        // available, so we cannot correcly exclude our own from the receivers,
-        // thus wrongly building the thread index.
+        let isSuccess = false;
         let slicedReceivers = receivers.slice();
         if (self) {
           let found = slicedReceivers.indexOf(self);
           if (found !== -1) {
+            isSuccess = true;
             slicedReceivers.splice(found, 1);
           }
         }
+
+        if (!isSuccess) {
+          // For some SIMs we cannot retrieve the vaild MSISDN (i.e. the user's
+          // own phone number), so we cannot correcly exclude the user's own
+          // number from the receivers, thus wrongly building the thread index.
+          if (DEBUG) debug("Error! Cannot strip out user's own phone number!");
+        }
+
         threadParticipants = threadParticipants.concat(slicedReceivers);
       }
     }
@@ -1145,8 +1232,8 @@ MobileMessageDatabaseService.prototype = {
       }
     }
 
-    // TODO Bug 853384 - for some SIMs we cannot retrieve the vaild
-    // phone number, thus setting the message's sender to be null.
+    // For some SIMs we cannot retrieve the vaild MSISDN (i.e. the user's own
+    // phone number), thus setting the message's sender to be null.
     aMessage.sender = this.getRilIccInfoMsisdn();
     let timestamp = aMessage.timestamp;
 
@@ -1272,10 +1359,11 @@ MobileMessageDatabaseService.prototype = {
 
   getMessageRecordByTransactionId: function getMessageRecordByTransactionId(aTransactionId, aCallback) {
     if (DEBUG) debug("Retrieving message with transaction ID " + aTransactionId);
+    let self = this;
     this.newTxn(READ_ONLY, function (error, txn, messageStore) {
       if (error) {
         if (DEBUG) debug(error);
-        aCallback.notify(Ci.nsIMobileMessageCallback.INTERNAL_ERROR, null);
+        aCallback.notify(Ci.nsIMobileMessageCallback.INTERNAL_ERROR, null, null);
         return;
       }
       let request = messageStore.index("transactionId").get(aTransactionId);
@@ -1285,10 +1373,13 @@ MobileMessageDatabaseService.prototype = {
         let messageRecord = request.result;
         if (!messageRecord) {
           if (DEBUG) debug("Transaction ID " + aTransactionId + " not found");
-          aCallback.notify(Ci.nsIMobileMessageCallback.NOT_FOUND_ERROR, null);
+          aCallback.notify(Ci.nsIMobileMessageCallback.NOT_FOUND_ERROR, null, null);
           return;
         }
-        aCallback.notify(Ci.nsIMobileMessageCallback.SUCCESS_NO_ERROR, messageRecord);
+        // In this case, we don't need a dom message. Just pass null to the
+        // third argument.
+        aCallback.notify(Ci.nsIMobileMessageCallback.SUCCESS_NO_ERROR,
+                         messageRecord, null);
       };
 
       txn.onerror = function onerror(event) {
@@ -1296,17 +1387,18 @@ MobileMessageDatabaseService.prototype = {
           if (event.target)
             debug("Caught error on transaction", event.target.errorCode);
         }
-        aCallback.notify(Ci.nsIMobileMessageCallback.INTERNAL_ERROR, null);
+        aCallback.notify(Ci.nsIMobileMessageCallback.INTERNAL_ERROR, null, null);
       };
     });
   },
 
   getMessageRecordById: function getMessageRecordById(aMessageId, aCallback) {
     if (DEBUG) debug("Retrieving message with ID " + aMessageId);
+    let self = this;
     this.newTxn(READ_ONLY, function (error, txn, messageStore) {
       if (error) {
         if (DEBUG) debug(error);
-        aCallback.notify(Ci.nsIMobileMessageCallback.INTERNAL_ERROR, null);
+        aCallback.notify(Ci.nsIMobileMessageCallback.INTERNAL_ERROR, null, null);
         return;
       }
       let request = messageStore.mozGetAll(aMessageId);
@@ -1315,13 +1407,13 @@ MobileMessageDatabaseService.prototype = {
         if (DEBUG) debug("Transaction " + txn + " completed.");
         if (request.result.length > 1) {
           if (DEBUG) debug("Got too many results for id " + aMessageId);
-          aCallback.notify(Ci.nsIMobileMessageCallback.UNKNOWN_ERROR, null);
+          aCallback.notify(Ci.nsIMobileMessageCallback.UNKNOWN_ERROR, null, null);
           return;
         }
         let messageRecord = request.result[0];
         if (!messageRecord) {
           if (DEBUG) debug("Message ID " + aMessageId + " not found");
-          aCallback.notify(Ci.nsIMobileMessageCallback.NOT_FOUND_ERROR, null);
+          aCallback.notify(Ci.nsIMobileMessageCallback.NOT_FOUND_ERROR, null, null);
           return;
         }
         if (messageRecord.id != aMessageId) {
@@ -1329,10 +1421,12 @@ MobileMessageDatabaseService.prototype = {
             debug("Requested message ID (" + aMessageId + ") is " +
                   "different from the one we got");
           }
-          aCallback.notify(Ci.nsIMobileMessageCallback.UNKNOWN_ERROR, null);
+          aCallback.notify(Ci.nsIMobileMessageCallback.UNKNOWN_ERROR, null, null);
           return;
         }
-        aCallback.notify(Ci.nsIMobileMessageCallback.SUCCESS_NO_ERROR, messageRecord);
+        let domMessage = self.createDomMessageFromRecord(messageRecord);
+        aCallback.notify(Ci.nsIMobileMessageCallback.SUCCESS_NO_ERROR,
+                         messageRecord, domMessage);
       };
 
       txn.onerror = function onerror(event) {
@@ -1341,7 +1435,7 @@ MobileMessageDatabaseService.prototype = {
             debug("Caught error on transaction", event.target.errorCode);
           }
         }
-        aCallback.notify(Ci.nsIMobileMessageCallback.INTERNAL_ERROR, null);
+        aCallback.notify(Ci.nsIMobileMessageCallback.INTERNAL_ERROR, null, null);
       };
     });
   },
@@ -1352,12 +1446,10 @@ MobileMessageDatabaseService.prototype = {
 
   getMessage: function getMessage(aMessageId, aRequest) {
     if (DEBUG) debug("Retrieving message with ID " + aMessageId);
-    let self = this;
     let notifyCallback = {
-      notify: function notify(aRv, aMessageRecord) {
+      notify: function notify(aRv, aMessageRecord, aDomMessage) {
         if (Ci.nsIMobileMessageCallback.SUCCESS_NO_ERROR == aRv) {
-          let domMessage = self.createDomMessageFromRecord(aMessageRecord);
-          aRequest.notifyMessageGot(domMessage);
+          aRequest.notifyMessageGot(aDomMessage);
           return;
         }
         aRequest.notifyGetMessageFailed(aRv, null);
@@ -1399,6 +1491,7 @@ MobileMessageDatabaseService.prototype = {
           threadRecord.lastMessageId = nextMsg.id;
           threadRecord.lastTimestamp = nextMsg.timestamp;
           threadRecord.subject = nextMsg.body;
+          threadRecord.lastMessageType = nextMsg.type;
           if (DEBUG) {
             debug("Updating mru entry: " +
                   JSON.stringify(threadRecord));
@@ -1461,7 +1554,11 @@ MobileMessageDatabaseService.prototype = {
                                                messageRecord.threadId,
                                                messageId,
                                                messageRecord.read);
-              };
+
+              Services.obs.notifyObservers(null,
+                                           "mobile-message-deleted",
+                                           JSON.stringify({ id: messageId }));
+            };
           } else if (DEBUG) {
             debug("Message id " + messageId + " does not exist");
           }

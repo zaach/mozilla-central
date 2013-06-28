@@ -15,6 +15,7 @@
 #include "mozAutoDocUpdate.h"
 #include "mozilla/CORSMode.h"
 #include "mozilla/Likely.h"
+#include "mozilla/MemoryReporting.h"
 #include "mozilla/Telemetry.h"
 #include "mozilla/Util.h"
 #include "nsAsyncDOMEvent.h"
@@ -637,6 +638,7 @@ nsresult
 nsINode::SetUserData(const nsAString &aKey, nsIVariant *aData,
                      nsIDOMUserDataHandler *aHandler, nsIVariant **aResult)
 {
+  OwnerDoc()->WarnOnceAbout(nsIDocument::eGetSetUserData);
   *aResult = nullptr;
 
   nsCOMPtr<nsIAtom> key = do_GetAtom(aKey);
@@ -705,6 +707,18 @@ nsINode::SetUserData(JSContext* aCx, const nsAString& aKey,
   aError = nsContentUtils::XPConnect()->VariantToJS(aCx, GetWrapper(), oldData,
                                                     result.address());
   return result;
+}
+
+nsIVariant*
+nsINode::GetUserData(const nsAString& aKey)
+{
+  OwnerDoc()->WarnOnceAbout(nsIDocument::eGetSetUserData);
+  nsCOMPtr<nsIAtom> key = do_GetAtom(aKey);
+  if (!key) {
+    return nullptr;
+  }
+
+  return static_cast<nsIVariant*>(GetProperty(DOM_USER_DATA, key));
 }
 
 JS::Value
@@ -2061,7 +2075,7 @@ nsINode::UnbindObject(nsISupports* aObject)
 }
 
 size_t
-nsINode::SizeOfExcludingThis(nsMallocSizeOfFun aMallocSizeOf) const
+nsINode::SizeOfExcludingThis(MallocSizeOf aMallocSizeOf) const
 {
   size_t n = 0;
   nsEventListenerManager* elm =
@@ -2178,33 +2192,6 @@ nsINode::Length() const
   default:
     return GetChildCount();
   }
-}
-
-NS_IMPL_CYCLE_COLLECTION_1(nsNodeSelectorTearoff, mNode)
-
-NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION(nsNodeSelectorTearoff)
-  NS_INTERFACE_MAP_ENTRY(nsIDOMNodeSelector)
-NS_INTERFACE_MAP_END_AGGREGATED(mNode)
-
-NS_IMPL_CYCLE_COLLECTING_ADDREF(nsNodeSelectorTearoff)
-NS_IMPL_CYCLE_COLLECTING_RELEASE(nsNodeSelectorTearoff)
-
-NS_IMETHODIMP
-nsNodeSelectorTearoff::QuerySelector(const nsAString& aSelector,
-                                     nsIDOMElement **aReturn)
-{
-  ErrorResult rv;
-  nsIContent* result = mNode->QuerySelector(aSelector, rv);
-  return result ? CallQueryInterface(result, aReturn) : rv.ErrorCode();
-}
-
-NS_IMETHODIMP
-nsNodeSelectorTearoff::QuerySelectorAll(const nsAString& aSelector,
-                                        nsIDOMNodeList **aReturn)
-{
-  ErrorResult rv;
-  *aReturn = mNode->QuerySelectorAll(aSelector, rv).get();
-  return rv.ErrorCode();
 }
 
 // NOTE: The aPresContext pointer is NOT addrefed.

@@ -77,7 +77,7 @@ BinaryStringPolicy::adjustInputs(MInstruction *ins)
             continue;
 
         MInstruction *replace = NULL;
-        if (in->type() == MIRType_Int32) {
+        if (in->type() == MIRType_Int32 || in->type() == MIRType_Double) {
             replace = MToString::New(in);
         } else {
             if (in->type() != MIRType_Value)
@@ -191,8 +191,11 @@ ComparePolicy::adjustInputs(MInstruction *def)
                 convert = MToDouble::NonNullNonStringPrimitives;
             else if (compare->compareType() == MCompare::Compare_DoubleMaybeCoerceRHS && i == 1)
                 convert = MToDouble::NonNullNonStringPrimitives;
-            if (convert == MToDouble::NumbersOnly && in->type() == MIRType_Boolean)
+            if (in->type() == MIRType_Null ||
+                (in->type() == MIRType_Boolean && convert == MToDouble::NumbersOnly))
+            {
                 in = boxAt(def, in);
+            }
             replace = MToDouble::New(in, convert);
             break;
           }
@@ -297,7 +300,7 @@ StringPolicy<Op>::staticAdjustInputs(MInstruction *def)
         return true;
 
     MInstruction *replace;
-    if (in->type() == MIRType_Int32) {
+    if (in->type() == MIRType_Int32 || in->type() == MIRType_Double) {
         replace = MToString::New(in);
     } else {
         if (in->type() != MIRType_Value)
@@ -312,6 +315,7 @@ StringPolicy<Op>::staticAdjustInputs(MInstruction *def)
 
 template bool StringPolicy<0>::staticAdjustInputs(MInstruction *ins);
 template bool StringPolicy<1>::staticAdjustInputs(MInstruction *ins);
+template bool StringPolicy<2>::staticAdjustInputs(MInstruction *ins);
 
 template <unsigned Op>
 bool
@@ -356,6 +360,7 @@ DoublePolicy<Op>::staticAdjustInputs(MInstruction *def)
 }
 
 template bool DoublePolicy<0>::staticAdjustInputs(MInstruction *def);
+template bool DoublePolicy<1>::staticAdjustInputs(MInstruction *def);
 
 template <unsigned Op>
 bool

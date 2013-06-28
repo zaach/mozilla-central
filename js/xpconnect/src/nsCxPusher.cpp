@@ -117,7 +117,6 @@ nsCxPusher::Push(JSContext *cx)
 void
 nsCxPusher::DoPush(JSContext* cx)
 {
-  nsXPConnect *xpc = nsXPConnect::XPConnect();
   // NB: The GetDynamicScriptContext is historical and might not be sane.
   if (cx && nsJSUtils::GetDynamicScriptContext(cx) &&
       xpc::IsJSContextOnStack(cx))
@@ -224,7 +223,7 @@ AutoJSContext::Init(bool aSafe MOZ_GUARD_OBJECT_NOTIFIER_PARAM_IN_IMPL)
   }
 }
 
-AutoJSContext::operator JSContext*()
+AutoJSContext::operator JSContext*() const
 {
   return mCx;
 }

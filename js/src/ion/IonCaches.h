@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef jsion_caches_h__
-#define jsion_caches_h__
+#ifndef ion_IonCaches_h
+#define ion_IonCaches_h
 
 #include "IonCode.h"
 #include "Registers.h"
@@ -545,7 +545,7 @@ class GetPropertyIC : public RepatchIonCache
 
     bool attachReadSlot(JSContext *cx, IonScript *ion, JSObject *obj, JSObject *holder,
                         HandleShape shape);
-    bool attachListBaseShadowed(JSContext *cx, IonScript *ion, JSObject *obj, void *returnAddr);
+    bool attachDOMProxyShadowed(JSContext *cx, IonScript *ion, JSObject *obj, void *returnAddr);
     bool attachCallGetter(JSContext *cx, IonScript *ion, JSObject *obj, JSObject *holder,
                           HandleShape shape,
                           const SafepointIndex *safepointIndex, void *returnAddr);
@@ -931,4 +931,4 @@ IONCACHE_KIND_LIST(CACHE_CASTS)
 } // namespace ion
 } // namespace js
 
-#endif // jsion_caches_h__
+#endif /* ion_IonCaches_h */

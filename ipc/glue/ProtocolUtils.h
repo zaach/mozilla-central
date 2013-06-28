@@ -33,6 +33,8 @@ enum {
     SHMEM_DESTROYED_MESSAGE_TYPE = kuint16max - 4,
     SHMEM_CREATED_MESSAGE_TYPE = kuint16max - 3,
     GOODBYE_MESSAGE_TYPE       = kuint16max - 2
+
+    // kuint16max - 1 is used by ipc_channel.h.
 };
 }
 

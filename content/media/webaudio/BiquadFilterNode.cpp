@@ -10,6 +10,7 @@
 #include "AudioDestinationNode.h"
 #include "WebAudioUtils.h"
 #include "blink/Biquad.h"
+#include "mozilla/Preferences.h"
 
 namespace mozilla {
 namespace dom {
@@ -62,6 +63,9 @@ void SetParamsOnBiquad(WebCore::Biquad& aBiquad,
     break;
   case BiquadFilterType::Allpass:
     aBiquad.setAllpassParams(normalizedFrequency, aQ);
+    break;
+  default:
+    NS_NOTREACHED("We should never see the alternate names here");
     break;
   }
 }
@@ -179,10 +183,14 @@ BiquadFilterNode::BiquadFilterNode(AudioContext* aContext)
               ChannelCountMode::Max,
               ChannelInterpretation::Speakers)
   , mType(BiquadFilterType::Lowpass)
-  , mFrequency(new AudioParam(this, SendFrequencyToStream, 350.f))
-  , mDetune(new AudioParam(this, SendDetuneToStream, 0.f))
-  , mQ(new AudioParam(this, SendQToStream, 1.f))
-  , mGain(new AudioParam(this, SendGainToStream, 0.f))
+  , mFrequency(new AudioParam(MOZ_THIS_IN_INITIALIZER_LIST(),
+                              SendFrequencyToStream, 350.f))
+  , mDetune(new AudioParam(MOZ_THIS_IN_INITIALIZER_LIST(),
+                           SendDetuneToStream, 0.f))
+  , mQ(new AudioParam(MOZ_THIS_IN_INITIALIZER_LIST(),
+                      SendQToStream, 1.f))
+  , mGain(new AudioParam(MOZ_THIS_IN_INITIALIZER_LIST(),
+                         SendGainToStream, 0.f))
 {
   BiquadFilterNodeEngine* engine = new BiquadFilterNodeEngine(this, aContext->Destination());
   mStream = aContext->Graph()->CreateAudioNodeStream(engine, MediaStreamGraph::INTERNAL_STREAM);
@@ -198,6 +206,41 @@ BiquadFilterNode::WrapObject(JSContext* aCx, JS::Handle<JSObject*> aScope)
 void
 BiquadFilterNode::SetType(BiquadFilterType aType)
 {
+  if (!Preferences::GetBool("media.webaudio.legacy.BiquadFilterNode")) {
+    // Do not accept the alternate enum values unless the legacy pref
+    // has been turned on.
+    switch (aType) {
+    case BiquadFilterType::_0:
+    case BiquadFilterType::_1:
+    case BiquadFilterType::_2:
+    case BiquadFilterType::_3:
+    case BiquadFilterType::_4:
+    case BiquadFilterType::_5:
+    case BiquadFilterType::_6:
+    case BiquadFilterType::_7:
+      // Do nothing in order to emulate setting an invalid enum value.
+      return;
+    default:
+      // Shut up the compiler warning
+      break;
+    }
+  }
+
+  // Handle the alternate enum values
+  switch (aType) {
+  case BiquadFilterType::_0: aType = BiquadFilterType::Lowpass; break;
+  case BiquadFilterType::_1: aType = BiquadFilterType::Highpass; break;
+  case BiquadFilterType::_2: aType = BiquadFilterType::Bandpass; break;
+  case BiquadFilterType::_3: aType = BiquadFilterType::Lowshelf; break;
+  case BiquadFilterType::_4: aType = BiquadFilterType::Highshelf; break;
+  case BiquadFilterType::_5: aType = BiquadFilterType::Peaking; break;
+  case BiquadFilterType::_6: aType = BiquadFilterType::Notch; break;
+  case BiquadFilterType::_7: aType = BiquadFilterType::Allpass; break;
+  default:
+    // Shut up the compiler warning
+    break;
+  }
+
   mType = aType;
   SendInt32ParameterToStream(BiquadFilterNodeEngine::TYPE,
                              static_cast<int32_t>(aType));

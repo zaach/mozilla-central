@@ -9,10 +9,16 @@ const Ci = Components.interfaces;
 const Cu = Components.utils;
 const Cr = Components.results;
 
+const FILTER_IGNORE = Ci.nsIAccessibleTraversalRule.FILTER_IGNORE;
+const FILTER_MATCH = Ci.nsIAccessibleTraversalRule.FILTER_MATCH;
+const FILTER_IGNORE_SUBTREE = Ci.nsIAccessibleTraversalRule.FILTER_IGNORE_SUBTREE;
+
 this.EXPORTED_SYMBOLS = ['TraversalRules'];
 
 Cu.import('resource://gre/modules/accessibility/Utils.jsm');
 Cu.import('resource://gre/modules/XPCOMUtils.jsm');
+
+let gSkipEmptyImages = new PrefCache('accessibility.accessfu.skip_empty_images');
 
 function BaseTraversalRule(aRoles, aMatchFunc) {
   this._matchRoles = aRoles;
@@ -33,14 +39,13 @@ BaseTraversalRule.prototype = {
     {
       if (aAccessible.role == Ci.nsIAccessibleRole.ROLE_INTERNAL_FRAME) {
         return (Utils.getMessageManager(aAccessible.DOMNode)) ?
-          Ci.nsIAccessibleTraversalRule.FILTER_MATCH :
-          Ci.nsIAccessibleTraversalRule.FILTER_IGNORE;
+          FILTER_MATCH  | FILTER_IGNORE_SUBTREE : FILTER_IGNORE;
       }
 
       if (this._matchFunc)
         return this._matchFunc(aAccessible);
 
-      return Ci.nsIAccessibleTraversalRule.FILTER_MATCH;
+      return FILTER_MATCH;
     },
 
     QueryInterface: XPCOMUtils.generateQI([Ci.nsIAccessibleTraversalRule])
@@ -76,38 +81,40 @@ this.TraversalRules = {
       case Ci.nsIAccessibleRole.ROLE_COMBOBOX:
         // We don't want to ignore the subtree because this is often
         // where the list box hangs out.
-        return Ci.nsIAccessibleTraversalRule.FILTER_MATCH;
+        return FILTER_MATCH;
       case Ci.nsIAccessibleRole.ROLE_TEXT_LEAF:
         {
           // Nameless text leaves are boring, skip them.
           let name = aAccessible.name;
           if (name && name.trim())
-            return Ci.nsIAccessibleTraversalRule.FILTER_MATCH;
+            return FILTER_MATCH;
           else
-            return Ci.nsIAccessibleTraversalRule.FILTER_IGNORE;
+            return FILTER_IGNORE;
         }
       case Ci.nsIAccessibleRole.ROLE_LINK:
         // If the link has children we should land on them instead.
         // Image map links don't have children so we need to match those.
         if (aAccessible.childCount == 0)
-          return Ci.nsIAccessibleTraversalRule.FILTER_MATCH;
+          return FILTER_MATCH;
         else
-          return Ci.nsIAccessibleTraversalRule.FILTER_IGNORE;
+          return FILTER_IGNORE;
       case Ci.nsIAccessibleRole.ROLE_STATICTEXT:
         {
           let parent = aAccessible.parent;
           // Ignore prefix static text in list items. They are typically bullets or numbers.
           if (parent.childCount > 1 && aAccessible.indexInParent == 0 &&
               parent.role == Ci.nsIAccessibleRole.ROLE_LISTITEM)
-            return Ci.nsIAccessibleTraversalRule.FILTER_IGNORE;
+            return FILTER_IGNORE;
 
-          return Ci.nsIAccessibleTraversalRule.FILTER_MATCH;
+          return FILTER_MATCH;
         }
+      case Ci.nsIAccessibleRole.ROLE_GRAPHIC:
+        return TraversalRules._shouldSkipImage(aAccessible);
       default:
         // Ignore the subtree, if there is one. So that we don't land on
         // the same content that was already presented by its parent.
-        return Ci.nsIAccessibleTraversalRule.FILTER_MATCH |
-          Ci.nsIAccessibleTraversalRule.FILTER_IGNORE_SUBTREE;
+        return FILTER_MATCH |
+          FILTER_IGNORE_SUBTREE;
       }
     }
   ),
@@ -115,8 +122,8 @@ this.TraversalRules = {
   SimpleTouch: new BaseTraversalRule(
     gSimpleTraversalRoles,
     function Simple_match(aAccessible) {
-      return Ci.nsIAccessibleTraversalRule.FILTER_MATCH |
-        Ci.nsIAccessibleTraversalRule.FILTER_IGNORE_SUBTREE;
+      return FILTER_MATCH |
+        FILTER_IGNORE_SUBTREE;
     }
   ),
 
@@ -129,9 +136,9 @@ this.TraversalRules = {
       let extraState = {};
       aAccessible.getState(state, extraState);
       if (state.value & Ci.nsIAccessibleStates.STATE_LINKED) {
-        return Ci.nsIAccessibleTraversalRule.FILTER_IGNORE;
+        return FILTER_IGNORE;
       } else {
-        return Ci.nsIAccessibleTraversalRule.FILTER_MATCH;
+        return FILTER_MATCH;
       }
     }),
 
@@ -168,7 +175,10 @@ this.TraversalRules = {
      Ci.nsIAccessibleRole.ROLE_CHECK_MENU_ITEM]),
 
   Graphic: new BaseTraversalRule(
-    [Ci.nsIAccessibleRole.ROLE_GRAPHIC]),
+    [Ci.nsIAccessibleRole.ROLE_GRAPHIC],
+    function Graphic_match(aAccessible) {
+      return TraversalRules._shouldSkipImage(aAccessible);
+    }),
 
   Heading: new BaseTraversalRule(
     [Ci.nsIAccessibleRole.ROLE_HEADING]),
@@ -186,9 +196,9 @@ this.TraversalRules = {
       let extraState = {};
       aAccessible.getState(state, extraState);
       if (state.value & Ci.nsIAccessibleStates.STATE_LINKED) {
-        return Ci.nsIAccessibleTraversalRule.FILTER_MATCH;
+        return FILTER_MATCH;
       } else {
-        return Ci.nsIAccessibleTraversalRule.FILTER_IGNORE;
+        return FILTER_IGNORE;
       }
     }),
 
@@ -211,5 +221,12 @@ this.TraversalRules = {
 
   Checkbox: new BaseTraversalRule(
     [Ci.nsIAccessibleRole.ROLE_CHECKBUTTON,
-     Ci.nsIAccessibleRole.ROLE_CHECK_MENU_ITEM])
+     Ci.nsIAccessibleRole.ROLE_CHECK_MENU_ITEM]),
+
+  _shouldSkipImage: function _shouldSkipImage(aAccessible) {
+    if (gSkipEmptyImages.value && aAccessible.name === '') {
+      return FILTER_IGNORE;
+    }
+    return FILTER_MATCH;
+  }
 };

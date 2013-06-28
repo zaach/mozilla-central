@@ -40,6 +40,7 @@
 
 USING_INDEXEDDB_NAMESPACE
 using mozilla::dom::ContentParent;
+using mozilla::dom::quota::AssertIsOnIOThread;
 using mozilla::dom::quota::Client;
 using mozilla::dom::quota::QuotaManager;
 using namespace mozilla::dom;
@@ -117,7 +118,7 @@ public:
 
   nsresult DoDatabaseWork(mozIStorageConnection* aConnection);
   nsresult GetSuccessResult(JSContext* aCx,
-                            jsval* aVal);
+                            JS::MutableHandle<JS::Value> aVal);
   void ReleaseMainThreadObjects()
   {
     mFileInfo = nullptr;
@@ -776,7 +777,7 @@ IDBDatabase::MozCreateFileHandle(const nsAString& aName,
     return NS_ERROR_DOM_INDEXEDDB_NOT_ALLOWED_ERR;
   }
 
-  nsRefPtr<IDBRequest> request = IDBRequest::Create(nullptr, this, nullptr, aCx);
+  nsRefPtr<IDBRequest> request = IDBRequest::Create(nullptr, this, nullptr);
 
   nsRefPtr<CreateFileHelper> helper =
     new CreateFileHelper(this, request, aName, aType);
@@ -975,7 +976,7 @@ DeleteObjectStoreHelper::DoDatabaseWork(mozIStorageConnection* aConnection)
 nsresult
 CreateFileHelper::DoDatabaseWork(mozIStorageConnection* aConnection)
 {
-  NS_ASSERTION(!NS_IsMainThread(), "Wrong thread!");
+  AssertIsOnIOThread();
   NS_ASSERTION(IndexedDatabaseManager::IsMainProcess(), "Wrong process!");
 
   PROFILER_LABEL("IndexedDB", "CreateFileHelper::DoDatabaseWork");
@@ -1015,7 +1016,7 @@ CreateFileHelper::DoDatabaseWork(mozIStorageConnection* aConnection)
 
 nsresult
 CreateFileHelper::GetSuccessResult(JSContext* aCx,
-                                   jsval* aVal)
+                                   JS::MutableHandle<JS::Value> aVal)
 {
   nsRefPtr<IDBFileHandle> fileHandle =
     IDBFileHandle::Create(mDatabase, mName, mType, mFileInfo.forget());

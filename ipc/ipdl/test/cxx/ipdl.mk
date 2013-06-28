@@ -49,5 +49,9 @@ IPDLSRCS =					\
   PTestSysVShmem.ipdl				\
   PTestBadActor.ipdl                            \
   PTestBadActorSub.ipdl                         \
-  PTestUrgency.ipdl \
+  PTestUrgency.ipdl                             \
+  PTestIndirectProtocolParam.ipdlh              \
+  PTestIndirectProtocolParamManage.ipdl         \
+  PTestIndirectProtocolParamFirst.ipdl	        \
+  PTestIndirectProtocolParamSecond.ipdl	        \
   $(NULL)

@@ -84,6 +84,7 @@ Cu.import("resource://gre/modules/TelemetryStopwatch.jsm", this);
 Cu.import("resource://gre/modules/osfile.jsm", this);
 Cu.import("resource://gre/modules/PrivateBrowsingUtils.jsm", this);
 Cu.import("resource://gre/modules/commonjs/sdk/core/promise.js", this);
+Cu.import("resource://gre/modules/Task.jsm", this);
 
 XPCOMUtils.defineLazyServiceGetter(this, "gSessionStartup",
   "@mozilla.org/browser/sessionstartup;1", "nsISessionStartup");
@@ -239,7 +240,18 @@ this.SessionStore = {
 
   checkPrivacyLevel: function ss_checkPrivacyLevel(aIsHTTPS, aUseDefaultPref) {
     return SessionStoreInternal.checkPrivacyLevel(aIsHTTPS, aUseDefaultPref);
-  }
+  },
+
+  /**
+   * Backstage pass to implementation details, used for testing purpose.
+   * Controlled by preference "browser.sessionstore.testmode".
+   */
+  get _internal() {
+    if (Services.prefs.getBoolPref("browser.sessionstore.debug")) {
+      return SessionStoreInternal;
+    }
+    return undefined;
+  },
 };
 
 // Freeze the SessionStore object. We don't want anyone to modify it.
@@ -455,9 +467,50 @@ let SessionStoreInternal = {
 
     this._initEncoding();
 
-    // Session is ready.
+    this._performUpgradeBackup();
+
+    // The service is ready. Backup-on-upgrade might still be in progress,
+    // but we do not have a race condition:
+    //
+    // - if the file to backup is named sessionstore.js, secondary
+    // backup will be started in this tick, so any further I/O will be
+    // scheduled to start after the secondary backup is complete;
+    //
+    // - if the file is named sessionstore.bak, it will only be erased
+    // by the getter to |_backupSessionFileOnce|, which specifically
+    // waits until the secondary backup has been completed or deemed
+    // useless before causing any side-effects.
     this._sessionInitialized = true;
     this._promiseInitialization.resolve();
+  },
+
+  /**
+   * If this is the first time we launc this build of Firefox,
+   * backup sessionstore.js.
+   */
+  _performUpgradeBackup: function ssi_performUpgradeBackup() {
+    // Perform upgrade backup, if necessary
+    const PREF_UPGRADE = "sessionstore.upgradeBackup.latestBuildID";
+
+    let buildID = Services.appinfo.platformBuildID;
+    let latestBackup = this._prefBranch.getCharPref(PREF_UPGRADE);
+    if (latestBackup == buildID) {
+      return Promise.resolve();
+    }
+    return Task.spawn(function task() {
+      try {
+        // Perform background backup
+        yield _SessionFile.createUpgradeBackupCopy("-" + buildID);
+
+        this._prefBranch.setCharPref(PREF_UPGRADE, buildID);
+
+        // In case of success, remove previous backup.
+        yield _SessionFile.removeUpgradeBackup("-" + latestBackup);
+      } catch (ex) {
+        debug("Could not perform upgrade backup " + ex);
+        debug(ex.stack);
+      }
+    }.bind(this));
   },
 
   _initEncoding : function ssi_initEncoding() {
@@ -501,23 +554,16 @@ let SessionStoreInternal = {
     if (this._disabledForMultiProcess)
       return;
 
-    if (!aWindow || this._loadState == STATE_RUNNING) {
-      // make sure that all browser windows which try to initialize
-      // SessionStore are really tracked by it
-      if (aWindow && (!aWindow.__SSi || !this._windows[aWindow.__SSi]))
-        this.onLoad(aWindow);
+    if (aWindow) {
+      this.onLoad(aWindow);
+    } else if (this._loadState == STATE_STOPPED) {
       // If init is being called with a null window, it's possible that we
       // just want to tell sessionstore that a session is live (as is the case
       // with starting Firefox with -private, for example; see bug 568816),
       // so we should mark the load state as running to make sure that
       // things like setBrowserState calls will succeed in restoring the session.
-      if (!aWindow && this._loadState == STATE_STOPPED)
-        this._loadState = STATE_RUNNING;
-      return;
+      this._loadState = STATE_RUNNING;
     }
-
-    // As this is called at delayedStartup, restoration must be initiated here
-    this.onLoad(aWindow);
   },
 
   /**
@@ -762,7 +808,7 @@ let SessionStoreInternal = {
       this._deferredInitialState._firstTabs = true;
       this._restoreCount = this._deferredInitialState.windows ?
         this._deferredInitialState.windows.length : 0;
-      this.restoreWindow(aWindow, this._deferredInitialState, true);
+      this.restoreWindow(aWindow, this._deferredInitialState, false);
       this._deferredInitialState = null;
     }
     else if (this._restoreLastWindow && aWindow.toolbar.visible &&
@@ -4105,13 +4151,14 @@ let SessionStoreInternal = {
    * @returns boolean
    */
   _shouldSaveTabState: function ssi_shouldSaveTabState(aTabState) {
-    // If the tab has only the transient about:blank history entry, no other
+    // If the tab has only a transient about: history entry, no other
     // session history, and no userTypedValue, then we don't actually want to
     // store this tab's data.
     return aTabState.entries.length &&
            !(aTabState.entries.length == 1 &&
-             aTabState.entries[0].url == "about:blank" &&
-             !aTabState.userTypedValue);
+                (aTabState.entries[0].url == "about:blank" ||
+                 aTabState.entries[0].url == "about:newtab") &&
+                 !aTabState.userTypedValue);
   },
 
   /**

@@ -100,22 +100,22 @@ function run_test() {
   let mar = do_get_file("data/simple.mar");
   mar.copyTo(updatesPatchDir, FILE_UPDATE_ARCHIVE);
 
-  // Backup the updater.ini
+  // Backup the updater.ini file if it exists by moving it. This prevents the
+  // post update executable from being launched if it is specified.
   let updaterIni = processDir.clone();
   updaterIni.append(FILE_UPDATER_INI);
-  updaterIni.moveTo(processDir, FILE_UPDATER_INI_BAK);
-  // Create a new updater.ini to avoid applications that provide a post update
-  // executable.
-  let updaterIniContents = "[Strings]\n" +
-                           "Title=Update Test\n" +
-                           "Info=Application Update XPCShell Test - " +
-                           "test_0200_general.js\n";
-  updaterIni = processDir.clone();
-  updaterIni.append(FILE_UPDATER_INI);
-  writeFile(updaterIni, updaterIniContents);
+  if (updaterIni.exists()) {
+    updaterIni.moveTo(processDir, FILE_UPDATER_INI_BAK);
+  }
 
+  // Backup the updater-settings.ini file if it exists by moving it.
   let updateSettingsIni = processDir.clone();
-  updateSettingsIni.append(UPDATE_SETTINGS_INI_FILE);
+  updateSettingsIni.append(FILE_UPDATE_SETTINGS_INI);
+  if (updateSettingsIni.exists()) {
+    updateSettingsIni.moveTo(processDir, FILE_UPDATE_SETTINGS_INI_BAK);
+  }
+  updateSettingsIni = processDir.clone();
+  updateSettingsIni.append(FILE_UPDATE_SETTINGS_INI);
   writeFile(updateSettingsIni, UPDATE_SETTINGS_CONTENTS);
 
   let launchBin = getLaunchBin();
@@ -152,10 +152,19 @@ function end_test() {
   resetEnvironment();
 
   let processDir = getCurrentProcessDir();
-  // Restore the backed up updater.ini
+  // Restore the backup of the updater.ini if it exists.
   let updaterIni = processDir.clone();
   updaterIni.append(FILE_UPDATER_INI_BAK);
-  updaterIni.moveTo(processDir, FILE_UPDATER_INI);
+  if (updaterIni.exists()) {
+    updaterIni.moveTo(processDir, FILE_UPDATER_INI);
+  }
+
+  // Restore the backed up updater-settings.ini if it exists.
+  let updateSettingsIni = processDir.clone();
+  updateSettingsIni.append(FILE_UPDATE_SETTINGS_INI_BAK);
+  if (updateSettingsIni.exists()) {
+    updateSettingsIni.moveTo(processDir, FILE_UPDATE_SETTINGS_INI);
+  }
 
   if (IS_WIN) {
     // Remove the copy of the application executable used for the test on
@@ -179,7 +188,12 @@ function end_test() {
   }
 
   // This will delete the app console log file if it exists.
-  getAppConsoleLogPath();
+  try {
+    getAppConsoleLogPath();
+  }
+  catch (e) {
+    logTestInfo("unable to remove file during end_test. Exception: " + e);
+  }
 
   if (IS_UNIX) {
     // This will delete the launch script if it exists.
@@ -192,38 +206,6 @@ function end_test() {
 
   cleanUp();
 }
-
-/**
- * The observer for the call to nsIProcess:runAsync.
- */
-let gProcessObserver = {
-  observe: function PO_observe(subject, topic, data) {
-    logTestInfo("topic " + topic + ", process exitValue " + gProcess.exitValue);
-    if (gAppTimer) {
-      gAppTimer.cancel();
-      gAppTimer = null;
-    }
-    if (topic != "process-finished" || gProcess.exitValue != 0) {
-      do_throw("Failed to launch application");
-    }
-    do_timeout(CHECK_TIMEOUT_MILLI, checkUpdateFinished);
-  },
-  QueryInterface: XPCOMUtils.generateQI([AUS_Ci.nsIObserver])
-};
-
-/**
- * The timer callback to kill the process if it takes too long.
- */
-let gTimerCallback = {
-  notify: function TC_notify(aTimer) {
-    gAppTimer = null;
-    if (gProcess.isRunning) {
-      gProcess.kill();
-    }
-    do_throw("launch application timer expired");
-  },
-  QueryInterface: XPCOMUtils.generateQI([AUS_Ci.nsITimerCallback])
-};
 
 /**
  * Gets the directory where the update adds / removes the files contained in the

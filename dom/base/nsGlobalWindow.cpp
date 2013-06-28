@@ -8,6 +8,7 @@
 #include <algorithm>
 
 /* This must occur *after* base/basictypes.h to avoid typedefs conflicts. */
+#include "mozilla/MemoryReporting.h"
 #include "mozilla/Util.h"
 
 // Local Includes
@@ -1457,9 +1458,11 @@ nsGlobalWindow::FreeInnerObjects()
 
   // Kill all of the workers for this window.
   // We push a cx so that exceptions get reported in the right DOM Window.
-  nsIScriptContext *scx = GetContextInternal();
-  AutoPushJSContext cx(scx ? scx->GetNativeContext() : nsContentUtils::GetSafeJSContext());
-  mozilla::dom::workers::CancelWorkersForWindow(cx, this);
+  {
+    nsIScriptContext *scx = GetContextInternal();
+    AutoPushJSContext cx(scx ? scx->GetNativeContext() : nsContentUtils::GetSafeJSContext());
+    mozilla::dom::workers::CancelWorkersForWindow(cx, this);
+  }
 
   // Close all offline storages for this window.
   quota::QuotaManager* quotaManager = quota::QuotaManager::Get();
@@ -1586,7 +1589,7 @@ NS_IMPL_CYCLE_COLLECTING_ADDREF(nsGlobalWindow)
 NS_IMPL_CYCLE_COLLECTING_RELEASE(nsGlobalWindow)
 
 static PLDHashOperator
-MarkXBLHandlers(nsXBLPrototypeHandler* aKey, JSObject* aData, void* aClosure)
+MarkXBLHandlers(nsXBLPrototypeHandler* aKey, JS::Heap<JSObject*>& aData, void* aClosure)
 {
   xpc_UnmarkGrayObject(aData);
   return PL_DHASH_NEXT;
@@ -1595,7 +1598,7 @@ MarkXBLHandlers(nsXBLPrototypeHandler* aKey, JSObject* aData, void* aClosure)
 NS_IMPL_CYCLE_COLLECTION_CAN_SKIP_BEGIN(nsGlobalWindow)
   if (tmp->IsBlackForCC()) {
     if (tmp->mCachedXBLPrototypeHandlers.IsInitialized()) {
-      tmp->mCachedXBLPrototypeHandlers.EnumerateRead(MarkXBLHandlers, nullptr);
+      tmp->mCachedXBLPrototypeHandlers.Enumerate(MarkXBLHandlers, nullptr);
     }
     nsEventListenerManager* elm = tmp->GetListenerManager(false);
     if (elm) {
@@ -1747,7 +1750,7 @@ struct TraceData
 };
 
 static PLDHashOperator
-TraceXBLHandlers(nsXBLPrototypeHandler* aKey, JSObject*& aData, void* aClosure)
+TraceXBLHandlers(nsXBLPrototypeHandler* aKey, JS::Heap<JSObject*>& aData, void* aClosure)
 {
   TraceData* data = static_cast<TraceData*>(aClosure);
   data->callbacks.Trace(&aData, "Cached XBL prototype handler", data->closure);
@@ -2393,7 +2396,8 @@ nsGlobalWindow::SetNewDocument(nsIDocument* aDocument,
     } else {
       JS::Rooted<JSObject*> global(cx,
         xpc_UnmarkGrayObject(newInnerWindow->mJSObject));
-      JSObject* outerObject = NewOuterWindowProxy(cx, global, thisChrome);
+      JS::Rooted<JSObject*> outerObject(cx,
+        NewOuterWindowProxy(cx, global, thisChrome));
       if (!outerObject) {
         NS_ERROR("out of memory");
         return NS_ERROR_FAILURE;
@@ -2401,7 +2405,8 @@ nsGlobalWindow::SetNewDocument(nsIDocument* aDocument,
 
       js::SetProxyExtra(mJSObject, 0, js::PrivateValue(NULL));
 
-      outerObject = xpc::TransplantObject(cx, mJSObject, outerObject);
+      JS::Rooted<JSObject*> obj(cx, mJSObject);
+      outerObject = xpc::TransplantObject(cx, obj, outerObject);
       if (!outerObject) {
         NS_ERROR("unable to transplant wrappers, probably OOM");
         return NS_ERROR_FAILURE;
@@ -4083,8 +4088,13 @@ nsGlobalWindow::GetInnerWidth(int32_t* aInnerWidth)
 
   nsRefPtr<nsPresContext> presContext;
   mDocShell->GetPresContext(getter_AddRefs(presContext));
+  nsRefPtr<nsIPresShell> presShell = mDocShell->GetPresShell();
 
-  if (presContext) {
+  if (presContext && presShell) {
+    nsRefPtr<nsViewManager> viewManager = presShell->GetViewManager();
+    if (viewManager) {
+      viewManager->FlushDelayedResize(false);
+    }
     nsRect shellArea = presContext->GetVisibleArea();
     *aInnerWidth = nsPresContext::AppUnitsToIntCSSPixels(shellArea.width);
   } else {
@@ -4151,8 +4161,13 @@ nsGlobalWindow::GetInnerHeight(int32_t* aInnerHeight)
 
   nsRefPtr<nsPresContext> presContext;
   mDocShell->GetPresContext(getter_AddRefs(presContext));
+  nsRefPtr<nsIPresShell> presShell = mDocShell->GetPresShell();
 
-  if (presContext) {
+  if (presContext && presShell) {
+    nsRefPtr<nsViewManager> viewManager = presShell->GetViewManager();
+    if (viewManager) {
+      viewManager->FlushDelayedResize(false);
+    }
     nsRect shellArea = presContext->GetVisibleArea();
     *aInnerHeight = nsPresContext::AppUnitsToIntCSSPixels(shellArea.height);
   } else {
@@ -8077,11 +8092,7 @@ nsGlobalWindow::GetPrivateParent()
     if (!doc)
       return nullptr;             // This is ok, just means a null parent.
 
-    nsIScriptGlobalObject *globalObject = doc->GetScriptGlobalObject();
-    if (!globalObject)
-      return nullptr;             // This is ok, just means a null parent.
-
-    parent = do_QueryInterface(globalObject);
+    return doc->GetWindow();
   }
 
   if (parent) {
@@ -10956,10 +10967,12 @@ nsGlobalWindow::SuspendTimeouts(uint32_t aIncrease,
     DisableGamepadUpdates();
 
     // Suspend all of the workers for this window.
-  // We push a cx so that exceptions get reported in the right DOM Window.
-    nsIScriptContext *scx = GetContextInternal();
-    AutoPushJSContext cx(scx ? scx->GetNativeContext() : nsContentUtils::GetSafeJSContext());
-    mozilla::dom::workers::SuspendWorkersForWindow(cx, this);
+    // We push a cx so that exceptions get reported in the right DOM Window.
+    {
+      nsIScriptContext *scx = GetContextInternal();
+      AutoPushJSContext cx(scx ? scx->GetNativeContext() : nsContentUtils::GetSafeJSContext());
+      mozilla::dom::workers::SuspendWorkersForWindow(cx, this);
+    }
 
     TimeStamp now = TimeStamp::Now();
     for (nsTimeout *t = mTimeouts.getFirst(); t; t = t->getNext()) {
@@ -11051,7 +11064,7 @@ nsGlobalWindow::ResumeTimeouts(bool aThawChildren)
     // We push a cx so that exceptions get reported in the right DOM Window.
     nsIScriptContext *scx = GetContextInternal();
     AutoPushJSContext cx(scx ? scx->GetNativeContext() : nsContentUtils::GetSafeJSContext());
-    mozilla::dom::workers::ResumeWorkersForWindow(cx, this);
+    mozilla::dom::workers::ResumeWorkersForWindow(scx, this);
 
     // Restore all of the timeouts, using the stored time remaining
     // (stored in timeout->mTimeRemaining).
@@ -11229,7 +11242,7 @@ nsGlobalWindow::HasIndexedDBSupport()
 static size_t
 SizeOfEventTargetObjectsEntryExcludingThisFun(
   nsPtrHashKey<nsDOMEventTargetHelper> *aEntry,
-  nsMallocSizeOfFun aMallocSizeOf,
+  MallocSizeOf aMallocSizeOf,
   void *arg)
 {
   nsISupports *supports = aEntry->GetKey();
@@ -11267,7 +11280,7 @@ nsGlobalWindow::SizeOfIncludingThis(nsWindowSizes* aWindowSizes) const
 
 #ifdef MOZ_GAMEPAD
 void
-nsGlobalWindow::AddGamepad(uint32_t aIndex, nsDOMGamepad* aGamepad)
+nsGlobalWindow::AddGamepad(uint32_t aIndex, Gamepad* aGamepad)
 {
   FORWARD_TO_INNER_VOID(AddGamepad, (aIndex, aGamepad));
   mGamepads.Put(aIndex, aGamepad);
@@ -11280,11 +11293,33 @@ nsGlobalWindow::RemoveGamepad(uint32_t aIndex)
   mGamepads.Remove(aIndex);
 }
 
-already_AddRefed<nsDOMGamepad>
+// static
+PLDHashOperator
+nsGlobalWindow::EnumGamepadsForGet(const uint32_t& aKey, Gamepad* aData,
+                                   void* aUserArg)
+{
+  nsTArray<nsRefPtr<Gamepad> >* array =
+    static_cast<nsTArray<nsRefPtr<Gamepad> >*>(aUserArg);
+  array->EnsureLengthAtLeast(aKey + 1);
+  (*array)[aKey] = aData;
+  return PL_DHASH_NEXT;
+}
+
+void
+nsGlobalWindow::GetGamepads(nsTArray<nsRefPtr<Gamepad> >& aGamepads)
+{
+  FORWARD_TO_INNER_VOID(GetGamepads, (aGamepads));
+  aGamepads.Clear();
+  // mGamepads.Count() may not be sufficient, but it's not harmful.
+  aGamepads.SetCapacity(mGamepads.Count());
+  mGamepads.EnumerateRead(EnumGamepadsForGet, &aGamepads);
+}
+
+already_AddRefed<Gamepad>
 nsGlobalWindow::GetGamepad(uint32_t aIndex)
 {
   FORWARD_TO_INNER(GetGamepad, (aIndex), nullptr);
-  nsRefPtr<nsDOMGamepad> gamepad;
+  nsRefPtr<Gamepad> gamepad;
   if (mGamepads.Get(aIndex, getter_AddRefs(gamepad))) {
     return gamepad.forget();
   }
@@ -11308,7 +11343,8 @@ nsGlobalWindow::HasSeenGamepadInput()
 
 // static
 PLDHashOperator
-nsGlobalWindow::EnumGamepadsForSync(const uint32_t& aKey, nsDOMGamepad* aData, void* userArg)
+nsGlobalWindow::EnumGamepadsForSync(const uint32_t& aKey, Gamepad* aData,
+                                    void* aUserArg)
 {
   nsRefPtr<GamepadService> gamepadsvc(GamepadService::GetService());
   gamepadsvc->SyncGamepadState(aKey, aData);

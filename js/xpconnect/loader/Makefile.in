@@ -9,7 +9,7 @@ VPATH		= @srcdir@
 
 include $(DEPTH)/config/autoconf.mk
 
-LIBRARY_NAME	= jsloader_s
+FAIL_ON_WARNINGS := 1
 MSVC_ENABLE_PGO := 1
 FORCE_STATIC_LIB = 1
 LIBXUL_LIBRARY = 1

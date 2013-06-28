@@ -112,7 +112,7 @@ public class HealthReportGenerator {
     JSONObject days = new JSONObject();
     Cursor cursor = storage.getRawEventsSince(since);
     try {
-      if (!cursor.moveToNext()) {
+      if (!cursor.moveToFirst()) {
         return days;
       }
 
@@ -171,22 +171,10 @@ public class HealthReportGenerator {
           measurement.put("_v", field.measurementVersion);
           envObject.put(field.measurementName, measurement);
         }
-        if (field.isDiscreteField()) {
-          if (field.isStringField()) {
-            HealthReportUtils.append(measurement, field.fieldName, cursor.getString(3));
-          } else if (field.isIntegerField()) {
-            HealthReportUtils.append(measurement, field.fieldName, cursor.getLong(3));
-          } else {
-            // Uh oh!
-            throw new IllegalStateException("Unknown field type: " + field.flags);
-          }
-        } else {
-          if (field.isStringField()) {
-            measurement.put(field.fieldName, cursor.getString(3));
-          } else {
-            measurement.put(field.fieldName, cursor.getLong(3));
-          }
-        }
+
+        // How we record depends on the type of the field, so we
+        // break this out into a separate method for clarity.
+        recordMeasurementFromCursor(field, measurement, cursor);
 
         cursor.moveToNext();
         continue;
@@ -196,6 +184,64 @@ public class HealthReportGenerator {
       cursor.close();
     }
     return days;
+  }
+
+  /**
+   * Return the {@link JSONObject} parsed from the provided index of the given
+   * cursor, or {@link JSONObject#NULL} if either SQL <code>NULL</code> or
+   * string <code>"null"</code> is present at that index.
+   */
+  private static Object getJSONAtIndex(Cursor cursor, int index) throws JSONException {
+    if (cursor.isNull(index)) {
+      return JSONObject.NULL;
+    }
+    final String value = cursor.getString(index);
+    if ("null".equals(value)) {
+      return JSONObject.NULL;
+    }
+    return new JSONObject(value);
+  }
+
+  protected static void recordMeasurementFromCursor(final Field field,
+                                             JSONObject measurement,
+                                             Cursor cursor)
+                                                           throws JSONException {
+    if (field.isDiscreteField()) {
+      // Discrete counted. Increment the named counter.
+      if (field.isCountedField()) {
+        if (!field.isStringField()) {
+          throw new IllegalStateException("Unable to handle non-string counted types.");
+        }
+        HealthReportUtils.count(measurement, field.fieldName, cursor.getString(3));
+        return;
+      }
+
+      // Discrete string or integer. Append it.
+      if (field.isStringField()) {
+        HealthReportUtils.append(measurement, field.fieldName, cursor.getString(3));
+        return;
+      }
+      if (field.isJSONField()) {
+        HealthReportUtils.append(measurement, field.fieldName, getJSONAtIndex(cursor, 3));
+        return;
+      }
+      if (field.isIntegerField()) {
+        HealthReportUtils.append(measurement, field.fieldName, cursor.getLong(3));
+        return;
+      }
+      throw new IllegalStateException("Unknown field type: " + field.flags);
+    }
+
+    // Non-discrete -- must be LAST or COUNTER, so just accumulate the value.
+    if (field.isStringField()) {
+      measurement.put(field.fieldName, cursor.getString(3));
+      return;
+    }
+    if (field.isJSONField()) {
+      measurement.put(field.fieldName, getJSONAtIndex(cursor, 3));
+      return;
+    }
+    measurement.put(field.fieldName, cursor.getLong(3));
   }
 
   public static JSONObject getEnvironmentsJSON(Environment currentEnvironment,

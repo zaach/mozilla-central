@@ -22,6 +22,7 @@
 #include "nsIFrame.h"
 #include "nsIDocument.h"
 #include "nsIDOMDocument.h"
+#include "nsIDocShell.h"
 #include "nsError.h"
 #include "nsNodeInfoManager.h"
 #include "nsNetUtil.h"
@@ -1060,6 +1061,15 @@ nsresult HTMLMediaElement::LoadResource()
     mChannel = nullptr;
   }
 
+  // Check if media is allowed for the docshell.
+  nsCOMPtr<nsISupports> container = OwnerDoc()->GetContainer();
+  if (container) {
+    nsCOMPtr<nsIDocShell> docShell = do_QueryInterface(container);
+    if (docShell && !docShell->GetAllowMedia()) {
+      return NS_ERROR_FAILURE;
+    }
+  }
+
   int16_t shouldLoad = nsIContentPolicy::ACCEPT;
   nsresult rv = NS_CheckContentLoadPolicy(nsIContentPolicy::TYPE_MEDIA,
                                           mLoadingSrc,
@@ -1208,52 +1218,6 @@ nsresult HTMLMediaElement::LoadWithChannel(nsIChannel* aChannel,
   DispatchAsyncEvent(NS_LITERAL_STRING("loadstart"));
 
   return NS_OK;
-}
-
-void
-HTMLMediaElement::MozLoadFrom(HTMLMediaElement& aOther, ErrorResult& aRv)
-{
-  // Make sure we don't reenter during synchronous abort events.
-  if (mIsRunningLoadMethod) {
-    return;
-  }
-
-  mIsRunningLoadMethod = true;
-  AbortExistingLoads();
-  mIsRunningLoadMethod = false;
-
-  if (!aOther.mDecoder) {
-    return;
-  }
-
-  ChangeDelayLoadStatus(true);
-
-  mLoadingSrc = aOther.mLoadingSrc;
-  aRv = InitializeDecoderAsClone(aOther.mDecoder);
-  if (aRv.Failed()) {
-    ChangeDelayLoadStatus(false);
-    return;
-  }
-
-  SetPlaybackRate(mDefaultPlaybackRate);
-  DispatchAsyncEvent(NS_LITERAL_STRING("loadstart"));
-}
-
-NS_IMETHODIMP HTMLMediaElement::MozLoadFrom(nsIDOMHTMLMediaElement* aOther)
-{
-  NS_ENSURE_ARG_POINTER(aOther);
-
-  nsCOMPtr<nsIContent> content = do_QueryInterface(aOther);
-  HTMLMediaElement* other = static_cast<HTMLMediaElement*>(content.get());
-
-  if (!other) {
-    return NS_ERROR_FAILURE;
-  }
-
-  ErrorResult rv;
-  MozLoadFrom(*other, rv);
-
-  return rv.ErrorCode();
 }
 
 /* readonly attribute unsigned short readyState; */
@@ -1943,7 +1907,8 @@ HTMLMediaElement::HTMLMediaElement(already_AddRefed<nsINodeInfo> aNodeInfo)
     mHasAudio(false),
     mDownloadSuspendedByCache(false),
     mAudioChannelType(AUDIO_CHANNEL_NORMAL),
-    mPlayingThroughTheAudioChannel(false)
+    mPlayingThroughTheAudioChannel(false),
+    mWasInDocument(false)
 {
 #ifdef PR_LOGGING
   if (!gMediaElementLog) {
@@ -2364,6 +2329,8 @@ nsresult HTMLMediaElement::BindToTree(nsIDocument* aDocument, nsIContent* aParen
     // It's value may have changed, so update it.
     UpdatePreloadAction();
 
+    mWasInDocument = true;
+
     if (aDocument->HasAudioAvailableListeners()) {
       // The document already has listeners for the "MozAudioAvailable"
       // event, so the decoder must be notified so it initiates
@@ -2378,8 +2345,9 @@ nsresult HTMLMediaElement::BindToTree(nsIDocument* aDocument, nsIContent* aParen
 void HTMLMediaElement::UnbindFromTree(bool aDeep,
                                       bool aNullParent)
 {
-  if (!mPaused && mNetworkState != nsIDOMHTMLMediaElement::NETWORK_EMPTY)
+  if (!mPaused && mNetworkState != nsIDOMHTMLMediaElement::NETWORK_EMPTY) {
     Pause();
+  }
   nsGenericHTMLElement::UnbindFromTree(aDeep, aNullParent);
 }
 
@@ -3078,7 +3046,10 @@ bool HTMLMediaElement::CanActivateAutoplay()
   // For stream inputs, we activate autoplay on HAVE_CURRENT_DATA because
   // this element itself might be blocking the stream from making progress by
   // being paused.
+  // If we were in a document, but we have been removed, we should not start the
+  // playback.
   return !mPausedForInactiveDocumentOrChannel &&
+         mWasInDocument && IsInDoc() &&
          mAutoplaying &&
          mPaused &&
          (mDownloadSuspendedByCache ||
@@ -3290,6 +3261,11 @@ void HTMLMediaElement::SuspendOrResumeElement(bool aPauseElement, bool aSuspendE
 void HTMLMediaElement::NotifyOwnerDocumentActivityChanged()
 {
   nsIDocument* ownerDoc = OwnerDoc();
+
+  if (mDecoder) {
+    mDecoder->SetDormantIfNecessary(ownerDoc->Hidden());
+  }
+
   // SetVisibilityState will update mMuted with MUTED_BY_AUDIO_CHANNEL via the
   // CanPlayChanged callback.
   if (UseAudioChannelService() && mPlayingThroughTheAudioChannel &&
@@ -3405,6 +3381,9 @@ nsIContent* HTMLMediaElement::GetNextSource()
   if (!mSourcePointer) {
     // First time this has been run, create a selection to cover children.
     mSourcePointer = new nsRange(this);
+    // If this media element is removed from the DOM, don't gravitate the
+    // range up to its ancestor, leave it attached to the media element.
+    mSourcePointer->SetEnableGravitationOnElementRemoval(false);
 
     rv = mSourcePointer->SelectNodeContents(thisDomNode);
     if (NS_FAILED(rv)) return nullptr;

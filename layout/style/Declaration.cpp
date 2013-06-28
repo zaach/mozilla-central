@@ -8,6 +8,7 @@
  * stylesheet
  */
 
+#include "mozilla/MemoryReporting.h"
 #include "mozilla/Util.h"
 
 #include "mozilla/css/Declaration.h"
@@ -591,6 +592,7 @@ Declaration::GetValue(nsCSSProperty aProperty, nsAString& aValue) const
             featureSettings.GetUnit() != eCSSUnit_Normal ||
             languageOverride.GetUnit() != eCSSUnit_Normal ||
             fontKerning.GetIntValue() != NS_FONT_KERNING_AUTO ||
+            fontSynthesis.GetUnit() != eCSSUnit_Enumerated ||
             fontSynthesis.GetIntValue() !=
               (NS_FONT_SYNTHESIS_WEIGHT | NS_FONT_SYNTHESIS_STYLE) ||
             fontVariantAlternates.GetUnit() != eCSSUnit_Normal ||
@@ -1068,7 +1070,7 @@ Declaration::EnsureMutable()
 }
 
 size_t
-Declaration::SizeOfIncludingThis(nsMallocSizeOfFun aMallocSizeOf) const
+Declaration::SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf) const
 {
   size_t n = aMallocSizeOf(this);
   n += mOrder.SizeOfExcludingThis(aMallocSizeOf);

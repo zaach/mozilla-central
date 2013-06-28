@@ -4,18 +4,19 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#include "gc/Marking.h"
+
 #include "mozilla/DebugOnly.h"
 
-#include "jsprf.h"
-#include "jsstr.h"
-
-#include "gc/Marking.h"
-#include "gc/Nursery-inl.h"
-#include "vm/Shape.h"
-
-#include "jsobjinlines.h"
+#include "jstypedarray.h"
 
 #include "ion/IonCode.h"
+#include "vm/Shape.h"
+
+#include "jscompartmentinlines.h"
+#include "jsinferinlines.h"
+
+#include "gc/Nursery-inl.h"
 #include "vm/Shape-inl.h"
 #include "vm/String-inl.h"
 
@@ -515,24 +516,6 @@ MarkValueInternal(JSTracer *trc, Value *v)
     }
 }
 
-static inline void
-MarkValueInternalMaybeNullPayload(JSTracer *trc, Value *v)
-{
-    if (v->isMarkable()) {
-        void *thing = v->toGCThing();
-        if (thing) {
-            JS_SET_TRACING_LOCATION(trc, (void *)v);
-            MarkKind(trc, &thing, v->gcKind());
-            if (v->isString())
-                v->setString((JSString *)thing);
-            else
-                v->setObjectOrNull((JSObject *)thing);
-            return;
-        }
-    }
-    JS_UNSET_TRACING_LOCATION(trc);
-}
-
 void
 gc::MarkValue(JSTracer *trc, EncapsulatedValue *v, const char *name)
 {
@@ -583,16 +566,6 @@ gc::MarkValueRootRange(JSTracer *trc, size_t len, Value *vec, const char *name)
     }
 }
 
-void
-gc::MarkValueRootRangeMaybeNullPayload(JSTracer *trc, size_t len, Value *vec, const char *name)
-{
-    JS_ROOT_MARKING_ASSERT(trc);
-    for (size_t i = 0; i < len; ++i) {
-        JS_SET_TRACING_INDEX(trc, name, i);
-        MarkValueInternalMaybeNullPayload(trc, &vec[i]);
-    }
-}
-
 bool
 gc::IsValueMarked(Value *v)
 {
@@ -628,6 +601,12 @@ gc::IsValueAboutToBeFinalized(Value *v)
 }
 
 /*** Slot Marking ***/
+
+bool
+gc::IsSlotMarked(HeapSlot *s)
+{
+    return IsMarked(s);
+}
 
 void
 gc::MarkSlot(JSTracer *trc, HeapSlot *s, const char *name)
@@ -756,9 +735,27 @@ static void
 PushMarkStack(GCMarker *gcmarker, JSObject *thing)
 {
     JS_COMPARTMENT_ASSERT(gcmarker->runtime, thing);
-    JS_ASSERT(!IsInsideNursery(thing->runtime(), thing));
+    JS_ASSERT(!IsInsideNursery(gcmarker->runtime, thing));
 
     if (thing->markIfUnmarked(gcmarker->getMarkColor()))
+        gcmarker->pushObject(thing);
+}
+
+/*
+ * PushMarkStack for BaseShape unpacks its children directly onto the mark
+ * stack. For a pre-barrier between incremental slices, this may result in
+ * objects in the nursery getting pushed onto the mark stack. It is safe to
+ * ignore these objects because they will be marked by the matching
+ * post-barrier during the minor GC at the start of each incremental slice.
+ */
+static void
+MaybePushMarkStackBetweenSlices(GCMarker *gcmarker, JSObject *thing)
+{
+    JSRuntime *rt = gcmarker->runtime;
+    JS_COMPARTMENT_ASSERT(rt, thing);
+    JS_ASSERT_IF(rt->isHeapBusy(), !IsInsideNursery(rt, thing));
+
+    if (!IsInsideNursery(rt, thing) && thing->markIfUnmarked(gcmarker->getMarkColor()))
         gcmarker->pushObject(thing);
 }
 
@@ -874,16 +871,19 @@ ScanBaseShape(GCMarker *gcmarker, BaseShape *base)
     base->compartment()->mark();
 
     if (base->hasGetterObject())
-        PushMarkStack(gcmarker, base->getterObject());
+        MaybePushMarkStackBetweenSlices(gcmarker, base->getterObject());
 
     if (base->hasSetterObject())
-        PushMarkStack(gcmarker, base->setterObject());
+        MaybePushMarkStackBetweenSlices(gcmarker, base->setterObject());
 
     if (JSObject *parent = base->getObjectParent()) {
-        PushMarkStack(gcmarker, parent);
+        MaybePushMarkStackBetweenSlices(gcmarker, parent);
     } else if (GlobalObject *global = base->compartment()->maybeGlobal()) {
         PushMarkStack(gcmarker, global);
     }
+
+    if (JSObject *metadata = base->getObjectMetadata())
+        MaybePushMarkStackBetweenSlices(gcmarker, metadata);
 
     /*
      * All children of the owned base shape are consistent with its
@@ -1272,7 +1272,7 @@ GCMarker::restoreValueArray(JSObject *obj, void **vpp, void **endp)
     HeapSlot::Kind kind = (HeapSlot::Kind) stack.pop();
 
     if (kind == HeapSlot::Element) {
-        if (obj->getClass() != &ArrayClass)
+        if (!obj->is<ArrayObject>())
             return false;
 
         uint32_t initlen = obj->getDenseInitializedLength();

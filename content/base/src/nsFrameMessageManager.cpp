@@ -48,19 +48,6 @@ using namespace mozilla::dom;
 using namespace mozilla::dom::ipc;
 using namespace mozilla::jsipc;
 
-
-static bool
-IsChromeProcess()
-{
-  nsCOMPtr<nsIXULRuntime> rt = do_GetService("@mozilla.org/xre/runtime;1");
-  if (!rt)
-    return true;
-
-  uint32_t type;
-  rt->GetProcessType(&type);
-  return type == nsIXULRuntime::PROCESS_TYPE_DEFAULT;
-}
-
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(nsFrameMessageManager)
   uint32_t count = tmp->mListeners.Length();
   for (uint32_t i = 0; i < count; i++) {
@@ -867,7 +854,8 @@ nsFrameMessageManager::Disconnect(bool aRemoveFromParent)
 nsresult
 NS_NewGlobalMessageManager(nsIMessageBroadcaster** aResult)
 {
-  NS_ENSURE_TRUE(IsChromeProcess(), NS_ERROR_NOT_AVAILABLE);
+  NS_ENSURE_TRUE(XRE_GetProcessType() == GeckoProcessType_Default,
+                 NS_ERROR_NOT_AVAILABLE);
   nsFrameMessageManager* mm = new nsFrameMessageManager(nullptr,
                                                         nullptr,
                                                         nullptr,
@@ -1470,12 +1458,12 @@ NS_NewParentProcessMessageManager(nsIMessageBroadcaster** aResult)
 {
   NS_ASSERTION(!nsFrameMessageManager::sParentProcessManager,
                "Re-creating sParentProcessManager");
-  NS_ENSURE_TRUE(IsChromeProcess(), NS_ERROR_NOT_AVAILABLE);
+  NS_ENSURE_TRUE(XRE_GetProcessType() == GeckoProcessType_Default,
+                 NS_ERROR_NOT_AVAILABLE);
   nsRefPtr<nsFrameMessageManager> mm = new nsFrameMessageManager(nullptr,
                                                                  nullptr,
                                                                  nullptr,
                                                                  MM_CHROME | MM_PROCESSMANAGER | MM_BROADCASTER);
-  NS_ENSURE_TRUE(mm, NS_ERROR_OUT_OF_MEMORY);
   nsFrameMessageManager::sParentProcessManager = mm;
   nsFrameMessageManager::NewProcessMessageManager(nullptr); // Create same process message manager.
   return CallQueryInterface(mm, aResult);
@@ -1515,7 +1503,7 @@ NS_NewChildProcessMessageManager(nsISyncMessageSender** aResult)
                "Re-creating sChildProcessManager");
 
   MessageManagerCallback* cb;
-  if (IsChromeProcess()) {
+  if (XRE_GetProcessType() == GeckoProcessType_Default) {
     cb = new SameChildProcessMessageManagerCallback();
   } else {
     cb = new ChildProcessMessageManagerCallback();
@@ -1524,7 +1512,6 @@ NS_NewChildProcessMessageManager(nsISyncMessageSender** aResult)
                                                         nullptr,
                                                         nullptr,
                                                         MM_PROCESSMANAGER | MM_OWNSCALLBACK);
-  NS_ENSURE_TRUE(mm, NS_ERROR_OUT_OF_MEMORY);
   nsFrameMessageManager::sChildProcessManager = mm;
   return CallQueryInterface(mm, aResult);
 }

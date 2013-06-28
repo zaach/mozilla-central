@@ -56,7 +56,6 @@ CPP_SOURCES += [
     'ipc_channel_proxy.cc',
     'ipc_logging.cc',
     'ipc_message.cc',
-    'ipc_message_utils.cc',
     'ipc_sync_channel.cc',
     'ipc_sync_message.cc',
     'lazy_instance.cc',
@@ -177,7 +176,7 @@ if os_linux:
         'process_util_linux.cc',
         'time_posix.cc',
     ]
-    if CONFIG['MOZ_ENABLE_GTK2']:
+    if CONFIG['MOZ_WIDGET_GTK']:
         CPP_SOURCES += [
             'message_pump_glib.cc',
         ]
@@ -193,7 +192,7 @@ if os_bsd:
         'process_util_bsd.cc',
         'time_posix.cc',
     ]
-    if CONFIG['MOZ_ENABLE_GTK2']:
+    if CONFIG['MOZ_WIDGET_GTK']:
         CPP_SOURCES += [
             'message_pump_glib.cc',
         ]

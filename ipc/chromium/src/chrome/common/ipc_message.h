@@ -228,14 +228,14 @@ class Message : public Pickle {
   //   iter: a Pickle iterator to the current location in the message.
   bool ReadFileDescriptor(void** iter, base::FileDescriptor* descriptor) const;
 
-# if defined(OS_MACOSX)
+#if defined(OS_MACOSX)
   void set_fd_cookie(uint32_t cookie) {
     header()->cookie = cookie;
   }
   uint32_t fd_cookie() const {
     return header()->cookie;
   }
-# endif
+#endif
 #endif
 
 #ifdef IPC_MESSAGE_LOG_ENABLED

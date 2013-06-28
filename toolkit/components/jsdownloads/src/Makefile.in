@@ -9,18 +9,13 @@ VPATH     = @srcdir@
 
 include $(DEPTH)/config/autoconf.mk
 
-EXTRA_COMPONENTS = \
+DISABLED_EXTRA_COMPONENTS = \
   Downloads.manifest \
   DownloadLegacy.js \
   $(NULL)
 
-EXTRA_JS_MODULES = \
-  Downloads.jsm \
-  DownloadCore.jsm \
+EXTRA_PP_JS_MODULES = \
   DownloadIntegration.jsm \
-  DownloadList.jsm \
-  DownloadStore.jsm \
-  DownloadUIHelper.jsm \
   $(NULL)
 
 include $(topsrcdir)/config/rules.mk

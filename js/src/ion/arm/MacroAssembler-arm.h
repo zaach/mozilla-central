@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef jsion_macro_assembler_arm_h__
-#define jsion_macro_assembler_arm_h__
+#ifndef ion_arm_MacroAssembler_arm_h
+#define ion_arm_MacroAssembler_arm_h
 
 #include "mozilla/DebugOnly.h"
 
@@ -357,7 +357,7 @@ class MacroAssemblerARM : public Assembler
         }
         if (mode == DB) {
             return transferMultipleByRunsImpl
-                <FloatRegisterIterator>(set, ls, rm, mode, -1);
+                <FloatRegisterBackwardIterator>(set, ls, rm, mode, -1);
         }
         JS_NOT_REACHED("Invalid data transfer addressing mode");
     }
@@ -990,6 +990,14 @@ class MacroAssemblerARMCompat : public MacroAssemblerARM
         ma_push(reg);
     }
     void pushValue(const Address &addr);
+    void Push(const ValueOperand &val) {
+        pushValue(val);
+        framePushed_ += sizeof(Value);
+    }
+    void Pop(const ValueOperand &val) {
+        popValue(val);
+        framePushed_ -= sizeof(Value);
+    }
     void storePayload(const Value &val, Operand dest);
     void storePayload(Register src, Operand dest);
     void storePayload(const Value &val, Register base, Register index, int32_t shift = defaultShift);
@@ -1340,4 +1348,4 @@ typedef MacroAssemblerARMCompat MacroAssemblerSpecific;
 } // namespace ion
 } // namespace js
 
-#endif // jsion_macro_assembler_arm_h__
+#endif /* ion_arm_MacroAssembler_arm_h */

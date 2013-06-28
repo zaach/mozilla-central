@@ -510,8 +510,8 @@ window[chromehidden~="toolbar"] toolbar:not(.toolbar-primary):not(.chromeclass-m
   -moz-binding: url("chrome://browser/content/urlbarBindings.xml#click-to-play-plugins-notification");
 }
 
-popupnotification-centeritem {
-  -moz-binding: url("chrome://browser/content/urlbarBindings.xml#center-item");
+.plugin-popupnotification-centeritem {
+  -moz-binding: url("chrome://browser/content/urlbarBindings.xml#plugin-popupnotification-center-item");
 }
 
 /* override hidden="true" for the status bar compatibility shim
@@ -602,8 +602,7 @@ html|*#gcli-output-frame,
 }
 
 .gclitoolbar-input-node,
-.gclitoolbar-complete-node,
-.gclitoolbar-prompt {
+.gclitoolbar-complete-node {
   direction: ltr;
 }
 

@@ -12,6 +12,7 @@
 #include "MPAPI.h"
 #include "MediaResource.h"
 #include "AbstractMediaDecoder.h"
+#include "OMXCodecProxy.h"
 
 namespace android {
 class OmxDecoder;
@@ -27,7 +28,7 @@ class VideoGraphicBuffer : public GraphicBufferLocked {
   public:
     VideoGraphicBuffer(const android::wp<android::OmxDecoder> aOmxDecoder,
                        android::MediaBuffer *aBuffer,
-                       SurfaceDescriptor *aDescriptor);
+                       SurfaceDescriptor& aDescriptor);
     ~VideoGraphicBuffer();
     void Unlock();
 };
@@ -42,6 +43,7 @@ class MediaStreamSource : public DataSource {
   typedef mozilla::MediaResource MediaResource;
   typedef mozilla::AbstractMediaDecoder AbstractMediaDecoder;
 
+  Mutex mLock;
   nsRefPtr<MediaResource> mResource;
   AbstractMediaDecoder *mDecoder;
 public:
@@ -71,7 +73,7 @@ private:
   MediaStreamSource &operator=(const MediaStreamSource &);
 };
 
-class OmxDecoder : public RefBase {
+class OmxDecoder : public OMXCodecProxy::EventListener {
   typedef MPAPI::AudioFrame AudioFrame;
   typedef MPAPI::VideoFrame VideoFrame;
   typedef mozilla::MediaResource MediaResource;
@@ -84,7 +86,8 @@ class OmxDecoder : public RefBase {
   };
 
   enum {
-    kNotifyPostReleaseVideoBuffer = 'noti'
+    kNotifyPostReleaseVideoBuffer = 'noti',
+    kNotifyStatusChanged = 'stat'
   };
 
   AbstractMediaDecoder *mDecoder;
@@ -92,7 +95,7 @@ class OmxDecoder : public RefBase {
   sp<GonkNativeWindow> mNativeWindow;
   sp<GonkNativeWindowClient> mNativeWindowClient;
   sp<MediaSource> mVideoTrack;
-  sp<MediaSource> mVideoSource;
+  sp<OMXCodecProxy> mVideoSource;
   sp<MediaSource> mAudioTrack;
   sp<MediaSource> mAudioSource;
   int32_t mVideoWidth;
@@ -161,7 +164,15 @@ public:
   OmxDecoder(MediaResource *aResource, AbstractMediaDecoder *aDecoder);
   ~OmxDecoder();
 
+  // MediaResourceManagerClient::EventListener
+  virtual void statusChanged();
+
   bool Init();
+  bool TryLoad();
+  bool IsDormantNeeded();
+  bool IsWaitingMediaResources();
+  bool AllocateMediaResources();
+  void ReleaseMediaResources();
   bool SetVideoFormat();
   bool SetAudioFormat();
 

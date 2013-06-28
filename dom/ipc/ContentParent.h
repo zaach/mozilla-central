@@ -120,10 +120,10 @@ public:
     virtual bool DoSendAsyncMessage(JSContext* aCx,
                                     const nsAString& aMessage,
                                     const mozilla::dom::StructuredCloneData& aData,
-                                    JSObject *cpows);
-    virtual bool CheckPermission(const nsAString& aPermission);
-    virtual bool CheckManifestURL(const nsAString& aManifestURL);
-    virtual bool CheckAppHasPermission(const nsAString& aPermission);
+                                    JSObject *cpows) MOZ_OVERRIDE;
+    virtual bool CheckPermission(const nsAString& aPermission) MOZ_OVERRIDE;
+    virtual bool CheckManifestURL(const nsAString& aManifestURL) MOZ_OVERRIDE;
+    virtual bool CheckAppHasPermission(const nsAString& aPermission) MOZ_OVERRIDE;
 
     /** Notify that a tab is beginning its destruction sequence. */
     void NotifyTabDestroying(PBrowserParent* aTab);
@@ -177,7 +177,7 @@ public:
     void FriendlyName(nsAString& aName);
 
 protected:
-    void OnChannelConnected(int32_t pid);
+    void OnChannelConnected(int32_t pid) MOZ_OVERRIDE;
     virtual void ActorDestroy(ActorDestroyReason why);
 
 private:

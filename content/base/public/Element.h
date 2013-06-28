@@ -104,6 +104,9 @@ enum {
 
 #undef ELEMENT_FLAG_BIT
 
+// Make sure we have space for our bits
+ASSERT_NODE_FLAGS_SPACE(ELEMENT_TYPE_SPECIFIC_BITS_OFFSET);
+
 namespace mozilla {
 namespace dom {
 
@@ -112,8 +115,8 @@ class UndoManager;
 
 // IID for the dom::Element interface
 #define NS_ELEMENT_IID \
-{ 0xcae9f7e7, 0x6163, 0x47b5, \
- { 0xa1, 0x63, 0x30, 0xc8, 0x1d, 0x2d, 0x79, 0x39 } }
+{ 0xec962aa7, 0x53ee, 0x46ff, \
+  { 0x90, 0x34, 0x68, 0xea, 0x79, 0x9d, 0x7d, 0xf7 } }
 
 class Element : public FragmentOrElement
 {
@@ -1051,14 +1054,6 @@ protected:
    */
   virtual const nsAttrName* InternalGetExistingAttrNameFromQName(const nsAString& aStr) const;
 
-  /**
-   * Retrieve the rectangle for the offsetX properties, which
-   * are coordinates relative to the returned element.
-   *
-   * @param aRect offset rectangle
-   */
-  virtual Element* GetOffsetRect(nsRect& aRect);
-
   nsIFrame* GetStyledFrame();
 
   virtual Element* GetNameSpaceElement()
@@ -1260,14 +1255,6 @@ _elementName::Clone(nsINodeInfo *aNodeInfo, nsINode **aResult) const        \
                                                                             \
   return rv;                                                                \
 }
-
-#define DOMCI_NODE_DATA(_interface, _class)                             \
-  DOMCI_DATA(_interface, _class)                                        \
-  nsXPCClassInfo* _class::GetClassInfo()                                \
-  {                                                                     \
-    return static_cast<nsXPCClassInfo*>(                                \
-      NS_GetDOMClassInfoInstance(eDOMClassInfo_##_interface##_id));     \
-  }
 
 /**
  * A macro to implement the getter and setter for a given string

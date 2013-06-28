@@ -95,5 +95,19 @@ CPP_SOURCES += [
     'nsStructuredCloneContainer.cpp',
     'nsWindowMemoryReporter.cpp',
     'nsWindowRoot.cpp',
+    'nsWrapperCache.cpp',
 ]
 
+EXTRA_COMPONENTS += [
+    'ConsoleAPI.js',
+    'ConsoleAPI.manifest',
+    'SiteSpecificUserAgent.js',
+    'SiteSpecificUserAgent.manifest',
+]
+
+EXTRA_JS_MODULES += [
+    'ConsoleAPIStorage.jsm',
+    'DOMRequestHelper.jsm',
+    'IndexedDBHelper.jsm',
+    'ObjectWrapper.jsm',
+]

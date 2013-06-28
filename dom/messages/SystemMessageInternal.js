@@ -128,6 +128,17 @@ SystemMessageInternal.prototype = {
     }
   },
 
+  _findPage: function _findPage(aType, aPageURL, aManifestURL) {
+    let page = null;
+    this._pages.some(function(aPage) {
+      if (this._isPageMatched(aPage, aType, aPageURL, aManifestURL)) {
+        page = aPage;
+      }
+      return page !== null;
+    }, this);
+    return page;
+  },
+
   sendMessage: function sendMessage(aType, aMessage, aPageURI, aManifestURI) {
     // Buffer system messages until the webapps' registration is ready,
     // so that we can know the correct pages registered to be sent.
@@ -157,23 +168,14 @@ SystemMessageInternal.prototype = {
       return;
     }
 
-    let pagesToOpen = {};
-    this._pages.forEach(function(aPage) {
-      if (!this._isPageMatched(aPage, aType, aPageURI.spec, aManifestURI.spec)) {
-        return;
-      }
-
+    let page = this._findPage(aType, aPageURI.spec, aManifestURI.spec);
+    if (page) {
       // Queue this message in the corresponding pages.
-      this._queueMessage(aPage, aMessage, messageID);
+      this._queueMessage(page, aMessage, messageID);
 
       // Open app pages to handle their pending messages.
-      // Note that we only need to open each app page once.
-      let key = this._createKeyForPage(aPage);
-      if (!pagesToOpen.hasOwnProperty(key)) {
-        this._openAppPage(aPage, aMessage);
-        pagesToOpen[key] = true;
-      }
-    }, this);
+      this._openAppPage(page, aMessage);
+    }
   },
 
   broadcastMessage: function broadcastMessage(aType, aMessage) {
@@ -192,7 +194,6 @@ SystemMessageInternal.prototype = {
 
     debug("Broadcasting " + aType + " " + JSON.stringify(aMessage));
     // Find pages that registered an handler for this type.
-    let pagesToOpen = {};
     this._pages.forEach(function(aPage) {
       if (aPage.type == aType) {
         // Don't need to open the pages and queue the system message
@@ -209,12 +210,7 @@ SystemMessageInternal.prototype = {
         this._queueMessage(aPage, aMessage, messageID);
 
         // Open app pages to handle their pending messages.
-        // Note that we only need to open each app page once.
-        let key = this._createKeyForPage(aPage);
-        if (!pagesToOpen.hasOwnProperty(key)) {
-          this._openAppPage(aPage, aMessage);
-          pagesToOpen[key] = true;
-        }
+        this._openAppPage(aPage, aMessage);
       }
     }, this);
   },
@@ -224,9 +220,20 @@ SystemMessageInternal.prototype = {
       throw Cr.NS_ERROR_INVALID_ARG;
     }
 
+    let pageURL = aPageURI.spec;
+    let manifestURL = aManifestURI.spec;
+
+    // Don't register duplicates for this tuple.
+    let page = this._findPage(aType, pageURL, manifestURL);
+    if (page) {
+      debug("Ignoring duplicate registration of " +
+            [aType, pageURL, manifestURL]);
+      return;
+    }
+
     this._pages.push({ type: aType,
-                       uri: aPageURI.spec,
-                       manifest: aManifestURI.spec,
+                       uri: pageURL,
+                       manifest: manifestURL,
                        pendingMessages: [] });
   },
 
@@ -361,13 +368,7 @@ SystemMessageInternal.prototype = {
 
         // This is a sync call used to return the pending messages for a page.
         // Find the right page to get its corresponding pending messages.
-        let page = null;
-        this._pages.some(function(aPage) {
-          if (this._isPageMatched(aPage, msg.type, msg.uri, msg.manifest)) {
-            page = aPage;
-          }
-          return page !== null;
-        }, this);
+        let page = this._findPage(msg.type, msg.uri, msg.manifest);
         if (!page) {
           return;
         }
@@ -383,10 +384,12 @@ SystemMessageInternal.prototype = {
         page.pendingMessages.length = 0;
 
         // Send the array of pending messages.
-        aMessage.target.sendAsyncMessage("SystemMessageManager:GetPendingMessages:Return",
-                                         { type: msg.type,
-                                           manifest: msg.manifest,
-                                           msgQueue: pendingMessages });
+        aMessage.target
+                .sendAsyncMessage("SystemMessageManager:GetPendingMessages:Return",
+                                  { type: msg.type,
+                                    manifest: msg.manifest,
+                                    uri: msg.uri,
+                                    msgQueue: pendingMessages });
         break;
       }
       case "SystemMessageManager:HasPendingMessages":
@@ -396,13 +399,7 @@ SystemMessageInternal.prototype = {
 
         // This is a sync call used to return if a page has pending messages.
         // Find the right page to get its corresponding pending messages.
-        let page = null;
-        this._pages.some(function(aPage) {
-          if (this._isPageMatched(aPage, msg.type, msg.uri, msg.manifest)) {
-            page = aPage;
-          }
-          return page !== null;
-        }, this);
+        let page = this._findPage(msg.type, msg.uri, msg.manifest);
         if (!page) {
           return false;
         }
@@ -417,19 +414,16 @@ SystemMessageInternal.prototype = {
 
         // We need to clean up the pending message since the app has already
         // received it, thus avoiding the re-lanunched app handling it again.
-        this._pages.forEach(function(aPage) {
-          if (!this._isPageMatched(aPage, msg.type, msg.uri, msg.manifest)) {
-            return;
-          }
-
-          let pendingMessages = aPage.pendingMessages;
+        let page = this._findPage(msg.type, msg.uri, msg.manifest);
+        if (page) {
+          let pendingMessages = page.pendingMessages;
           for (let i = 0; i < pendingMessages.length; i++) {
             if (pendingMessages[i].msgID === msg.msgID) {
               pendingMessages.splice(i, 1);
               break;
             }
           }
-        }, this);
+        }
         break;
       }
       case "SystemMessageManager:HandleMessagesDone":
@@ -543,8 +537,9 @@ SystemMessageInternal.prototype = {
     if (targets) {
       for (let index = 0; index < targets.length; ++index) {
         let target = targets[index];
-        // We only need to send the system message to the targets which match
-        // the manifest URL and page URL of the destination of system message.
+        // We only need to send the system message to the targets (processes)
+        // which contain the window page that matches the manifest/page URL of
+        // the destination of system message.
         if (target.winCounts[aPageURI] === undefined) {
           continue;
         }
@@ -556,10 +551,15 @@ SystemMessageInternal.prototype = {
         // we'll release the lock we acquired.
         this._acquireCpuWakeLock(pageKey);
 
+        // Multiple windows can share the same target (process), the content
+        // window needs to check if the manifest/page URL is matched. Only
+        // *one* window should handle the system message.
         let manager = target.target;
         manager.sendAsyncMessage("SystemMessageManager:Message",
                                  { type: aType,
                                    msg: aMessage,
+                                   manifest: aManifestURI,
+                                   uri: aPageURI,
                                    msgID: aMessageID });
       }
     }

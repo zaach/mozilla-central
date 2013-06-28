@@ -142,6 +142,10 @@ class TestRecursiveMakeBackend(BackendTester):
                 'ASFILES += bar.s',
                 'ASFILES += foo.asm',
             ],
+            'CMMSRCS': [
+                'CMMSRCS += bar.mm',
+                'CMMSRCS += foo.mm',
+            ],
             'CSRCS': [
                 'CSRCS += bar.c',
                 'CSRCS += foo.c',
@@ -150,9 +154,51 @@ class TestRecursiveMakeBackend(BackendTester):
                 'DEFINES += -Dbar',
                 'DEFINES += -Dfoo',
             ],
+            'EXTRA_COMPONENTS': [
+                'EXTRA_COMPONENTS += bar.js',
+                'EXTRA_COMPONENTS += foo.js',
+            ],
+            'EXTRA_PP_COMPONENTS': [
+                'EXTRA_PP_COMPONENTS += bar.pp.js',
+                'EXTRA_PP_COMPONENTS += foo.pp.js',
+            ],
+            'GTEST_CMMSRCS': [
+                'GTEST_CMMSRCS += test1.mm',
+                'GTEST_CMMSRCS += test2.mm',
+            ],
+            'GTEST_CPPSRCS': [
+                'GTEST_CPPSRCS += test1.cpp',
+                'GTEST_CPPSRCS += test2.cpp',
+            ],
+            'GTEST_CSRCS': [
+                'GTEST_CSRCS += test1.c',
+                'GTEST_CSRCS += test2.c',
+            ],
+            'HOST_CSRCS': [
+                'HOST_CSRCS += bar.c',
+                'HOST_CSRCS += foo.c',
+            ],
+            'HOST_LIBRARY_NAME': [
+                'HOST_LIBRARY_NAME := host_bar',
+            ],
+            'LIBRARY_NAME': [
+                'LIBRARY_NAME := lib_name',
+            ],
+            'SDK_LIBRARY': [
+                'SDK_LIBRARY += bar.sdk',
+                'SDK_LIBRARY += foo.sdk',
+            ],
+            'SHARED_LIBRARY_LIBS': [
+                'SHARED_LIBRARY_LIBS += bar.sll',
+                'SHARED_LIBRARY_LIBS += foo.sll',
+            ],
             'SIMPLE_PROGRAMS': [
                 'SIMPLE_PROGRAMS += bar.x',
                 'SIMPLE_PROGRAMS += foo.x',
+            ],
+            'SSRCS': [
+                'SSRCS += bar.S',
+                'SSRCS += foo.S',
             ],
             'XPIDL_FLAGS': [
                 'XPIDL_FLAGS += -Idir1',
@@ -210,6 +256,18 @@ class TestRecursiveMakeBackend(BackendTester):
         # Assignment[aa], append[cc], conditional[valid]
         expected = ('aa', 'bb', 'cc', 'dd', 'valid_val')
         self.assertEqual(xpclines, ["XPCSHELL_TESTS += %s" % val for val in expected])
+
+    def test_xpcshell_master_manifest(self):
+        """Ensure that the master xpcshell manifest is written out correctly."""
+        env = self._consume('xpcshell_manifests', RecursiveMakeBackend)
+
+        manifest_path = os.path.join(env.topobjdir,
+            'testing', 'xpcshell', 'xpcshell.ini')
+        lines = [l.strip() for l in open(manifest_path, 'rt').readlines()]
+        expected = ('aa', 'bb', 'cc', 'dd', 'valid_val')
+        self.assertEqual(lines, [
+            '; THIS FILE WAS AUTOMATICALLY GENERATED. DO NOT MODIFY BY HAND.',
+            ''] + ['[include:%s/xpcshell.ini]' % x for x in expected])
 
 if __name__ == '__main__':
     main()

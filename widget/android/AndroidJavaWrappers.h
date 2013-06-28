@@ -18,6 +18,7 @@
 #include "mozilla/gfx/Rect.h"
 #include "mozilla/dom/Touch.h"
 #include "InputData.h"
+#include "Units.h"
 
 //#define FORCE_ALOG 1
 
@@ -268,15 +269,15 @@ public:
     AndroidGeckoLayerClient() {}
     AndroidGeckoLayerClient(jobject jobj) { Init(jobj); }
 
-    void SetFirstPaintViewport(const nsIntPoint& aOffset, float aZoom, const nsIntRect& aPageRect, const gfx::Rect& aCssPageRect);
-    void SetPageRect(const gfx::Rect& aCssPageRect);
-    void SyncViewportInfo(const nsIntRect& aDisplayPort, float aDisplayResolution, bool aLayersUpdated,
-                          nsIntPoint& aScrollOffset, float& aScaleX, float& aScaleY,
-                          gfx::Margin& aFixedLayerMargins, gfx::Point& aOffset);
-    void SyncFrameMetrics(const gfx::Point& aScrollOffset, float aZoom, const gfx::Rect& aCssPageRect,
-                          bool aLayersUpdated, const gfx::Rect& aDisplayPort, float aDisplayResolution,
-                          bool aIsFirstPaint, gfx::Margin& aFixedLayerMargins, gfx::Point& aOffset);
-    bool ProgressiveUpdateCallback(bool aHasPendingNewThebesContent, const gfx::Rect& aDisplayPort, float aDisplayResolution, bool aDrawingCritical, gfx::Rect& aViewport, float& aScaleX, float& aScaleY);
+    void SetFirstPaintViewport(const LayerIntPoint& aOffset, const CSSToLayerScale& aZoom, const CSSRect& aCssPageRect);
+    void SetPageRect(const CSSRect& aCssPageRect);
+    void SyncViewportInfo(const LayerIntRect& aDisplayPort, const CSSToLayerScale& aDisplayResolution,
+                          bool aLayersUpdated, ScreenPoint& aScrollOffset, CSSToScreenScale& aScale,
+                          gfx::Margin& aFixedLayerMargins, ScreenPoint& aOffset);
+    void SyncFrameMetrics(const ScreenPoint& aScrollOffset, float aZoom, const CSSRect& aCssPageRect,
+                          bool aLayersUpdated, const CSSRect& aDisplayPort, const CSSToLayerScale& aDisplayResolution,
+                          bool aIsFirstPaint, gfx::Margin& aFixedLayerMargins, ScreenPoint& aOffset);
+    bool ProgressiveUpdateCallback(bool aHasPendingNewThebesContent, const LayerRect& aDisplayPort, float aDisplayResolution, bool aDrawingCritical, gfx::Rect& aViewport, float& aScaleX, float& aScaleY);
     bool CreateFrame(AutoLocalJNIFrame *jniFrame, AndroidLayerRendererFrame& aFrame);
     bool ActivateProgram(AutoLocalJNIFrame *jniFrame);
     bool DeactivateProgram(AutoLocalJNIFrame *jniFrame);
@@ -544,6 +545,7 @@ public:
     const nsIntRect& Rect() { return mRect; }
     nsAString& Characters() { return mCharacters; }
     nsAString& CharactersExtra() { return mCharactersExtra; }
+    nsAString& Data() { return mData; }
     int KeyCode() { return mKeyCode; }
     int MetaState() { return mMetaState; }
     uint32_t DomKeyLocation() { return mDomKeyLocation; }
@@ -599,7 +601,7 @@ protected:
     int mRangeForeColor, mRangeBackColor, mRangeLineColor;
     double mX, mY, mZ;
     int mPointerIndex;
-    nsString mCharacters, mCharactersExtra;
+    nsString mCharacters, mCharactersExtra, mData;
     nsRefPtr<nsGeoPosition> mGeoPosition;
     double mBandwidth;
     bool mCanBeMetered;
@@ -622,6 +624,7 @@ protected:
     void ReadRectField(JNIEnv *jenv);
     void ReadCharactersField(JNIEnv *jenv);
     void ReadCharactersExtraField(JNIEnv *jenv);
+    void ReadDataField(JNIEnv *jenv);
 
     uint32_t ReadDomKeyLocation(JNIEnv* jenv, jobject jGeckoEventObj);
 
@@ -644,6 +647,7 @@ protected:
 
     static jfieldID jCharactersField;
     static jfieldID jCharactersExtraField;
+    static jfieldID jDataField;
     static jfieldID jKeyCodeField;
     static jfieldID jMetaStateField;
     static jfieldID jDomKeyLocationField;
@@ -702,7 +706,20 @@ public:
         COMPOSITOR_RESUME = 30,
         NATIVE_GESTURE_EVENT = 31,
         IME_KEY_EVENT = 32,
+        CALL_OBSERVER = 33,
+        REMOVE_OBSERVER = 34,
+        LOW_MEMORY = 35,
+        NETWORK_LINK_CHANGE = 36,
         dummy_java_enum_list_end
+    };
+
+    enum {
+        // Memory pressue levels, keep in sync with those in MemoryMonitor.java
+        MEMORY_PRESSURE_NONE = 0,
+        MEMORY_PRESSURE_CLEANUP = 1,
+        MEMORY_PRESSURE_LOW = 2,
+        MEMORY_PRESSURE_MEDIUM = 3,
+        MEMORY_PRESSURE_HIGH = 4
     };
 
     enum {

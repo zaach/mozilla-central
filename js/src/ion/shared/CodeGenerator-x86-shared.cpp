@@ -647,7 +647,7 @@ CodeGeneratorX86Shared::visitAsmJSDivOrMod(LAsmJSDivOrMod *ins)
     masm.testl(rhs, rhs);
     Label notzero;
     masm.j(Assembler::NonZero, &notzero);
-    masm.movl(Imm32(0), output);
+    masm.xorl(output, output);
     masm.jmp(&afterDiv);
     masm.bind(&notzero);
 
@@ -684,7 +684,7 @@ CodeGeneratorX86Shared::visitDivPowTwoI(LDivPowTwoI *ins)
 {
     Register lhs = ToRegister(ins->numerator());
     Register lhsCopy = ToRegister(ins->numeratorCopy());
-    Register output = ToRegister(ins->output());
+    mozilla::DebugOnly<Register> output = ToRegister(ins->output());
     int32_t shift = ins->shift();
 
     // We use defineReuseInput so these should always be the same, which is

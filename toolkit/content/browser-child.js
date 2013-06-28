@@ -184,7 +184,7 @@ let SecurityUI = {
 
 let Content = {
   init: function init() {
-    docShell.QueryInterface(Ci.nsIDocShellHistory).useGlobalHistory = true;
+    docShell.useGlobalHistory = true;
 
     addEventListener("click", this.contentAreaClick, false);
     addMessageListener("StyleSheet:Load", this);

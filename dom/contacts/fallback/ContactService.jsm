@@ -4,7 +4,7 @@
 
 "use strict";
 
-const DEBUG = false;
+let DEBUG = false;
 function debug(s) { dump("-*- Fallback ContactService component: " + s + "\n"); }
 
 const Cu = Components.utils;
@@ -16,10 +16,15 @@ this.EXPORTED_SYMBOLS = [];
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/ContactDB.jsm");
+Cu.import("resource://gre/modules/PhoneNumberUtils.jsm");
 
 XPCOMUtils.defineLazyServiceGetter(this, "ppmm",
                                    "@mozilla.org/parentprocessmessagemanager;1",
                                    "nsIMessageListenerManager");
+
+XPCOMUtils.defineLazyServiceGetter(this, "gSettingsService",
+                                   "@mozilla.org/settingsService;1",
+                                   "nsISettingsService");
 
 let myGlobal = this;
 
@@ -29,7 +34,8 @@ let ContactService = {
     this._messages = ["Contacts:Find", "Contacts:GetAll", "Contacts:GetAll:SendNow",
                       "Contacts:Clear", "Contact:Save",
                       "Contact:Remove", "Contacts:RegisterForMessages",
-                      "child-process-shutdown", "Contacts:GetRevision"];
+                      "child-process-shutdown", "Contacts:GetRevision",
+                      "Contacts:GetCount"];
     this._children = [];
     this._cursors = {};
     this._messages.forEach(function(msgName) {
@@ -41,22 +47,65 @@ let ContactService = {
     this._db = new ContactDB(myGlobal);
     this._db.init(myGlobal);
 
+    let countryName = PhoneNumberUtils.getCountryName();
+    if (Services.prefs.getPrefType("dom.phonenumber.substringmatching." + countryName) == Ci.nsIPrefBranch.PREF_INT) {
+      if (DEBUG) debug("Enable Substring Matching for Phone Numbers: " + countryName);
+      let val = Services.prefs.getIntPref("dom.phonenumber.substringmatching." + countryName);
+      if (val && val > 0) {
+        this._db.enableSubstringMatching(val);
+      }
+    }
+
+    let lock = gSettingsService.createLock();
+    lock.get("dom.mozContacts.debugging.enabled", {
+      handle: function(aName, aResult) {
+        updateDebug(aResult);
+      },
+      handleError: function(aErrorMessage) {
+        if (DEBUG) debug("Error reading dom.mozContacts.debugging.enabled setting: " + aErrorMessage);
+      }
+    });
+
     Services.obs.addObserver(this, "profile-before-change", false);
+    Services.obs.addObserver(this, "mozsettings-changed", false);
+    Services.prefs.addObserver("dom.phonenumber.substringmatching", this, false);
+  },
+
+  enableDebugging: function(aResult) {
+    this._db.enableDebugging(aResult);
   },
 
   observe: function(aSubject, aTopic, aData) {
-    myGlobal = null;
-    this._messages.forEach(function(msgName) {
-      ppmm.removeMessageListener(msgName, this);
-    }.bind(this));
-    Services.obs.removeObserver(this, "profile-before-change");
-    ppmm = null;
-    this._messages = null;
-    if (this._db)
-      this._db.close();
-    this._db = null;
-    this._children = null;
-    this._cursors = null;
+    if (aTopic === "profile-before-change") {
+      myGlobal = null;
+      this._messages.forEach(function(msgName) {
+        ppmm.removeMessageListener(msgName, this);
+      }.bind(this));
+      Services.obs.removeObserver(this, "profile-before-change");
+      Services.obs.removeObserver(this, "mozsettings-changed");
+      Services.prefs.removeObserver("dom.phonenumber.substringmatching", this);
+      ppmm = null;
+      this._messages = null;
+      if (this._db)
+        this._db.close();
+      this._db = null;
+      this._children = null;
+      this._cursors = null;
+    } else if (aTopic === "nsPref:changed" && aData.contains("dom.phonenumber.substringmatching")) {
+      // We don't fully support changing substringMatching during runtime. This is mostly for testing.
+      let countryName = PhoneNumberUtils.getCountryName();
+      if (Services.prefs.getPrefType("dom.phonenumber.substringmatching." + countryName) == Ci.nsIPrefBranch.PREF_INT) {
+        let val = Services.prefs.getIntPref("dom.phonenumber.substringmatching." + countryName);
+        if (val && val > 0) {
+          this._db.enableSubstringMatching(val);
+        }
+      }
+    } else if (aTopic === "mozsettings-changed") {
+      let data = JSON.parse(aData);
+      if (data.key === "dom.mozContacts.debugging.enabled") {
+        updateDebug(data.value);
+      }
+    }
   },
 
   assertPermission: function(aMessage, aPerm) {
@@ -119,7 +168,7 @@ let ContactService = {
               throw e;
             }
           }.bind(this),
-          function(aErrorMsg) { mm.sendAsyncMessage("Contacts:Find:Return:KO", { errorMsg: aErrorMsg }); },
+          function(aErrorMsg) { mm.sendAsyncMessage("Contacts:Find:Return:KO", { requestID: msg.cursorId, errorMsg: aErrorMsg }); },
           msg.findOptions, msg.cursorId);
         break;
       case "Contacts:GetAll:SendNow":
@@ -184,6 +233,19 @@ let ContactService = {
           }
         );
         break;
+      case "Contacts:GetCount":
+        if (!this.assertPermission(aMessage, "contacts-read")) {
+          return null;
+        }
+        this._db.getCount(
+          function(count) {
+            mm.sendAsyncMessage("Contacts:Count", {
+              requestID: msg.requestID,
+              count: count
+            });
+          }
+        );
+        break;
       case "Contacts:RegisterForMessages":
         if (!aMessage.target.assertPermission("contacts-read")) {
           return null;
@@ -214,3 +276,8 @@ let ContactService = {
 }
 
 ContactService.init();
+
+function updateDebug(aResult) {
+  DEBUG = !!aResult;
+  ContactService.enableDebugging(DEBUG);
+}

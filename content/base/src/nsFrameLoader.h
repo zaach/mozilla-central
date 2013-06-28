@@ -48,7 +48,7 @@ class RenderFrameParent;
 }
 }
 
-#ifdef MOZ_WIDGET_GTK2
+#if defined(MOZ_WIDGET_GTK)
 typedef struct _GtkWidget GtkWidget;
 #endif
 #ifdef MOZ_WIDGET_QT

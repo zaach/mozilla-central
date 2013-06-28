@@ -41,7 +41,9 @@ this.AccessFu = {
     }
 
     this._activatePref = new PrefCache(
-      'accessibility.accessfu.activate', this._enableOrDisable.bind(this), true);
+      'accessibility.accessfu.activate', this._enableOrDisable.bind(this));
+
+    this._enableOrDisable();
   },
 
   /**
@@ -114,6 +116,7 @@ this.AccessFu = {
     Services.obs.addObserver(this, 'Accessibility:PreviousObject', false);
     Services.obs.addObserver(this, 'Accessibility:Focus', false);
     Services.obs.addObserver(this, 'Accessibility:ActivateObject', false);
+    Services.obs.addObserver(this, 'Accessibility:MoveCaret', false);
     Utils.win.addEventListener('TabOpen', this);
     Utils.win.addEventListener('TabClose', this);
     Utils.win.addEventListener('TabSelect', this);
@@ -156,6 +159,7 @@ this.AccessFu = {
     Services.obs.removeObserver(this, 'Accessibility:PreviousObject');
     Services.obs.removeObserver(this, 'Accessibility:Focus');
     Services.obs.removeObserver(this, 'Accessibility:ActivateObject');
+    Services.obs.removeObserver(this, 'Accessibility:MoveCaret');
 
     if (this.doneCallback) {
       this.doneCallback();
@@ -193,6 +197,9 @@ this.AccessFu = {
         break;
       case 'AccessFu:Input':
         this.Input.setEditState(aMessage.json);
+        break;
+      case 'AccessFu:ActivateContextMenu':
+        this.Input.activateContextMenu(aMessage.json);
         break;
     }
   },
@@ -232,12 +239,14 @@ this.AccessFu = {
     aMessageManager.addMessageListener('AccessFu:Present', this);
     aMessageManager.addMessageListener('AccessFu:Input', this);
     aMessageManager.addMessageListener('AccessFu:Ready', this);
+    aMessageManager.addMessageListener('AccessFu:ActivateContextMenu', this);
   },
 
   _removeMessageListeners: function _removeMessageListeners(aMessageManager) {
     aMessageManager.removeMessageListener('AccessFu:Present', this);
     aMessageManager.removeMessageListener('AccessFu:Input', this);
     aMessageManager.removeMessageListener('AccessFu:Ready', this);
+    aMessageManager.removeMessageListener('AccessFu:ActivateContextMenu', this);
   },
 
   _handleMessageManager: function _handleMessageManager(aMessageManager) {
@@ -269,6 +278,9 @@ this.AccessFu = {
           mm.sendAsyncMessage('AccessFu:VirtualCursor',
                               {action: 'whereIsIt', move: true});
         }
+        break;
+      case 'Accessibility:MoveCaret':
+        this.Input.moveCaret(JSON.parse(aData));
         break;
       case 'remote-browser-frame-shown':
       case 'in-process-browser-or-app-frame-shown':
@@ -407,7 +419,7 @@ var Output = {
       {
         let highlightBox = this.highlightBox ? this.highlightBox.get() : null;
         if (highlightBox)
-          highlightBox.get().style.display = 'none';
+          highlightBox.style.display = 'none';
         break;
       }
       case 'showAnnouncement':
@@ -459,6 +471,10 @@ var Output = {
 
   Haptic: function Haptic(aDetails, aBrowser) {
     Utils.win.navigator.vibrate(aDetails.pattern);
+  },
+
+  Braille: function Braille(aDetails, aBrowser) {
+    Logger.debug('Braille output: ' + aDetails.text);
   },
 
   _adjustBounds: function(aJsonBounds, aBrowser) {
@@ -526,11 +542,14 @@ var Input = {
     switch (gestureName) {
       case 'dwell1':
       case 'explore1':
-        this.moveCursor('moveToPoint', 'Simple', 'gesture',
+        this.moveCursor('moveToPoint', 'SimpleTouch', 'gesture',
                         aGesture.x, aGesture.y);
         break;
       case 'doubletap1':
         this.activateCurrent();
+        break;
+      case 'doubletaphold1':
+        this.sendContextMenuMessage();
         break;
       case 'swiperight1':
         this.moveCursor('moveNext', 'Simple', 'gestures');
@@ -653,9 +672,32 @@ var Input = {
                          inputType: aInputType});
   },
 
+  moveCaret: function moveCaret(aDetails) {
+    if (!this.editState.editing) {
+      return;
+    }
+
+    aDetails.atStart = this.editState.atStart;
+    aDetails.atEnd = this.editState.atEnd;
+
+    let mm = Utils.getMessageManager(Utils.CurrentBrowser);
+    mm.sendAsyncMessage('AccessFu:MoveCaret', aDetails);
+  },
+
   activateCurrent: function activateCurrent() {
     let mm = Utils.getMessageManager(Utils.CurrentBrowser);
     mm.sendAsyncMessage('AccessFu:Activate', {});
+  },
+
+  sendContextMenuMessage: function sendContextMenuMessage() {
+    let mm = Utils.getMessageManager(Utils.CurrentBrowser);
+    mm.sendAsyncMessage('AccessFu:ContextMenu', {});
+  },
+
+  activateContextMenu: function activateContextMenu(aMessage) {
+    if (Utils.MozBuildApp === 'mobile/android')
+      Services.obs.notifyObservers(null, 'Gesture:LongPress',
+                                   JSON.stringify({x: aMessage.x, y: aMessage.y}));
   },
 
   setEditState: function setEditState(aEditState) {

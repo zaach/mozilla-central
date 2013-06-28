@@ -96,10 +96,8 @@ class Channel : public Message::Sender {
   // |message| must be allocated using operator new.  This object will be
   // deleted once the contents of the Message have been sent.
   //
-  //  FIXME bug 551500: the channel does not notice failures, so if the
-  //    renderer crashes, it will silently succeed, leaking the parameter.
-  //    At least the leak will be fixed by...
-  //
+  // If you Send() a message on a Close()'d channel, we delete the message
+  // immediately.
   virtual bool Send(Message* message);
 
 #if defined(OS_POSIX)
@@ -126,7 +124,7 @@ class Channel : public Message::Sender {
   ChannelImpl *channel_impl_;
 
   enum {
-#if defined(OS_POSIX)
+#if defined(OS_MACOSX)
     // If the channel receives a message that contains file descriptors, then
     // it will reply back with this message, indicating that the message has
     // been received. The sending channel can then close any descriptors that

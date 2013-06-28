@@ -300,19 +300,6 @@ gfxPlatform::Init()
     sCmapDataLog = PR_NewLogModule("cmapdata");;
 #endif
 
-    bool useOffMainThreadCompositing = false;
-    useOffMainThreadCompositing = GetPrefLayersOffMainThreadCompositionEnabled() ||
-        Preferences::GetBool("browser.tabs.remote", false);
-
-    if (useOffMainThreadCompositing && (XRE_GetProcessType() ==
-                                        GeckoProcessType_Default)) {
-        CompositorParent::StartUp();
-        if (Preferences::GetBool("layers.async-video.enabled",false)) {
-            ImageBridgeChild::StartUp();
-        }
-
-    }
-
     /* Initialize the GfxInfo service.
      * Note: we can't call functions on GfxInfo that depend
      * on gPlatform until after it has been initialized
@@ -343,6 +330,19 @@ gfxPlatform::Init()
 #ifdef DEBUG
     mozilla::gl::GLContext::StaticInit();
 #endif
+
+    bool useOffMainThreadCompositing = GetPrefLayersOffMainThreadCompositionEnabled() ||
+        Preferences::GetBool("browser.tabs.remote", false);
+    useOffMainThreadCompositing &= GetPlatform()->SupportsOffMainThreadCompositing();
+
+    if (useOffMainThreadCompositing && (XRE_GetProcessType() ==
+                                        GeckoProcessType_Default)) {
+        CompositorParent::StartUp();
+        if (Preferences::GetBool("layers.async-video.enabled",false)) {
+            ImageBridgeChild::StartUp();
+        }
+
+    }
 
     nsresult rv;
 
@@ -722,6 +722,16 @@ static void
 DataDrawTargetDestroy(void *aTarget)
 {
   static_cast<DrawTarget*>(aTarget)->Release();
+}
+
+bool
+gfxPlatform::SupportsAzureContentForDrawTarget(DrawTarget* aTarget)
+{
+  if (!aTarget) {
+    return false;
+  }
+
+  return (1 << aTarget->GetType()) & mContentBackendBitmask;
 }
 
 bool
@@ -1282,6 +1292,7 @@ gfxPlatform::InitBackendPrefs(uint32_t aCanvasBitmask, uint32_t aContentBitmask)
     }
     mFallbackCanvasBackend = GetCanvasBackendPref(aCanvasBitmask & ~(1 << mPreferredCanvasBackend));
     mContentBackend = GetContentBackendPref(aContentBitmask);
+    mContentBackendBitmask = aContentBitmask;
 }
 
 /* static */ BackendType
@@ -1800,6 +1811,7 @@ gfxPlatform::GetOrientationSyncMillis() const
  */
 static bool sPrefLayersOffMainThreadCompositionEnabled = false;
 static bool sPrefLayersOffMainThreadCompositionTestingEnabled = false;
+static bool sPrefLayersOffMainThreadCompositionForceEnabled = false;
 static bool sPrefLayersAccelerationForceEnabled = false;
 static bool sPrefLayersAccelerationDisabled = false;
 static bool sPrefLayersPreferOpenGL = false;
@@ -1812,7 +1824,10 @@ void InitLayersAccelerationPrefs()
   {
     sPrefLayersOffMainThreadCompositionEnabled = Preferences::GetBool("layers.offmainthreadcomposition.enabled", false);
     sPrefLayersOffMainThreadCompositionTestingEnabled = Preferences::GetBool("layers.offmainthreadcomposition.testing.enabled", false);
-    sPrefLayersAccelerationForceEnabled = Preferences::GetBool("layers.acceleration.force-enabled", false);
+	sPrefLayersOffMainThreadCompositionForceEnabled = Preferences::GetBool("layers.offmainthreadcomposition.force-enabled", false) ||
+                                                      Preferences::GetBool("browser.tabs.remote", false);                                             
+    sPrefLayersAccelerationForceEnabled = Preferences::GetBool("layers.acceleration.force-enabled", false) ||
+                                          Preferences::GetBool("browser.tabs.remote", false);
     sPrefLayersAccelerationDisabled = Preferences::GetBool("layers.acceleration.disabled", false);
     sPrefLayersPreferOpenGL = Preferences::GetBool("layers.prefer-opengl", false);
     sPrefLayersPreferD3D9 = Preferences::GetBool("layers.prefer-d3d9", false);
@@ -1825,7 +1840,14 @@ bool gfxPlatform::GetPrefLayersOffMainThreadCompositionEnabled()
 {
   InitLayersAccelerationPrefs();
   return sPrefLayersOffMainThreadCompositionEnabled ||
+         sPrefLayersOffMainThreadCompositionForceEnabled ||
          sPrefLayersOffMainThreadCompositionTestingEnabled;
+}
+
+bool gfxPlatform::GetPrefLayersOffMainThreadCompositionForceEnabled()
+{
+  InitLayersAccelerationPrefs();
+  return sPrefLayersOffMainThreadCompositionForceEnabled;
 }
 
 bool gfxPlatform::GetPrefLayersAccelerationForceEnabled()

@@ -4,10 +4,13 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#include "MIR.h"
+
+#include "mozilla/Casting.h"
+
 #include "BaselineInspector.h"
 #include "IonBuilder.h"
 #include "LICM.h" // For LinearSum
-#include "MIR.h"
 #include "MIRGraph.h"
 #include "EdgeCaseAnalysis.h"
 #include "RangeAnalysis.h"
@@ -20,10 +23,12 @@
 using namespace js;
 using namespace js::ion;
 
+using mozilla::BitwiseCast;
+
 void
 MDefinition::PrintOpcodeName(FILE *fp, MDefinition::Opcode op)
 {
-    static const char *names[] =
+    static const char * const names[] =
     {
 #define NAME(x) #x,
         MIR_OPCODE_LIST(NAME)
@@ -224,11 +229,9 @@ void
 MDefinition::printOpcode(FILE *fp)
 {
     PrintOpcodeName(fp, op());
-    fprintf(fp, " ");
     for (size_t j = 0; j < numOperands(); j++) {
+        fprintf(fp, " ");
         getOperand(j)->printName(fp);
-        if (j != numOperands() - 1)
-            fprintf(fp, " ");
     }
 }
 
@@ -238,6 +241,16 @@ MDefinition::useCount() const
     size_t count = 0;
     for (MUseIterator i(uses_.begin()); i != uses_.end(); i++)
         count++;
+    return count;
+}
+
+size_t
+MDefinition::defUseCount() const
+{
+    size_t count = 0;
+    for (MUseIterator i(uses_.begin()); i != uses_.end(); i++)
+        if ((*i)->consumer()->isDefinition())
+            count++;
     return count;
 }
 
@@ -309,10 +322,19 @@ MDefinition::replaceAllUsesWith(MDefinition *dom)
     if (dom == this)
         return;
 
+    for (size_t i = 0; i < numOperands(); i++)
+        getOperand(i)->setUseRemovedUnchecked();
+
     for (MUseIterator i(usesBegin()); i != usesEnd(); ) {
         JS_ASSERT(i->producer() == this);
         i = i->consumer()->replaceOperand(i, dom);
     }
+}
+
+bool
+MDefinition::emptyResultTypeSet() const
+{
+    return resultTypeSet() && resultTypeSet()->empty();
 }
 
 static inline bool
@@ -389,8 +411,8 @@ MConstant::printOpcode(FILE *fp)
         fprintf(fp, "%f", value().toDouble());
         break;
       case MIRType_Object:
-        if (value().toObject().isFunction()) {
-            JSFunction *fun = value().toObject().toFunction();
+        if (value().toObject().is<JSFunction>()) {
+            JSFunction *fun = &value().toObject().as<JSFunction>();
             if (fun->displayAtom()) {
                 fputs("function ", fp);
                 FileEscapedString(fp, fun->displayAtom(), 0);
@@ -418,6 +440,21 @@ MConstant::printOpcode(FILE *fp)
         JS_NOT_REACHED("unexpected type");
         break;
     }
+}
+
+void
+MControlInstruction::printOpcode(FILE *fp)
+{
+    MDefinition::printOpcode(fp);
+    for (size_t j = 0; j < numSuccessors(); j++)
+        fprintf(fp, " block%d", getSuccessor(j)->id());
+}
+
+void
+MCompare::printOpcode(FILE *fp)
+{
+    MDefinition::printOpcode(fp);
+    fprintf(fp, " %s", js_CodeName[jsop()]);
 }
 
 void
@@ -843,7 +880,13 @@ MBitNot::infer()
 static inline bool
 IsConstant(MDefinition *def, double v)
 {
-    return def->isConstant() && def->toConstant()->value().toNumber() == v;
+    if (!def->isConstant())
+        return false;
+
+    // Compare the underlying bits to not equate -0 and +0.
+    uint64_t lhs = BitwiseCast<uint64_t>(def->toConstant()->value().toNumber());
+    uint64_t rhs = BitwiseCast<uint64_t>(v);
+    return lhs == rhs;
 }
 
 MDefinition *
@@ -889,7 +932,7 @@ MBinaryBitwiseInstruction::foldUnnecessaryBitop()
 }
 
 void
-MBinaryBitwiseInstruction::infer()
+MBinaryBitwiseInstruction::infer(BaselineInspector *, jsbytecode *)
 {
     if (getOperand(0)->mightBeType(MIRType_Object) || getOperand(1)->mightBeType(MIRType_Object)) {
         specialization_ = MIRType_None;
@@ -908,7 +951,7 @@ MBinaryBitwiseInstruction::specializeForAsmJS()
 }
 
 void
-MShiftInstruction::infer()
+MShiftInstruction::infer(BaselineInspector *, jsbytecode *)
 {
     if (getOperand(0)->mightBeType(MIRType_Object) || getOperand(1)->mightBeType(MIRType_Object))
         specialization_ = MIRType_None;
@@ -917,7 +960,7 @@ MShiftInstruction::infer()
 }
 
 void
-MUrsh::infer()
+MUrsh::infer(BaselineInspector *inspector, jsbytecode *pc)
 {
     if (getOperand(0)->mightBeType(MIRType_Object) || getOperand(1)->mightBeType(MIRType_Object)) {
         specialization_ = MIRType_None;
@@ -925,13 +968,14 @@ MUrsh::infer()
         return;
     }
 
-    if (type() == MIRType_Int32) {
-        specialization_ = MIRType_Int32;
+    if (inspector->hasSeenDoubleResult(pc)) {
+        specialization_ = MIRType_Double;
+        setResultType(MIRType_Double);
         return;
     }
 
-    specialization_ = MIRType_Double;
-    setResultType(MIRType_Double);
+    specialization_ = MIRType_Int32;
+    setResultType(MIRType_Int32);
 }
 
 static inline bool
@@ -1231,6 +1275,9 @@ MMul::updateForReplacement(MDefinition *ins_)
     MMul *ins = ins_->toMul();
     bool negativeZero = canBeNegativeZero() || ins->canBeNegativeZero();
     setCanBeNegativeZero(negativeZero);
+    // Remove the imul annotation when merging imul and normal multiplication.
+    if (mode_ == Integer && ins->mode() != Integer)
+        mode_ = Normal;
     return true;
 }
 
@@ -1278,7 +1325,7 @@ MBinaryArithInstruction::infer(BaselineInspector *inspector,
         return inferFallback(inspector, pc);
 
     // If the operation has ever overflowed, use a double specialization.
-    if (overflowed)
+    if (inspector->hasSeenDoubleResult(pc))
         setResultType(MIRType_Double);
 
     // If the operation will always overflow on its constant operands, use a
@@ -1337,6 +1384,16 @@ MBinaryArithInstruction::inferFallback(BaselineInspector *inspector,
         specialization_ = MIRType_Double;
         setResultType(MIRType_Double);
         return;
+    }
+
+    // If we can't specialize because we have no type information at all for
+    // the lhs or rhs, mark the binary instruction as having no possible types
+    // either to avoid degrading subsequent analysis.
+    if (getOperand(0)->emptyResultTypeSet() || getOperand(1)->emptyResultTypeSet()) {
+        LifoAlloc *alloc = GetIonContext()->temp->lifoAlloc();
+        types::StackTypeSet *types = alloc->new_<types::StackTypeSet>();
+        if (types)
+            setResultTypeSet(types);
     }
 }
 
@@ -2182,7 +2239,7 @@ InlinePropertyTable::trimTo(AutoObjectVector &targets, Vector<bool> &choiceSet)
         if (choiceSet[i])
             continue;
 
-        JSFunction *target = targets[i]->toFunction();
+        JSFunction *target = &targets[i]->as<JSFunction>();
 
         // Eliminate all entries containing the vetoed function from the map.
         size_t j = 0;
@@ -2210,7 +2267,7 @@ InlinePropertyTable::trimToAndMaybePatchTargets(AutoObjectVector &targets,
         for (size_t j = 0; j < originals.length(); j++) {
             if (entries_[i]->func == originals[j]) {
                 if (entries_[i]->func != targets[j])
-                    entries_[i] = new Entry(entries_[i]->typeObj, targets[j]->toFunction());
+                    entries_[i] = new Entry(entries_[i]->typeObj, &targets[j]->as<JSFunction>());
                 foundFunc = true;
                 break;
             }

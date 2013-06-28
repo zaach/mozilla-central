@@ -339,14 +339,14 @@ JavaScriptShared::fromDescriptor(JSContext *cx, const JSPropertyDescriptor &desc
 }
 
 JSBool
-UnknownPropertyStub(JSContext *cx, JSHandleObject obj, JSHandleId id, JSMutableHandleValue vp)
+UnknownPropertyStub(JSContext *cx, JS::HandleObject obj, JS::HandleId id, JS::MutableHandleValue vp)
 {
     JS_ReportError(cx, "getter could not be wrapped via CPOWs");
     return JS_FALSE;
 }
 
 JSBool
-UnknownStrictPropertyStub(JSContext *cx, JSHandleObject obj, JSHandleId id, JSBool strict, JSMutableHandleValue vp)
+UnknownStrictPropertyStub(JSContext *cx, JS::HandleObject obj, JS::HandleId id, JSBool strict, JS::MutableHandleValue vp)
 {
     JS_ReportError(cx, "setter could not be wrapped via CPOWs");
     return JS_FALSE;

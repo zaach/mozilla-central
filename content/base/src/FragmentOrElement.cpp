@@ -10,6 +10,7 @@
  * utility methods for subclasses, and so forth.
  */
 
+#include "mozilla/MemoryReporting.h"
 #include "mozilla/Util.h"
 #include "mozilla/Likely.h"
 
@@ -125,8 +126,6 @@
 
 using namespace mozilla;
 using namespace mozilla::dom;
-
-NS_DEFINE_IID(kThisPtrOffsetsSID, NS_THISPTROFFSETS_SID);
 
 int32_t nsIContent::sTabFocusModel = eTabFocus_any;
 bool nsIContent::sTabFocusModelAppliesToXUL = false;
@@ -595,7 +594,7 @@ FragmentOrElement::nsDOMSlots::Unlink(bool aIsXUL)
 }
 
 size_t
-FragmentOrElement::nsDOMSlots::SizeOfIncludingThis(nsMallocSizeOfFun aMallocSizeOf) const
+FragmentOrElement::nsDOMSlots::SizeOfIncludingThis(MallocSizeOf aMallocSizeOf) const
 {
   size_t n = aMallocSizeOf(this);
 
@@ -1692,18 +1691,14 @@ NS_INTERFACE_MAP_BEGIN(FragmentOrElement)
   NS_INTERFACE_MAP_ENTRY(mozilla::dom::EventTarget)
   NS_INTERFACE_MAP_ENTRY_TEAROFF(nsISupportsWeakReference,
                                  new nsNodeSupportsWeakRefTearoff(this))
-  NS_INTERFACE_MAP_ENTRY_TEAROFF(nsIDOMNodeSelector,
-                                 new nsNodeSelectorTearoff(this))
   NS_INTERFACE_MAP_ENTRY_TEAROFF(nsIDOMXPathNSResolver,
                                  new nsNode3Tearoff(this))
   NS_INTERFACE_MAP_ENTRY_TEAROFF(nsITouchEventReceiver,
                                  new nsTouchEventReceiverTearoff(this))
   NS_INTERFACE_MAP_ENTRY_TEAROFF(nsIInlineEventHandlers,
                                  new nsInlineEventHandlersTearoff(this))
-  // nsNodeSH::PreCreate() depends on the identity pointer being the
-  // same as nsINode (which nsIContent inherits), so if you change the
-  // below line, make sure nsNodeSH::PreCreate() still does the right
-  // thing!
+  // DOM bindings depend on the identity pointer being the
+  // same as nsINode (which nsIContent inherits).
   NS_INTERFACE_MAP_ENTRY_AMBIGUOUS(nsISupports, nsIContent)
 NS_INTERFACE_MAP_END
 
@@ -1836,7 +1831,7 @@ FragmentOrElement::FireNodeRemovedForChildren()
 }
 
 size_t
-FragmentOrElement::SizeOfExcludingThis(nsMallocSizeOfFun aMallocSizeOf) const
+FragmentOrElement::SizeOfExcludingThis(MallocSizeOf aMallocSizeOf) const
 {
   size_t n = 0;
   n += nsIContent::SizeOfExcludingThis(aMallocSizeOf);

@@ -143,7 +143,7 @@ public:
    * scroll offset in such a way that it remains in the same place on the page
    * relative.
    */
-  Overscroll ScaleWillOverscroll(float aScale, int32_t aFocus);
+  Overscroll ScaleWillOverscroll(float aScale, float aFocus);
 
   /**
    * If a scale will overscroll the axis, this returns the amount and in what
@@ -153,7 +153,7 @@ public:
    * scroll offset in such a way that it remains in the same place on the page
    * relative.
    */
-  float ScaleWillOverscrollAmount(float aScale, int32_t aFocus);
+  float ScaleWillOverscrollAmount(float aScale, float aFocus);
 
   /**
    * Checks if an axis will overscroll in both directions by computing the
@@ -172,8 +172,8 @@ public:
   float GetPageEnd();
 
   virtual float GetPointOffset(const CSSPoint& aPoint) = 0;
-  virtual float GetRectLength(const gfx::Rect& aRect) = 0;
-  virtual float GetRectOffset(const gfx::Rect& aRect) = 0;
+  virtual float GetRectLength(const CSSRect& aRect) = 0;
+  virtual float GetRectOffset(const CSSRect& aRect) = 0;
 
 protected:
   int32_t mPos;
@@ -193,16 +193,16 @@ class AxisX : public Axis {
 public:
   AxisX(AsyncPanZoomController* mAsyncPanZoomController);
   virtual float GetPointOffset(const CSSPoint& aPoint);
-  virtual float GetRectLength(const gfx::Rect& aRect);
-  virtual float GetRectOffset(const gfx::Rect& aRect);
+  virtual float GetRectLength(const CSSRect& aRect);
+  virtual float GetRectOffset(const CSSRect& aRect);
 };
 
 class AxisY : public Axis {
 public:
   AxisY(AsyncPanZoomController* mAsyncPanZoomController);
   virtual float GetPointOffset(const CSSPoint& aPoint);
-  virtual float GetRectLength(const gfx::Rect& aRect);
-  virtual float GetRectOffset(const gfx::Rect& aRect);
+  virtual float GetRectLength(const CSSRect& aRect);
+  virtual float GetRectOffset(const CSSRect& aRect);
 };
 
 }

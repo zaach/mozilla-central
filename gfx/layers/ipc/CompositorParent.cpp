@@ -249,6 +249,18 @@ CompositorParent::RecvMakeSnapshot(const SurfaceDescriptor& aInSnapshot,
   return true;
 }
 
+bool
+CompositorParent::RecvFlushRendering()
+{
+  // If we're waiting to do a composite, then cancel it
+  // and do it immediately instead.
+  if (mCurrentCompositeTask) {
+    mCurrentCompositeTask->Cancel();
+    ComposeToTarget(nullptr);
+  }
+  return true;
+}
+
 void
 CompositorParent::ActorDestroy(ActorDestroyReason why)
 {
@@ -424,12 +436,6 @@ CompositorParent::ScheduleComposition()
 }
 
 void
-CompositorParent::SetTransformation(float aScale, nsIntPoint aScrollOffset)
-{
-  mCompositionManager->SetTransformation(aScale, aScrollOffset);
-}
-
-void
 CompositorParent::Composite()
 {
   NS_ABORT_IF_FALSE(CompositorThreadID() == PlatformThread::CurrentId(),
@@ -545,6 +551,9 @@ CompositorParent::ShadowLayersUpdated(LayerTransactionParent* aLayerTree,
   mLayerManager->SetRoot(root);
   if (root) {
     SetShadowProperties(root);
+    if (mIsTesting) {
+      mCompositionManager->TransformShadowTree(mTestTime);
+    }
   }
   ScheduleComposition();
   LayerManagerComposite *layerComposite = mLayerManager->AsLayerManagerComposite();
@@ -746,6 +755,7 @@ public:
   virtual bool RecvMakeSnapshot(const SurfaceDescriptor& aInSnapshot,
                                 SurfaceDescriptor* aOutSnapshot)
   { return true; }
+  virtual bool RecvFlushRendering() MOZ_OVERRIDE { return true; }
 
   virtual PLayerTransactionParent*
     AllocPLayerTransaction(const LayersBackend& aBackendType,

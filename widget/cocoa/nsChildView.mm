@@ -140,7 +140,7 @@ uint32_t nsChildView::sLastInputEventCount = 0;
 - (void)processPendingRedraws;
 
 - (void)drawRect:(NSRect)aRect inContext:(CGContextRef)aContext;
-
+- (nsIntRegion)nativeDirtyRegionWithBoundingRect:(NSRect)aRect;
 - (BOOL)isUsingMainThreadOpenGL;
 - (BOOL)isUsingOpenGL;
 - (void)drawUsingOpenGL;
@@ -1386,6 +1386,10 @@ NS_IMETHODIMP nsChildView::Invalidate(const nsIntRect &aRect)
   if (!mView || !mVisible)
     return NS_OK;
 
+  NS_ASSERTION(GetLayerManager()->GetBackendType() != LAYERS_CLIENT ||
+               Compositor::GetBackend() == LAYERS_BASIC,
+               "Shouldn't need to invalidate with accelerated OMTC layers!");
+
   if ([NSView focusView]) {
     // if a view is focussed (i.e. being drawn), then postpone the invalidate so that we
     // don't lose it.
@@ -1417,7 +1421,8 @@ nsChildView::ShouldUseOffMainThreadCompositing()
   // OMTC doesn't work with Basic Layers on OS X right now. Once it works, we'll
   // still want to disable it for certain kinds of windows (e.g. popups).
   return nsBaseWidget::ShouldUseOffMainThreadCompositing() &&
-         ComputeShouldAccelerate(mUseLayersAcceleration);
+         (ComputeShouldAccelerate(mUseLayersAcceleration) ||
+          Preferences::GetBool("layers.offmainthreadcomposition.prefer-basic", false));
 }
 
 inline uint16_t COLOR8TOCOLOR16(uint8_t color8)
@@ -2230,7 +2235,8 @@ nsChildView::MaybeDrawRoundedCorners(GLManager* aManager, const nsIntRect& aRect
     return;
   }
 
-  if (!mCornerMaskImage) {
+  if (!mCornerMaskImage ||
+      mCornerMaskImage->GetSize().width != mDevPixelCornerRadius) {
     mCornerMaskImage =
       aManager->gl()->CreateTextureImage(nsIntSize(mDevPixelCornerRadius,
                                                    mDevPixelCornerRadius),
@@ -2376,7 +2382,7 @@ nsChildView::GetDocumentAccessible()
 
   // need to fetch the accessible anew, because it has gone away.
   // cache the accessible in our weak ptr
-  nsRefPtr<a11y::Accessible> acc = GetAccessible();
+  nsRefPtr<a11y::Accessible> acc = GetRootAccessible();
   mAccessible = do_GetWeakReference(static_cast<nsIAccessible *>(acc.get()));
 
   return acc.forget();
@@ -2941,6 +2947,27 @@ NSEvent* gLastDragMouseDownEvent = nil;
          [(BaseWindow*)[self window] drawsContentsIntoWindowFrame];
 }
 
+- (nsIntRegion)nativeDirtyRegionWithBoundingRect:(NSRect)aRect
+{
+  nsIntRect boundingRect = mGeckoChild->CocoaPointsToDevPixels(aRect);
+  const NSRect *rects;
+  NSInteger count;
+  [[NSView focusView] getRectsBeingDrawn:&rects count:&count];
+
+  if (count > MAX_RECTS_IN_REGION) {
+    return boundingRect;
+  }
+
+  nsIntRegion region;
+  for (NSInteger i = 0; i < count; ++i) {
+    // Add the rect to the region.
+    NSRect r = [self convertRect:rects[i] fromView:[NSView focusView]];
+    region.Or(region, mGeckoChild->CocoaPointsToDevPixels(r));
+  }
+  region.And(region, boundingRect);
+  return region;
+}
+
 // The display system has told us that a portion of our view is dirty. Tell
 // gecko to paint it
 - (void)drawRect:(NSRect)aRect
@@ -2977,25 +3004,6 @@ NSEvent* gLastDragMouseDownEvent = nil;
   fprintf (stderr, "  xform in: [%f %f %f %f %f %f]\n", xform.a, xform.b, xform.c, xform.d, xform.tx, xform.ty);
 #endif
 
-  nsIntRegion region;
-  nsIntRect boundingRect = mGeckoChild->CocoaPointsToDevPixels(aRect);
-  const NSRect *rects;
-  NSInteger count, i;
-  [[NSView focusView] getRectsBeingDrawn:&rects count:&count];
-
-  CGContextClipToRects(aContext, (CGRect*)rects, count);
-
-  if (count < MAX_RECTS_IN_REGION) {
-    for (i = 0; i < count; ++i) {
-      // Add the rect to the region.
-      NSRect r = [self convertRect:rects[i] fromView:[NSView focusView]];
-      region.Or(region, mGeckoChild->CocoaPointsToDevPixels(r));
-    }
-    region.And(region, boundingRect);
-  } else {
-    region = boundingRect;
-  }
-
   if ([self isUsingOpenGL]) {
     // For Gecko-initiated repaints in OpenGL mode, drawUsingOpenGL is
     // directly called from a delayed perform callback - without going through
@@ -3011,17 +3019,18 @@ NSEvent* gLastDragMouseDownEvent = nil;
     // So we need to clear the pixel buffer contents in the corners.
     [self clearCorners];
 
-    // When our view covers the titlebar, we need to repaint the titlebar
-    // texture buffer when, for example, the window buttons are hovered.
-    // So we notify our nsChildView about any areas needing repainting.
-    mGeckoChild->NotifyDirtyRegion(region);
-
     // Do GL composition and return.
     [self drawUsingOpenGL];
     return;
   }
 
   PROFILER_LABEL("widget", "ChildView::drawRect");
+
+  // Clip to the dirty region.
+  const NSRect *rects;
+  NSInteger count;
+  [[NSView focusView] getRectsBeingDrawn:&rects count:&count];
+  CGContextClipToRects(aContext, (CGRect*)rects, count);
 
   // The CGContext that drawRect supplies us with comes with a transform that
   // scales one user space unit to one Cocoa point, which can consist of
@@ -3035,6 +3044,8 @@ NSEvent* gLastDragMouseDownEvent = nil;
   nsIntSize backingSize(viewSize.width * scale, viewSize.height * scale);
 
   CGContextSaveGState(aContext);
+
+  nsIntRegion region = [self nativeDirtyRegionWithBoundingRect:aRect];
 
   // Create Cairo objects.
   nsRefPtr<gfxQuartzSurface> targetSurface =
@@ -3300,6 +3311,18 @@ NSEvent* gLastDragMouseDownEvent = nil;
       [self performSelector:@selector(releaseWidgets:)
                  withObject:widgetArray
                  afterDelay:0];
+    }
+
+    if ([self isUsingOpenGL]) {
+      // When our view covers the titlebar, we need to repaint the titlebar
+      // texture buffer when, for example, the window buttons are hovered.
+      // So we notify our nsChildView about any areas needing repainting.
+      mGeckoChild->NotifyDirtyRegion([self nativeDirtyRegionWithBoundingRect:[self bounds]]);
+
+      if (mGeckoChild->GetLayerManager()->GetBackendType() == LAYERS_CLIENT) {
+        ClientLayerManager *manager = static_cast<ClientLayerManager*>(mGeckoChild->GetLayerManager());
+        manager->WindowOverlayChanged();
+      }
     }
 
     mGeckoChild->WillPaintWindow();
@@ -3694,10 +3717,10 @@ NSEvent* gLastDragMouseDownEvent = nil;
 
 #ifdef __LP64__
 - (bool)sendSwipeEvent:(NSEvent*)aEvent
-                withKind:(PRUint32)aMsg
-       allowedDirections:(PRUint32*)aAllowedDirections
-               direction:(PRUint32)aDirection
-                   delta:(PRFloat64)aDelta
+                withKind:(uint32_t)aMsg
+       allowedDirections:(uint32_t*)aAllowedDirections
+               direction:(uint32_t)aDirection
+                   delta:(double)aDelta
 {
   if (!mGeckoChild)
     return false;
@@ -3711,10 +3734,10 @@ NSEvent* gLastDragMouseDownEvent = nil;
 }
 
 - (void)sendSwipeEndEvent:(NSEvent *)anEvent
-        allowedDirections:(PRUint32)aAllowedDirections
+        allowedDirections:(uint32_t)aAllowedDirections
 {
     // Tear down animation overlay by sending a swipe end event.
-    PRUint32 allowedDirectionsCopy = aAllowedDirections;
+    uint32_t allowedDirectionsCopy = aAllowedDirections;
     [self sendSwipeEvent:anEvent
                 withKind:NS_SIMPLE_GESTURE_SWIPE_END
        allowedDirections:&allowedDirectionsCopy
@@ -3772,9 +3795,9 @@ NSEvent* gLastDragMouseDownEvent = nil;
     return;
   }
 
-  PRUint32 vDirs = (PRUint32)nsIDOMSimpleGestureEvent::DIRECTION_DOWN |
-                   (PRUint32)nsIDOMSimpleGestureEvent::DIRECTION_UP;
-  PRUint32 direction = 0;
+  uint32_t vDirs = (uint32_t)nsIDOMSimpleGestureEvent::DIRECTION_DOWN |
+                   (uint32_t)nsIDOMSimpleGestureEvent::DIRECTION_UP;
+  uint32_t direction = 0;
   // Only initiate horizontal tracking for events whose horizontal element is
   // at least eight times larger than its vertical element. This minimizes
   // performance problems with vertical scrolls (by minimizing the possibility
@@ -3790,9 +3813,9 @@ NSEvent* gLastDragMouseDownEvent = nil;
       return;
 
     if (deltaX < 0.0)
-      direction = (PRUint32)nsIDOMSimpleGestureEvent::DIRECTION_RIGHT;
+      direction = (uint32_t)nsIDOMSimpleGestureEvent::DIRECTION_RIGHT;
     else
-      direction = (PRUint32)nsIDOMSimpleGestureEvent::DIRECTION_LEFT;
+      direction = (uint32_t)nsIDOMSimpleGestureEvent::DIRECTION_LEFT;
   }
   // Only initiate vertical tracking for events whose vertical element is
   // at least two times larger than its horizontal element. This minimizes
@@ -3800,9 +3823,9 @@ NSEvent* gLastDragMouseDownEvent = nil;
   else if (overflowY != 0.0 && deltaY != 0.0 &&
            fabsf(deltaY) > fabsf(deltaX) * 2) {
     if (deltaY < 0.0)
-      direction = (PRUint32)nsIDOMSimpleGestureEvent::DIRECTION_DOWN;
+      direction = (uint32_t)nsIDOMSimpleGestureEvent::DIRECTION_DOWN;
     else
-      direction = (PRUint32)nsIDOMSimpleGestureEvent::DIRECTION_UP;
+      direction = (uint32_t)nsIDOMSimpleGestureEvent::DIRECTION_UP;
 
     if ((mCurrentSwipeDir & vDirs) && (mCurrentSwipeDir != direction)) {
       // If a swipe is currently being tracked kill it -- it's been interrupted
@@ -3829,7 +3852,7 @@ NSEvent* gLastDragMouseDownEvent = nil;
     mCancelSwipeAnimation = nil;
   }
 
-  PRUint32 allowedDirections = 0;
+  uint32_t allowedDirections = 0;
   // We're ready to start the animation. Tell Gecko about it, and at the same
   // time ask it if it really wants to start an animation for this event.
   // This event also reports back the directions that we can swipe in.
@@ -3877,7 +3900,7 @@ NSEvent* gLastDragMouseDownEvent = nil;
                                         NSEventPhase phase,
                                         BOOL isComplete,
                                         BOOL *stop) {
-    PRUint32 allowedDirectionsCopy = allowedDirections;
+    uint32_t allowedDirectionsCopy = allowedDirections;
     // Since this tracking handler can be called asynchronously, mGeckoChild
     // might have become NULL here (our child widget might have been
     // destroyed).
@@ -3912,7 +3935,7 @@ NSEvent* gLastDragMouseDownEvent = nil;
       // The animation might continue even after this event was sent, so
       // don't tear down the animation overlay yet.
 
-      PRUint32 directionCopy = direction;
+      uint32_t directionCopy = direction;
 
       // gestureAmount is documented to be '-1', '0' or '1' when isComplete
       // is TRUE, but the docs don't say anything about its value at other
@@ -4091,7 +4114,20 @@ NSEvent* gLastDragMouseDownEvent = nil;
   }
 
   // This might destroy our widget (and null out mGeckoChild).
-  mGeckoChild->DispatchWindowEvent(geckoEvent);
+  bool defaultPrevented = mGeckoChild->DispatchWindowEvent(geckoEvent);
+
+  // Check to see if we are double-clicking in the titlebar.
+  CGFloat locationInTitlebar = [[self window] frame].size.height - [theEvent locationInWindow].y;
+  if (!defaultPrevented && [theEvent clickCount] == 2 &&
+      [[self window] isMovableByWindowBackground] &&
+      [self shouldMinimizeOnTitlebarDoubleClick] &&
+      [[self window] isKindOfClass:[ToolbarWindow class]] &&
+      (locationInTitlebar < [(ToolbarWindow*)[self window] titlebarHeight] ||
+       locationInTitlebar < [(ToolbarWindow*)[self window] unifiedToolbarHeight])) {
+
+    NSButton *minimizeButton = [[self window] standardWindowButton:NSWindowMiniaturizeButton];
+    [minimizeButton performClick:self];
+  }
 
   // If our mouse-up event's location is over some other object (as might
   // happen if it came at the end of a dragging operation), also send our
@@ -4600,6 +4636,22 @@ static int32_t RoundUp(double aDouble)
     mouseEvent->buttons |= nsMouseEvent::e5thButtonFlag;
   }
 
+  switch ([aMouseEvent type]) {
+    case NSLeftMouseDown:
+    case NSLeftMouseUp:
+    case NSLeftMouseDragged:
+    case NSRightMouseDown:
+    case NSRightMouseUp:
+    case NSRightMouseDragged:
+    case NSOtherMouseDown:
+    case NSOtherMouseUp:
+    case NSOtherMouseDragged:
+      if ([aMouseEvent subtype] == NSTabletPointEventSubtype) {
+        mouseEvent->pressure = [aMouseEvent pressure];
+      }
+      break;
+  }
+
   NS_OBJC_END_TRY_ABORT_BLOCK;
 }
 
@@ -4679,6 +4731,17 @@ static int32_t RoundUp(double aDouble)
 {
   NS_ENSURE_TRUE(mTextInputHandler, NO);
   return mTextInputHandler->HasMarkedText();
+}
+
+- (BOOL)shouldMinimizeOnTitlebarDoubleClick
+{
+  NSString *MDAppleMiniaturizeOnDoubleClickKey =
+                                      @"AppleMiniaturizeOnDoubleClick";
+  NSUserDefaults *userDefaults = [NSUserDefaults standardUserDefaults];
+  bool shouldMinimize = [[userDefaults
+          objectForKey:MDAppleMiniaturizeOnDoubleClickKey] boolValue];
+
+  return shouldMinimize;
 }
 
 - (NSInteger) conversationIdentifier

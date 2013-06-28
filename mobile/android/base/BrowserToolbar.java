@@ -11,6 +11,7 @@ import org.mozilla.gecko.gfx.ImmutableViewportMetrics;
 import org.mozilla.gecko.gfx.LayerView;
 import org.mozilla.gecko.menu.GeckoMenu;
 import org.mozilla.gecko.menu.MenuPopup;
+import org.mozilla.gecko.util.Clipboard;
 import org.mozilla.gecko.util.StringUtils;
 import org.mozilla.gecko.util.HardwareUtils;
 
@@ -18,6 +19,8 @@ import org.mozilla.gecko.util.ThreadUtils;
 import org.mozilla.gecko.util.UiAsyncTask;
 
 import org.mozilla.gecko.PrefsHelper;
+
+import org.json.JSONObject;
 
 import android.content.Context;
 import android.content.res.Resources;
@@ -44,8 +47,10 @@ import android.view.ViewGroup;
 import android.view.ViewGroup.MarginLayoutParams;
 import android.view.Window;
 import android.view.accessibility.AccessibilityNodeInfo;
+import android.view.animation.AccelerateInterpolator;
 import android.view.animation.Animation;
 import android.view.animation.AlphaAnimation;
+import android.view.animation.Interpolator;
 import android.view.animation.TranslateAnimation;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.Button;
@@ -99,8 +104,6 @@ public class BrowserToolbar implements Tabs.OnTabsChangedListener,
     private boolean mShowSiteSecurity;
     private boolean mShowReader;
 
-    private static List<View> sActionItems;
-
     private boolean mAnimatingEntry;
 
     private AlphaAnimation mLockFadeIn;
@@ -114,6 +117,7 @@ public class BrowserToolbar implements Tabs.OnTabsChangedListener,
     private int mFaviconSize;
 
     private PropertyAnimator mVisibilityAnimator;
+    private static final Interpolator sButtonsInterpolator = new AccelerateInterpolator();
 
     private static final int TABS_CONTRACTED = 1;
     private static final int TABS_EXPANDED = 2;
@@ -131,7 +135,6 @@ public class BrowserToolbar implements Tabs.OnTabsChangedListener,
         // BrowserToolbar is attached to BrowserApp only.
         mActivity = activity;
 
-        sActionItems = new ArrayList<View>();
         Tabs.registerOnTabsChangedListener(this);
         mSwitchingTabs = true;
 
@@ -195,7 +198,7 @@ public class BrowserToolbar implements Tabs.OnTabsChangedListener,
                 MenuInflater inflater = mActivity.getMenuInflater();
                 inflater.inflate(R.menu.titlebar_contextmenu, menu);
 
-                String clipboard = GeckoAppShell.getClipboardText();
+                String clipboard = Clipboard.getText();
                 if (TextUtils.isEmpty(clipboard)) {
                     menu.findItem(R.id.pasteandgo).setVisible(false);
                     menu.findItem(R.id.paste).setVisible(false);
@@ -241,8 +244,6 @@ public class BrowserToolbar implements Tabs.OnTabsChangedListener,
 
         mTitle = (GeckoTextView) mLayout.findViewById(R.id.awesome_bar_title);
         mTitlePadding = mTitle.getPaddingRight();
-        if (Build.VERSION.SDK_INT >= 16)
-            mTitle.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
 
         mTabs = (ShapedButton) mLayout.findViewById(R.id.tabs);
         mTabs.setOnClickListener(new Button.OnClickListener() {
@@ -290,7 +291,14 @@ public class BrowserToolbar implements Tabs.OnTabsChangedListener,
                 if (mSiteSecurity.getVisibility() != View.VISIBLE)
                     return;
 
-                SiteIdentityPopup.getInstance().show(mSiteSecurity);
+                JSONObject identityData = Tabs.getInstance().getSelectedTab().getIdentityData();
+                if (identityData == null) {
+                    Log.e(LOGTAG, "Selected tab has no identity data");
+                    return;
+                }
+                SiteIdentityPopup siteIdentityPopup = mActivity.getSiteIdentityPopup();
+                siteIdentityPopup.updateIdentity(identityData);
+                siteIdentityPopup.show();
             }
         };
 
@@ -303,6 +311,7 @@ public class BrowserToolbar implements Tabs.OnTabsChangedListener,
         mSiteSecurity = (ImageButton) mLayout.findViewById(R.id.site_security);
         mSiteSecurity.setOnClickListener(faviconListener);
         mSiteSecurityVisible = (mSiteSecurity.getVisibility() == View.VISIBLE);
+        mActivity.getSiteIdentityPopup().setAnchor(mSiteSecurity);
 
         mProgressSpinner = (AnimationDrawable) mActivity.getResources().getDrawable(R.drawable.progress_spinner);
         
@@ -407,32 +416,6 @@ public class BrowserToolbar implements Tabs.OnTabsChangedListener,
             });
         }
 
-        if (Build.VERSION.SDK_INT >= 11) {
-            View panel = mActivity.getMenuPanel();
-
-            // If panel is null, the app is starting up for the first time;
-            //    add this to the popup only if we have a soft menu button.
-            // else, browser-toolbar is initialized on rotation,
-            //    and we need to re-attach action-bar items.
-
-            if (panel == null) {
-                mActivity.onCreatePanelMenu(Window.FEATURE_OPTIONS_PANEL, null);
-                panel = mActivity.getMenuPanel();
-
-                if (mHasSoftMenuButton) {
-                    mMenuPopup = new MenuPopup(mActivity);
-                    mMenuPopup.setPanelView(panel);
-
-                    mMenuPopup.setOnDismissListener(new PopupWindow.OnDismissListener() {
-                        @Override
-                        public void onDismiss() {
-                            mActivity.onOptionsMenuClosed(null);
-                        }
-                    });
-                }
-            }
-        }
-
         mFocusOrder = Arrays.asList(mBack, mForward, mLayout, mReader, mSiteSecurity, mStop, mTabs);
     }
 
@@ -468,6 +451,8 @@ public class BrowserToolbar implements Tabs.OnTabsChangedListener,
                     updateTitle();
                 }
                 break;
+            case RESTORED:
+                // TabCount fixup after OOM
             case SELECTED:
                 updateTabCount(Tabs.getInstance().getDisplayCount());
                 mSwitchingTabs = true;
@@ -590,6 +575,7 @@ public class BrowserToolbar implements Tabs.OnTabsChangedListener,
 
             if (mHasSoftMenuButton) {
                 ViewHelper.setTranslationX(mMenu, curveTranslation);
+                ViewHelper.setTranslationX(mMenuIcon, curveTranslation);
             }
 
             ViewHelper.setAlpha(mReader, 0);
@@ -617,10 +603,14 @@ public class BrowserToolbar implements Tabs.OnTabsChangedListener,
                                PropertyAnimator.Property.TRANSLATION_X,
                                0);
 
-        if (mHasSoftMenuButton)
+        if (mHasSoftMenuButton) {
             contentAnimator.attach(mMenu,
                                    PropertyAnimator.Property.TRANSLATION_X,
                                    0);
+            contentAnimator.attach(mMenuIcon,
+                                   PropertyAnimator.Property.TRANSLATION_X,
+                                   0);
+        }
 
         contentAnimator.setPropertyAnimationListener(new PropertyAnimator.PropertyAnimationListener() {
             @Override
@@ -704,10 +694,14 @@ public class BrowserToolbar implements Tabs.OnTabsChangedListener,
                                PropertyAnimator.Property.TRANSLATION_X,
                                curveTranslation);
 
-        if (mHasSoftMenuButton)
+        if (mHasSoftMenuButton) {
             contentAnimator.attach(mMenu,
                                    PropertyAnimator.Property.TRANSLATION_X,
                                    curveTranslation);
+            contentAnimator.attach(mMenuIcon,
+                                   PropertyAnimator.Property.TRANSLATION_X,
+                                   curveTranslation);
+        }
 
         contentAnimator.setPropertyAnimationListener(new PropertyAnimator.PropertyAnimationListener() {
             @Override
@@ -938,16 +932,9 @@ public class BrowserToolbar implements Tabs.OnTabsChangedListener,
     }
     
     private void setSecurityMode(String mode) {
-        mShowSiteSecurity = true;
-
-        if (mode.equals(SiteIdentityPopup.IDENTIFIED)) {
-            mSiteSecurity.setImageLevel(1);
-        } else if (mode.equals(SiteIdentityPopup.VERIFIED)) {
-            mSiteSecurity.setImageLevel(2);
-        } else {
-            mSiteSecurity.setImageLevel(0);
-            mShowSiteSecurity = false;
-        }
+        int imageLevel = SiteIdentityPopup.getSecurityImageLevel(mode);
+        mSiteSecurity.setImageLevel(imageLevel);
+        mShowSiteSecurity = (imageLevel != SiteIdentityPopup.LEVEL_UKNOWN);
 
         setPageActionVisibility(mStop.getVisibility() == View.VISIBLE);
     }
@@ -961,8 +948,23 @@ public class BrowserToolbar implements Tabs.OnTabsChangedListener,
         mLayout.requestFocusFromTouch();
     }
 
-    public void prepareTabsAnimation(boolean tabsAreShown) {
+    public void prepareTabsAnimation(PropertyAnimator animator, boolean tabsAreShown) {
         if (!tabsAreShown) {
+            PropertyAnimator buttonsAnimator =
+                    new PropertyAnimator(animator.getDuration(), sButtonsInterpolator);
+
+            buttonsAnimator.attach(mTabsCounter,
+                                   PropertyAnimator.Property.ALPHA,
+                                   1.0f);
+
+            if (mHasSoftMenuButton && !HardwareUtils.isTablet()) {
+                buttonsAnimator.attach(mMenuIcon,
+                                       PropertyAnimator.Property.ALPHA,
+                                       1.0f);
+            }
+
+            buttonsAnimator.start();
+
             return;
         }
 
@@ -971,26 +973,6 @@ public class BrowserToolbar implements Tabs.OnTabsChangedListener,
         if (mHasSoftMenuButton && !HardwareUtils.isTablet()) {
             ViewHelper.setAlpha(mMenuIcon, 0.0f);
         }
-    }
-
-    public void finishTabsAnimation(boolean tabsAreShown) {
-        if (tabsAreShown) {
-            return;
-        }
-
-        PropertyAnimator animator = new PropertyAnimator(150);
-
-        animator.attach(mTabsCounter,
-                        PropertyAnimator.Property.ALPHA,
-                        1.0f);
-
-        if (mHasSoftMenuButton && !HardwareUtils.isTablet()) {
-            animator.attach(mMenuIcon,
-                            PropertyAnimator.Property.ALPHA,
-                            1.0f);
-        }
-
-        animator.start();
     }
 
     public void updateBackButton(boolean enabled) {
@@ -1104,20 +1086,11 @@ public class BrowserToolbar implements Tabs.OnTabsChangedListener,
     @Override
     public void addActionItem(View actionItem) {
         mActionItemBar.addView(actionItem);
-
-        if (!sActionItems.contains(actionItem))
-            sActionItems.add(actionItem);
     }
 
     @Override
-    public void removeActionItem(int index) {
-        mActionItemBar.removeViewAt(index);
-        sActionItems.remove(index);
-    }
-
-    @Override
-    public int getActionItemsCount() {
-        return sActionItems.size();
+    public void removeActionItem(View actionItem) {
+        mActionItemBar.removeView(actionItem);
     }
 
     public void show() {
@@ -1168,8 +1141,22 @@ public class BrowserToolbar implements Tabs.OnTabsChangedListener,
         if (!mHasSoftMenuButton)
             return false;
 
+        // Initialize the popup.
+        if (mMenuPopup == null) {
+            View panel = mActivity.getMenuPanel();
+            mMenuPopup = new MenuPopup(mActivity);
+            mMenuPopup.setPanelView(panel);
+
+            mMenuPopup.setOnDismissListener(new PopupWindow.OnDismissListener() {
+                @Override
+                public void onDismiss() {
+                    mActivity.onOptionsMenuClosed(null);
+                }
+            });
+        }
+
         GeckoAppShell.getGeckoInterface().invalidateOptionsMenu();
-        if (mMenuPopup != null && !mMenuPopup.isShowing())
+        if (!mMenuPopup.isShowing())
             mMenuPopup.showAsDropDown(mMenu);
 
         return true;
@@ -1179,7 +1166,7 @@ public class BrowserToolbar implements Tabs.OnTabsChangedListener,
         if (!mHasSoftMenuButton)
             return false;
 
-        if (mMenuPopup != null && mMenuPopup.isShowing())
+        if (mMenuPopup.isShowing())
             mMenuPopup.dismiss();
 
         return true;

@@ -66,17 +66,22 @@ class TerminalLoggingHandler(logging.Handler):
     def emit(self, record):
         msg = self.format(record)
 
-        if self.footer:
-            self.footer.clear()
+        self.acquire()
 
-        self.fh.write(msg)
-        self.fh.write('\n')
+        try:
+            if self.footer:
+                    self.footer.clear()
 
-        if self.footer:
-            self.footer.draw()
+            self.fh.write(msg)
+            self.fh.write('\n')
 
-        # If we don't flush, the footer may not get drawn.
-        self.flush()
+            if self.footer:
+                self.footer.draw()
+
+            # If we don't flush, the footer may not get drawn.
+            self.fh.flush()
+        finally:
+            self.release()
 
 
 class BuildProgressFooter(object):
@@ -464,12 +469,18 @@ class GTestCommands(MachCommandBase):
     @CommandArgument('--shuffle', '-s', action='store_true',
         help='Randomize the execution order of tests.')
     def gtest(self, shuffle, jobs, gtest_filter, tbpl_parser):
+
+        # We lazy build gtest because it's slow to link
+        self._run_make(directory="testing/gtest", target='gtest', ensure_exit_code=True)
+
         app_path = self.get_binary_path('app')
 
         # Use GTest environment variable to control test execution
         # For details see:
         # https://code.google.com/p/googletest/wiki/AdvancedGuide#Running_Test_Programs:_Advanced_Options
         gtest_env = {b'GTEST_FILTER': gtest_filter}
+
+        gtest_env[b"MOZ_RUN_GTEST"] = b"True"
 
         if shuffle:
             gtest_env[b"GTEST_SHUFFLE"] = b"True"

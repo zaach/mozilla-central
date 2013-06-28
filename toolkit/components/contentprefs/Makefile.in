@@ -9,15 +9,9 @@ VPATH = @srcdir@
 
 include $(DEPTH)/config/autoconf.mk
 
-EXTRA_COMPONENTS = \
+DISABLED_EXTRA_COMPONENTS = \
   nsContentPrefService.js \
   nsContentPrefService.manifest \
-  $(NULL)
-
-EXTRA_JS_MODULES = \
-  ContentPrefInstance.jsm \
-  ContentPrefService2.jsm \
-  ContentPrefStore.jsm \
   $(NULL)
 
 include $(topsrcdir)/config/rules.mk

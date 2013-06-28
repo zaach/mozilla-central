@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef jsion_macro_assembler_x64_h__
-#define jsion_macro_assembler_x64_h__
+#ifndef ion_x64_MacroAssembler_x64_h
+#define ion_x64_MacroAssembler_x64_h
 
 #include "ion/shared/MacroAssembler-x86-shared.h"
 #include "ion/MoveResolver.h"
@@ -53,6 +53,7 @@ class MacroAssemblerX64 : public MacroAssemblerX86Shared
   public:
     using MacroAssemblerX86Shared::call;
     using MacroAssemblerX86Shared::Push;
+    using MacroAssemblerX86Shared::Pop;
     using MacroAssemblerX86Shared::callWithExitFrame;
     using MacroAssemblerX86Shared::branch32;
 
@@ -188,6 +189,10 @@ class MacroAssemblerX64 : public MacroAssemblerX86Shared
     }
     void pushValue(const Address &addr) {
         push(Operand(addr));
+    }
+    void Pop(const ValueOperand &val) {
+        popValue(val);
+        framePushed_ -= sizeof(Value);
     }
 
     void moveValue(const Value &val, const Register &dest) {
@@ -387,8 +392,12 @@ class MacroAssemblerX64 : public MacroAssemblerX86Shared
         cmpq(lhs, ScratchReg);
     }
     void cmpPtr(const Operand &lhs, const ImmWord rhs) {
-        mov(rhs, ScratchReg);
-        cmpq(lhs, ScratchReg);
+        if ((intptr_t)rhs.value <= INT32_MAX && (intptr_t)rhs.value >= INT32_MIN) {
+            cmpq(lhs, Imm32((int32_t)rhs.value));
+        } else {
+            mov(rhs, ScratchReg);
+            cmpq(lhs, ScratchReg);
+        }
     }
     void cmpPtr(const Address &lhs, const ImmGCPtr rhs) {
         cmpPtr(Operand(lhs), rhs);
@@ -441,10 +450,17 @@ class MacroAssemblerX64 : public MacroAssemblerX86Shared
     void addPtr(Imm32 imm, const Address &dest) {
         addq(imm, Operand(dest));
     }
+    void addPtr(Imm32 imm, const Operand &dest) {
+        addq(imm, dest);
+    }
     void addPtr(ImmWord imm, const Register &dest) {
         JS_ASSERT(dest != ScratchReg);
-        mov(imm, ScratchReg);
-        addq(ScratchReg, dest);
+        if ((intptr_t)imm.value <= INT32_MAX && (intptr_t)imm.value >= INT32_MIN) {
+            addq(Imm32((int32_t)imm.value), dest);
+        } else {
+            mov(imm, ScratchReg);
+            addq(ScratchReg, dest);
+        }
     }
     void addPtr(const Address &src, const Register &dest) {
         addq(Operand(src), dest);
@@ -554,8 +570,12 @@ class MacroAssemblerX64 : public MacroAssemblerX86Shared
         shlq(Imm32(1), dest);
     }
     void storePtr(ImmWord imm, const Address &address) {
-        mov(imm, ScratchReg);
-        movq(ScratchReg, Operand(address));
+        if ((intptr_t)imm.value <= INT32_MAX && (intptr_t)imm.value >= INT32_MIN) {
+            mov(Imm32((int32_t)imm.value), Operand(address));
+        } else {
+            mov(imm, ScratchReg);
+            movq(ScratchReg, Operand(address));
+        }
     }
     void storePtr(ImmGCPtr imm, const Address &address) {
         movq(imm, ScratchReg);
@@ -1103,5 +1123,4 @@ typedef MacroAssemblerX64 MacroAssemblerSpecific;
 } // namespace ion
 } // namespace js
 
-#endif // jsion_macro_assembler_x64_h__
-
+#endif /* ion_x64_MacroAssembler_x64_h */
