@@ -44,6 +44,10 @@
                 onget="return this._remoteWebNavigation;"
                 readonly="true"/>
 
+      <property name="currentURI"
+                onget="return this.webNavigation.currentURI;"
+                readonly="true"/>
+
       <field name="_remoteWebProgress">null</field>
 
       <property name="webProgress"
@@ -57,6 +61,8 @@
             return this._remoteWebProgress;
         ]]></getter>
       </property>
+
+
 
       <field name="_contentTitle">""</field>
 
@@ -80,9 +86,16 @@
                 onget="return this.contentWindow ? this.contentWindow.document : null"
                 readonly="true"/>
 
+      <field name="_imageDocument">null</field>
+
+      <property name="imageDocument"
+                onget="return this._imageDocument"
+                readonly="true"/>
+
       <constructor>
         <![CDATA[
           this.messageManager.addMessageListener("DOMTitleChanged", this);
+          this.messageManager.addMessageListener("ImageDocumentLoaded", this);
           this.messageManager.loadFrameScript("chrome://global/content/browser-child.js", true);
           this.webProgress._init();
         ]]>
@@ -91,6 +104,7 @@
       <destructor>
         <![CDATA[
           this.messageManager.removeMessageListener("DOMTitleChanged", this);
+          this.messageManager.removeMessageListener("ImageDocumentLoaded", this);
           this.webProgress._destroy();
         ]]>
       </destructor>
@@ -102,6 +116,12 @@
           switch (aMessage.name) {
             case "DOMTitleChanged":
               this._contentTitle = json.title;
+              break;
+            case "ImageDocumentLoaded":
+              this._imageDocument = {
+                width: json.width,
+                height: json.height
+              };
               break;
           }
         ]]></body>
