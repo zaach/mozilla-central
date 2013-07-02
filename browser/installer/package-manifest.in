@@ -241,7 +241,6 @@
 @BINPATH@/components/inspector.xpt
 @BINPATH@/components/intl.xpt
 @BINPATH@/components/jar.xpt
-@BINPATH@/components/js.xpt
 #ifdef MOZ_JSDEBUGGER
 @BINPATH@/components/jsdservice.xpt
 #endif
