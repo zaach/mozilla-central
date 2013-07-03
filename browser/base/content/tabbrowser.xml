@@ -797,7 +797,6 @@
               if (!this.isFailedIcon(url))
                 icon = url;
             }
-            dump("icon" + icon.spec)
             this.setIcon(aTab, icon);
           ]]>
         </body>
