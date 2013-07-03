@@ -1808,7 +1808,18 @@
         <parameter name="aResult"/>
         <body><![CDATA[
           dump("onFindResult");
-          this._updateStatusUI(aResult);
+
+          this._updateFoundLink(aResult);
+          // Todo: pass direction to callback
+          this._updateStatusUI(aResult, false);
+
+          if (aResult == this.nsITypeAheadFind.FIND_NOTFOUND)
+            this._findFailedString = val;
+          else
+            this._findFailedString = null;
+
+          if (this._findMode != this.FIND_NORMAL && !this.hidden)
+            this._setFindCloseTimeout();
         ]]></body>
       </method>
 
