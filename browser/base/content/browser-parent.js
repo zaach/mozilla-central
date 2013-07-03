@@ -32,7 +32,6 @@ let AddonParent = {
   },
 
   shouldLoad: function(target, json, remote) {
-    dump('--------------------------------- HOOK ShouldLoad ---\n');
     var contentLocation = remote.contentLocation;
     var requestOrigin = remote.requestOrigin;
     var node = remote.node;
@@ -44,7 +43,6 @@ let AddonParent = {
     while (list.hasMoreElements()) {
       var item = list.getNext();
       var service = item.QueryInterface(Components.interfaces.nsISupportsCString).toString();
-      dump("!!! SERVICE: " + service + "\n");
       if (!(service in Cc))
         continue;
       var policy = Cc[service].getService(Ci.nsIContentPolicy);
@@ -61,12 +59,10 @@ let AddonParent = {
           throw e;
       }
       if (r != Ci.nsIContentPolicy.ACCEPT && r != 0) {
-        dump("@@@@@@ service \"" + service + "\" rval: " + r + "\n");
         return r;
       }
     }
 
-    dump('--------------------------------- ENDHOOK ShouldLoad ---\n');
     return Ci.nsIContentPolicy.ACCEPT;
   }
 };
