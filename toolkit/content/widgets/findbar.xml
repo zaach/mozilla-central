@@ -464,29 +464,6 @@
       </method>
 
       <!--
-        - Gets the selection controller for the current browser
-        -->
-      <method name="_getSelectionController">
-        <parameter name="aWindow"/>
-        <body><![CDATA[
-          // display: none iframes don't have a selection controller, see bug 493658
-          if (!aWindow.innerWidth || !aWindow.innerHeight)
-            return null;
-
-          // Yuck. See bug 138068.
-          var Ci = Components.interfaces;
-          var docShell = aWindow.QueryInterface(Ci.nsIInterfaceRequestor)
-                                .getInterface(Ci.nsIWebNavigation)
-                                .QueryInterface(Ci.nsIDocShell);
-
-          var controller = docShell.QueryInterface(Ci.nsIInterfaceRequestor)
-                                   .getInterface(Ci.nsISelectionDisplay)
-                                   .QueryInterface(Ci.nsISelectionController);
-          return controller;
-        ]]></body>
-      </method>
-
-      <!--
         - For a given node, walk up it's parent chain, to try and find an
         - editable node.
         -
@@ -915,143 +892,7 @@
           if (aHighlight && !word)
             return;
 
-          // We have to update the status because we might still have the status
-          // of another tab
-          if (this._highlightDoc(aHighlight, word))
-            this._updateStatusUI(this.nsITypeAheadFind.FIND_FOUND);
-          else
-            this._updateStatusUI(this.nsITypeAheadFind.FIND_NOTFOUND);
-        ]]></body>
-      </method>
-
-      <!--
-        - (Un)highlights each instance of the searched word in the passed
-        - window's content.
-        - @param aHighlight (boolean)
-        -        Whether to turn on highlight
-        - @param aWord
-        -        the word to search for
-        - @param aWindow
-        -        the window to search in. Passing undefined will search the
-        -        current content window.
-        - @returns true if aWord was found
-        -->
-      <method name="_highlightDoc">
-        <parameter name="aHighlight"/>
-        <parameter name="aWord"/>
-        <parameter name="aWindow"/>
-        <body><![CDATA[
-          var win = aWindow || this.browser.contentWindow;
-
-          var textFound = false;
-
-          for (var i = 0; win.frames && i < win.frames.length; i++) {
-            if (this._highlightDoc(aHighlight, aWord, win.frames[i]))
-              textFound = true;
-          }
-
-          var controller = this._getSelectionController(win);
-          if (!controller) {
-            // Without the selection controller,
-            // we are unable to (un)highlight any matches
-            return textFound;
-          }
-
-          var doc = win.document;
-          if (!doc || !doc.documentElement)
-           return textFound;
-
-          var body = (doc instanceof HTMLDocument && doc.body) ?
-                     doc.body : doc.documentElement;
-
-          if (aHighlight) {
-            var searchRange = doc.createRange();
-             searchRange.selectNodeContents(body);
-
-            var startPt = searchRange.cloneRange();
-            startPt.collapse(true);
-
-            var endPt = searchRange.cloneRange();
-            endPt.collapse(false);
-
-            var retRange = null;
-            var finder = Components.classes["@mozilla.org/embedcomp/rangefind;1"]
-                                   .createInstance()
-                                   .QueryInterface(Components.interfaces.nsIFind);
-
-            finder.caseSensitive = this._shouldBeCaseSensitive(aWord);
-
-            while ((retRange = finder.Find(aWord, searchRange,
-                                           startPt, endPt))) {
-              this._highlight(retRange, controller);
-              startPt = retRange.cloneRange();
-              startPt.collapse(false);
-
-              textFound = true;
-            }
-          } else {
-            // First, attempt to remove highlighting from main document
-            var sel = controller.getSelection(this._findSelection);
-            sel.removeAllRanges();
-
-            // Next, check our editor cache, for editors belonging to this
-            // document
-            if (this._editors) {
-              for (var x = this._editors.length - 1; x >= 0; --x) {
-                if (this._editors[x].document == doc) {
-                  sel = this._editors[x].selectionController
-                                        .getSelection(this._findSelection);
-                  sel.removeAllRanges();
-                  // We don't need to listen to this editor any more
-                  this._unhookListenersAtIndex(x);
-                }
-              }
-            }
-            return true;
-          }
-
-          return textFound;
-        ]]></body>
-      </method>
-
-     <!--
-       - Highlights the word in the passed range.
-       -
-       - @param aRange
-       -        the range that contains the word to highlight
-       - @param aController
-       -        the current document's selection controller
-       -->
-      <method name="_highlight">
-        <parameter name="aRange"/>
-        <parameter name="aController"/>
-        <body><![CDATA[
-          var node = aRange.startContainer;
-          var controller = aController;
-          var editableNode = this._getEditableNode(node);
-          if (editableNode)
-            controller = editableNode.editor.selectionController;
-
-          var findSelection = controller.getSelection(this._findSelection);
-          findSelection.addRange(aRange);
-
-          if (editableNode) {
-            // Highlighting added, so cache this editor, and hook up listeners
-            // to ensure we deal properly with edits within the highlighting
-            if (!this._editors) {
-              this._editors = [];
-              this._stateListeners = [];
-            }
-
-            var existingIndex = this._editors.indexOf(editableNode.editor);
-            if (existingIndex == -1) {
-              var x = this._editors.length;
-              this._editors[x] = editableNode.editor;
-              this._stateListeners[x] = this._createStateListener();
-              this._editors[x].addEditActionListener(this);
-              this._editors[x].addDocumentStateListener(this._stateListeners[x]);
-            }
-          }
+          this.browser.finder.highlight(aHighlight, word);
         ]]></body>
       </method>
 
@@ -1580,9 +1421,9 @@
           // expired since the previous input, to allow for dynamic
           // content and/or page loading
           this._findResetTimeout = setTimeout(() => {
-						this._findFailedString = null;
-						this._findResetTimeout = -1;
-					}, 1000);
+            this._findFailedString = null;
+            this._findResetTimeout = -1;
+          }, 1000);
         ]]></body>
       </method>
 
@@ -1619,7 +1460,8 @@
       <method name="_findAgain">
         <parameter name="aFindPrevious"/>
         <body><![CDATA[
-          this.browser.finder.findAgain(aFindPrevious, this._findMode == this.FIND_LINKS);
+          this.browser.finder.findAgain(aFindPrevious,
+                                        this._findMode == this.FIND_LINKS);
         ]]></body>
       </method>
 
@@ -1809,12 +1651,12 @@
         <body><![CDATA[
           dump("onFindResult");
 
-          this._updateFoundLink(aResult);
+          //this._updateFoundLink(aResult);
           // Todo: pass direction to callback
           this._updateStatusUI(aResult, false);
 
           if (aResult == this.nsITypeAheadFind.FIND_NOTFOUND)
-            this._findFailedString = val;
+            this._findFailedString = this.browser.finder.searchString;
           else
             this._findFailedString = null;
 

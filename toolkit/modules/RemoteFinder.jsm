@@ -65,8 +65,10 @@ RemoteFinder.prototype = {
         {findBackwards: aFindBackwards, linksOnly: aLinksOnly});
   },
 
-  highlight: function () {
-
+  highlight: function (aHighlight, aWord) {
+    dump("Highlight: " + aHighlight + " " + aWord + "\n")
+    this._browser.messageManager.sendAsyncMessage("Finder:Highlight",
+        {highlight: aHighlight, word: aWord});
   }
 
 }

@@ -294,6 +294,7 @@ let FinderListener = {
     addMessageListener("Finder:CaseSensitive", this);
     addMessageListener("Finder:FastFind", this);
     addMessageListener("Finder:FindAgain", this);
+    addMessageListener("Finder:Highlight", this);
   },
 
   onFindResult: function (aResult) {
@@ -302,6 +303,7 @@ let FinderListener = {
 
   receiveMessage: function(aMessage) {
     let json = aMessage.json;
+    dump("receiveMessage: " + aMessage.name + "\n");
     switch (aMessage.name) {
     case "Finder:CaseSensitive":
       this.finder.caseSensitive = json.caseSensitive;
@@ -311,6 +313,9 @@ let FinderListener = {
       break;
     case "Finder:FindAgain":
       this.finder.findAgain(json.findBackwards, json.linksOnly);
+      break;
+    case "Finder:Highlight":
+      this.finder.highlight(json.highlight, json.word);
       break;
     }
   }
@@ -335,7 +340,7 @@ addEventListener("ImageContentLoaded", function (aEvent) {
     let req = content.document.imageRequest;
     if (!req.image)
       return;
-    sendAsyncMessage("ImageDocumentLoaded", { width: req.image.width, 
+    sendAsyncMessage("ImageDocumentLoaded", { width: req.image.width,
                                               height: req.image.height });
   }
 }, false)
