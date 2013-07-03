@@ -8,6 +8,7 @@ let Ci = Components.interfaces;
 let Cu = Components.utils;
 
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
+Cu.import('resource://gre/modules/Services.jsm');
 
 XPCOMUtils.defineLazyModuleGetter(this,
   "LoginManagerContent", "resource://gre/modules/LoginManagerContent.jsm");
@@ -35,11 +36,14 @@ addMessageListener("Browser:HideSessionRestoreButton", function (message) {
 });
 
 addEventListener("DOMContentLoaded", function(event) {
-  LoginManagerContent.onContentLoaded(event);
+  if (!Services.prefs.getBoolPref("browser.tabs.remote"))
+    LoginManagerContent.onContentLoaded(event);
 });
 addEventListener("DOMAutoComplete", function(event) {
-  LoginManagerContent.onUsernameInput(event);
+  if (!Services.prefs.getBoolPref("browser.tabs.remote"))
+    LoginManagerContent.onUsernameInput(event);
 });
 addEventListener("blur", function(event) {
-  LoginManagerContent.onUsernameInput(event);
+  if (!Services.prefs.getBoolPref("browser.tabs.remote"))
+    LoginManagerContent.onUsernameInput(event);
 });
