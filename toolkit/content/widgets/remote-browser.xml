@@ -54,14 +54,25 @@
                 readonly="true">
         <getter><![CDATA[
             if (!this._remoteWebProgress) {
-              let RemoteWebProgress = Components.utils.import("resource://gre/modules/RemoteWebProgress.jsm",
- {}).RemoteWebProgress;
+              let RemoteWebProgress = Components.utils.import("resource://gre/modules/RemoteWebProgress.jsm", {}).RemoteWebProgress;
               this._remoteWebProgress = new RemoteWebProgress(this);
             }
             return this._remoteWebProgress;
         ]]></getter>
       </property>
 
+      <field name="_remoteFinder">null</field>
+
+      <property name="finder"
+                readonly="true">
+        <getter><![CDATA[
+            if (!this._remoteFinder) {
+              let RemoteFinder = Components.utils.import("resource://gre/modules/RemoteFinder.jsm", {}).RemoteFinder;
+              this._remoteFinder = new RemoteFinder(this);
+            }
+            return this._remoteFinder;
+        ]]></getter>
+      </property>
 
 
       <field name="_contentTitle">""</field>
@@ -98,6 +109,7 @@
           this.messageManager.addMessageListener("ImageDocumentLoaded", this);
           this.messageManager.loadFrameScript("chrome://global/content/browser-child.js", true);
           this.webProgress._init();
+          this.finder._init();
         ]]>
       </constructor>
 
@@ -106,6 +118,7 @@
           this.messageManager.removeMessageListener("DOMTitleChanged", this);
           this.messageManager.removeMessageListener("ImageDocumentLoaded", this);
           this.webProgress._destroy();
+          this.finder._destroy();
         ]]>
       </destructor>
 

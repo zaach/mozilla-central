@@ -961,9 +961,10 @@
               this.mCurrentTab.removeAttribute("unread");
               this.selectedTab.lastAccessed = Date.now();
 
-              // Bug 666816 - TypeAheadFind support for e10s
-              if (!gMultiProcessBrowser)
-                this._fastFind.setDocShell(this.mCurrentBrowser.docShell);
+              if (gFindBarInitialized) {
+                this.finder.addResultListener(gFindBar);
+                oldBrowser.finder.removeResultListener(gFindBar);
+              }
 
               this.updateTitlebar();
 
@@ -2567,20 +2568,9 @@
                 onget="return this.mCurrentBrowser.currentURI;"
                 readonly="true"/>
 
-      <field name="_fastFind">null</field>
-      <property name="fastFind"
-                readonly="true">
-        <getter>
-        <![CDATA[
-          if (!this._fastFind) {
-            this._fastFind = Components.classes["@mozilla.org/typeaheadfind;1"]
-                                       .createInstance(Components.interfaces.nsITypeAheadFind);
-            this._fastFind.init(this.docShell);
-          }
-          return this._fastFind;
-        ]]>
-        </getter>
-      </property>
+      <property name="finder"
+                onget="return this.mCurrentBrowser.finder"
+                readonly="true"/>
 
       <property name="docShell"
                 onget="return this.mCurrentBrowser.docShell"

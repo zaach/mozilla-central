@@ -125,6 +125,7 @@
 
       <handler event="blur"><![CDATA[
         var findbar = this.findbar;
+        /*
         var fastFind = findbar.browser.fastFind;
         if (findbar._foundEditable)
           fastFind.collapseSelection();
@@ -132,6 +133,8 @@
           fastFind.setSelectionModeAndRepaint
             (findbar.nsISelectionController.SELECTION_ON);
         }
+        */
+
         findbar._setFoundLink(null);
         findbar._foundEditable = null;
         findbar._currentWindow = null;
@@ -315,7 +318,7 @@
           if (this._browser) {
             this._browser.addEventListener("keypress", this, false);
             this._browser.addEventListener("mouseup", this, false);
-            this._findField.value = this._browser.fastFind.searchString;
+            this._findField.value = this._browser.finder.searchString;
           }
           return val;
         ]]></setter>
@@ -1080,8 +1083,7 @@
           checkbox.hidden = hideCheckbox;
           statusLabel.hidden = !hideCheckbox;
 
-          var fastFind = this.browser.fastFind;
-          fastFind.caseSensitive = caseSensitive;
+          this.browser.finder.caseSensitive = caseSensitive;
         ]]></body>
       </method>
 
@@ -1139,6 +1141,8 @@
             this._caseSensitiveStr =
               stringsBundle.GetStringFromName("CaseSensitive");
           }
+
+          this.browser.selectedBrowser.finder.addResultListener(this);
 
           this._findFailedString = null;
 
@@ -1549,32 +1553,21 @@
         <parameter name="aValue"/>
         <body><![CDATA[
           if (!this._dispatchFindEvent(""))
-            return this.nsITypeAheadFind.FIND_PENDING;
+            return;
 
           var val = aValue || this._findField.value;
-          var res = this.nsITypeAheadFind.FIND_NOTFOUND;
 
           // Only search on input if we don't have a last-failed string,
           // or if the current search string doesn't start with it.
           if (this._findFailedString == null ||
-              val.indexOf(this._findFailedString) != 0)
+              !val.startsWith(this._findFailedString))
           {
             this._enableFindButtons(val);
             if (this.getElement("highlight").checked)
               this._setHighlightTimeout();
 
             this._updateCaseSensitivity(val);
-
-            var fastFind = this.browser.fastFind;
-            res = fastFind.find(val, this._findMode == this.FIND_LINKS);
-
-            this._updateFoundLink(res);
-            this._updateStatusUI(res, false);
-
-            if (res == this.nsITypeAheadFind.FIND_NOTFOUND)
-              this._findFailedString = val;
-            else
-              this._findFailedString = null;
+            this.browser.finder.fastFind(val, this._findMode == this.FIND_LINKS);
           }
 
           if (this._findMode != this.FIND_NORMAL)
@@ -1586,12 +1579,10 @@
           // allow a search to happen on input again after a second has
           // expired since the previous input, to allow for dynamic
           // content and/or page loading
-          this._findResetTimeout = setTimeout(function(self) {
-						  self._findFailedString = null;
-						  self._findResetTimeout = -1; },
-					      1000, this);
-
-          return res;
+          this._findResetTimeout = setTimeout(() => {
+						this._findFailedString = null;
+						this._findResetTimeout = -1;
+					}, 1000);
         ]]></body>
       </method>
 
@@ -1628,16 +1619,7 @@
       <method name="_findAgain">
         <parameter name="aFindPrevious"/>
         <body><![CDATA[
-          var fastFind = this.browser.fastFind;
-          var res = fastFind.findAgain(aFindPrevious,
-                                       this._findMode == this.FIND_LINKS);
-          this._updateFoundLink(res);
-          this._updateStatusUI(res, aFindPrevious);
-
-          if (this._findMode != this.FIND_NORMAL && !this.hidden)
-            this._setFindCloseTimeout();
-
-          return res;
+          this.browser.finder.findAgain(aFindPrevious, this._findMode == this.FIND_LINKS);
         ]]></body>
       </method>
 
@@ -1797,7 +1779,7 @@
       <method name="onFindAgainCommand">
         <parameter name="aFindPrevious"/>
         <body><![CDATA[
-          var findString = this._browser.fastFind.searchString || this._findField.value;
+          var findString = this._browser.finder.searchString || this._findField.value;
           if (!findString) {
             this.startFind();
             return;
@@ -1805,7 +1787,7 @@
 
           // We dispatch the findAgain event here instead of in _findAgain since
           // if there is a find event handler that prevents the default then
-          // fastFind.searchString will never get updated which in turn means
+          // finder.searchString will never get updated which in turn means
           // there would never be findAgain events because of the logic below.
           if (!this._dispatchFindEvent("again", aFindPrevious))
             return;
@@ -1813,24 +1795,24 @@
           // user explicitly requested another search, so do it even if we think it'll fail
           this._findFailedString = null;
 
-          var res;
           // Ensure the stored SearchString is in sync with what we want to find
-          if (this._findField.value != this._browser.fastFind.searchString)
-            res = this._find(this._findField.value);
+          if (this._findField.value != this._browser.finder.searchString)
+            this._find(this._findField.value);
           else
-            res = this._findAgain(aFindPrevious);
+            this._findAgain(aFindPrevious);
 
-          if (res == this.nsITypeAheadFind.FIND_NOTFOUND) {
-            if (this.open()) {
-              if (this._findMode != this.FIND_NORMAL)
-                this._setFindCloseTimeout();
-              this._findField.focus();
-              this._findField.focus();
-              this._updateStatusUI(res, aFindPrevious);
-            }
-          }
         ]]></body>
       </method>
+
+      <method name="onFindResult">
+        <parameter name="aResult"/>
+        <body><![CDATA[
+          dump("onFindResult");
+          this._updateStatusUI(aResult);
+        ]]></body>
+      </method>
+
+
     </implementation>
 
     <handlers>

@@ -59,6 +59,8 @@ XPCOMUtils.defineLazyGetter(window, "gFindBar", function() {
   // Force a style flush to ensure that our binding is attached.
   findbar.clientTop;
   findbar.browser = gBrowser;
+  gBrowser.selectedBrowser.finder.addResultListener(findbar);
+
   window.gFindBarInitialized = true;
   return findbar;
 });

@@ -284,6 +284,40 @@ let AddonListeners = {
 
 AddonListeners.init();
 
+
+let FinderListener = {
+  init: function init() {
+    let Finder = Components.utils.import("resource://gre/modules/Finder.jsm", {}).Finder;
+    this.finder = new Finder(docShell);
+    this.finder.addResultListener(this);
+
+    addMessageListener("Finder:CaseSensitive", this);
+    addMessageListener("Finder:FastFind", this);
+    addMessageListener("Finder:FindAgain", this);
+  },
+
+  onFindResult: function (aResult) {
+    sendSyncMessage("Finder:Result", {result: aResult, searchString: this.finder.searchString});
+  },
+
+  receiveMessage: function(aMessage) {
+    let json = aMessage.json;
+    switch (aMessage.name) {
+    case "Finder:CaseSensitive":
+      this.finder.caseSensitive = json.caseSensitive;
+      break;
+    case "Finder:FastFind":
+      this.finder.fastFind(json.searchString, json.linksOnly);
+      break;
+    case "Finder:FindAgain":
+      this.finder.findAgain(json.findBackwards, json.linksOnly);
+      break;
+    }
+  }
+}
+
+FinderListener.init();
+
 addEventListener("DOMTitleChanged", function (aEvent) {
   let document = content.document;
   switch (aEvent.type) {
