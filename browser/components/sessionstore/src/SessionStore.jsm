@@ -1914,10 +1914,10 @@ let SessionStoreInternal = {
 
     var browser = aTab.linkedBrowser;
 
-    if (!browser || !browser.currentURI) {
+    if (!browser || !browser.currentURI)
       // can happen when calling this function right after .addTab()
       return tabData;
-    } else if (RestoringTabsData.has(browser)) {
+    else if (browser.__SS_data && browser.__SS_tabStillLoading) {
       // use the data to be restored when the tab hasn't been completely loaded
       tabData = browser.__SS_data;
       if (aTab.pinned)
