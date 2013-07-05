@@ -2280,61 +2280,6 @@ function PageProxyClickHandler(aEvent)
     middleMousePaste(aEvent);
 }
 
-/**
- *  Handle load of some pages (about:*) so that we can make modifications
- *  to the DOM for unprivileged pages.
- */
-function BrowserOnAboutPageLoad(doc) {
-  if (doc.documentURI.toLowerCase() == "about:home") {
-    // XXX bug 738646 - when Marketplace is launched, remove this statement and
-    // the hidden attribute set on the apps button in aboutHome.xhtml
-    if (getBoolPref("browser.aboutHome.apps", false))
-      doc.getElementById("apps").removeAttribute("hidden");
-
-    let ss = Components.classes["@mozilla.org/browser/sessionstore;1"].
-             getService(Components.interfaces.nsISessionStore);
-    if (ss.canRestoreLastSession &&
-        !PrivateBrowsingUtils.isWindowPrivate(window))
-      doc.getElementById("launcher").setAttribute("session", "true");
-
-    // Inject search engine and snippets URL.
-    let docElt = doc.documentElement;
-    // set the following attributes BEFORE searchEngineURL, which triggers to
-    // show the snippets when it's set.
-    docElt.setAttribute("snippetsURL", AboutHomeUtils.snippetsURL);
-    if (AboutHomeUtils.showKnowYourRights) {
-      docElt.setAttribute("showKnowYourRights", "true");
-      // Set pref to indicate we've shown the notification.
-      let currentVersion = Services.prefs.getIntPref("browser.rights.version");
-      Services.prefs.setBoolPref("browser.rights." + currentVersion + ".shown", true);
-    }
-    docElt.setAttribute("snippetsVersion", AboutHomeUtils.snippetsVersion);
-
-    function updateSearchEngine() {
-      let engine = AboutHomeUtils.defaultSearchEngine;
-      docElt.setAttribute("searchEngineName", engine.name);
-      docElt.setAttribute("searchEngineURL", engine.searchURL);
-    }
-    updateSearchEngine();
-
-    // Listen for the event that's triggered when the user changes search engine.
-    // At this point we simply reload about:home to reflect the change.
-    Services.obs.addObserver(updateSearchEngine, "browser-search-engine-modified", false);
-
-    // Remove the observer when the page is reloaded or closed.
-    doc.defaultView.addEventListener("pagehide", function removeObserver() {
-      doc.defaultView.removeEventListener("pagehide", removeObserver);
-      Services.obs.removeObserver(updateSearchEngine, "browser-search-engine-modified");
-    }, false);
-
-#ifdef MOZ_SERVICES_HEALTHREPORT
-    doc.addEventListener("AboutHomeSearchEvent", function onSearch(e) {
-      BrowserSearch.recordSearchInHealthReport(e.detail, "abouthome");
-    }, true, true);
-#endif
-  }
-}
-
 let AboutPages = {
   init: function() {
     messageManager.addMessageListener("AboutHome:RestorePreviousSession", this);
@@ -2457,9 +2402,6 @@ let BrowserOnClick = {
     }
     else if (ownerDoc.documentURI.startsWith("about:neterror")) {
       this.onAboutNetError(originalTarget, ownerDoc);
-    }
-    else if (ownerDoc.documentURI.toLowerCase() == "about:home") {
-      this.onAboutHome(originalTarget, ownerDoc);
     }
   },
 
@@ -2636,49 +2578,6 @@ let BrowserOnClick = {
     if (elmId != "errorTryAgain" || !/e=netOffline/.test(aOwnerDoc.documentURI))
       return;
     Services.io.offline = false;
-  },
-
-  onAboutHome: function BrowserOnClick_onAboutHome(aTargetElm, aOwnerDoc) {
-    let elmId = aTargetElm.getAttribute("id");
-
-    switch (elmId) {
-      case "restorePreviousSession":
-        let ss = Cc["@mozilla.org/browser/sessionstore;1"].
-                 getService(Ci.nsISessionStore);
-        if (ss.canRestoreLastSession) {
-          ss.restoreLastSession();
-        }
-        aOwnerDoc.getElementById("launcher").removeAttribute("session");
-        break;
-
-      case "downloads":
-        BrowserDownloadsUI();
-        break;
-
-      case "bookmarks":
-        PlacesCommandHook.showPlacesOrganizer("AllBookmarks");
-        break;
-
-      case "history":
-        PlacesCommandHook.showPlacesOrganizer("History");
-        break;
-
-      case "apps":
-        openUILinkIn("https://marketplace.mozilla.org/", "tab");
-        break;
-
-      case "addons":
-        BrowserOpenAddonsMgr();
-        break;
-
-      case "sync":
-        openPreferences("paneSync");
-        break;
-
-      case "settings":
-        openPreferences();
-        break;
-    }
   },
 };
 
@@ -4411,9 +4310,6 @@ var TabsProgressListener = {
         if (event.target.documentElement)
           event.target.documentElement.removeAttribute("hasBrowserHandlers");
       }, true);
-
-      // We also want to make changes to page UI for unprivileged about pages.
-      BrowserOnAboutPageLoad(doc);
     }
   },
 
