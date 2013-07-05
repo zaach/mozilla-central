@@ -769,6 +769,8 @@ var gBrowserInit = {
     messageManager.loadFrameScript("chrome://browser/content/content.js", true);
     messageManager.loadFrameScript("chrome://browser/content/content-sessionStore.js", true);
 
+    AboutPages.init();
+
     if (gMultiProcessBrowser)
       BrowserParent.init();
 
@@ -2332,6 +2334,105 @@ function BrowserOnAboutPageLoad(doc) {
 #endif
   }
 }
+
+let AboutPages = {
+  init: function() {
+    messageManager.addMessageListener("AboutHome:RestorePreviousSession", this);
+    messageManager.addMessageListener("AboutHome:Downloads", this);
+    messageManager.addMessageListener("AboutHome:Bookmarks", this);
+    messageManager.addMessageListener("AboutHome:History", this);
+    messageManager.addMessageListener("AboutHome:Apps", this);
+    messageManager.addMessageListener("AboutHome:Addons", this);
+    messageManager.addMessageListener("AboutHome:Sync", this);
+    messageManager.addMessageListener("AboutHome:Settings", this);
+
+    messageManager.addMessageListener("AboutHome:RequestUpdates", this);
+    messageManager.addMessageListener("AboutHome:CancelUpdates", this);
+    messageManager.addMessageListener("AboutHome:Search", this);
+
+    this.searchEngineObservers = new WeakMap();
+  },
+
+  sendAboutHomeData: function(target) {
+    let ss = Cc["@mozilla.org/browser/sessionstore;1"].
+               getService(Ci.nsISessionStore);
+    let data = {
+      showRestoreLastSession: ss.canRestoreLastSession &&
+                              !PrivateBrowsingUtils.isWindowPrivate(window),
+      snippetsURL: AboutHomeUtils.snippetsURL,
+      showKnowYourRights: AboutHomeUtils.showKnowYourRights,
+      snippetsVersion: AboutHomeUtils.snippetsVersion,
+      defaultSearchEngine: AboutHomeUtils.defaultSearchEngine
+    };
+
+    if (AboutHomeUtils.showKnowYourRights) {
+      docElt.setAttribute("showKnowYourRights", "true");
+      // Set pref to indicate we've shown the notification.
+      let currentVersion = Services.prefs.getIntPref("browser.rights.version");
+      Services.prefs.setBoolPref("browser.rights." + currentVersion + ".shown", true);
+    }
+
+    target.messageManager.sendAsyncMessage("AboutHome:Update", data);
+  },
+
+  receiveMessage: function(aMessage) {
+    switch (aMessage.name) {
+      case "AboutHome:RestorePreviousSession":
+        let ss = Cc["@mozilla.org/browser/sessionstore;1"].
+                 getService(Ci.nsISessionStore);
+        if (ss.canRestoreLastSession) {
+          ss.restoreLastSession();
+        }
+        break;
+
+      case "AboutHome:Downloads":
+        BrowserDownloadsUI();
+        break;
+
+      case "AboutHome:Bookmarks":
+        PlacesCommandHook.showPlacesOrganizer("AllBookmarks");
+        break;
+
+      case "AboutHome:History":
+        PlacesCommandHook.showPlacesOrganizer("History");
+        break;
+
+      case "AboutHome:Apps":
+        openUILinkIn("https://marketplace.mozilla.org/", "tab");
+        break;
+
+      case "AboutHome:Addons":
+        BrowserOpenAddonsMgr();
+        break;
+
+      case "AboutHome:Sync":
+        openPreferences("paneSync");
+        break;
+
+      case "AboutHome:Settings":
+        openPreferences();
+        break;
+
+      case "AboutHome:RequestUpdates":
+        let obs = function() { this.sendAboutHomeData(aMessage.target); };
+        this.searchEngineObservers.set(aMessage.target, obs);
+        this.sendAboutHomeData(aMessage.target);
+        Services.obs.addObserver(obs, "browser-search-engine-modified", false);
+        break;
+
+      case "AboutHome:CancelUpdates":
+        Services.obs.removeObserver(this.searchEngineObservers.get(aMessage.target),
+                                    "browser-search-engine-modified");
+        break;
+
+      case "AboutHome:Search":
+#ifdef MOZ_SERVICES_HEALTHREPORT
+        BrowserSearch.recordSearchInHealthReport(aMessage.name, "abouthome");
+#endif
+        break;
+    }
+  }
+};
 
 /**
  * Handle command events bubbling up from error page content
