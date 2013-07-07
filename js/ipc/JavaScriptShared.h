@@ -110,6 +110,8 @@ class JavaScriptShared
     virtual bool makeId(JSContext *cx, JSObject *obj, ObjectId *idp) = 0;
     virtual JSObject *unwrap(JSContext *cx, ObjectId id) = 0;
 
+    bool getNames(const ObjectId &objId, ReturnStatus *rs, nsTArray<nsString> *names, uint32_t flags);
+
     bool unwrap(JSContext *cx, ObjectId id, JSObject **objp) {
         if (!id) {
             *objp = NULL;
