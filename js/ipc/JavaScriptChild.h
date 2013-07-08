@@ -80,8 +80,6 @@ class JavaScriptChild
                        ReturnStatus *rs, bool *success);
   protected:
     JSObject *unwrap(JSContext *cx, ObjectId id);
-    bool getNames(const ObjectId &objId, ReturnStatus *rs, nsTArray<nsString> *names,
-                  uint32_t flags);
 
   private:
     bool makeId(JSContext *cx, JSObject *obj, ObjectId *idp);
