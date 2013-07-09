@@ -40,7 +40,7 @@ RemoteFinder.prototype = {
     this._searchString = aMessage.json.searchString;
 
     for (var l of this._listeners)
-        l.onFindResult(aMessage.json.result);
+        l.onFindResult(aMessage.json.result, aMessage.json.findBackwards);
   },
 
   get searchString() {
@@ -69,6 +69,21 @@ RemoteFinder.prototype = {
     dump("Highlight: " + aHighlight + " " + aWord + "\n")
     this._browser.messageManager.sendAsyncMessage("Finder:Highlight",
         {highlight: aHighlight, word: aWord});
-  }
+  },
 
+  removeSelection: function () {
+    dump("removeSelection \n");
+    this._browser.messageManager.sendAsyncMessage("Finder:RemoveSelection");
+  },
+
+  focusContent: function () {
+    dump("FocusContent \n");
+    this._browser.messageManager.sendAsyncMessage("Finder:FocusContent");
+  },
+
+  keyPress: function (aEvent) {
+    dump("KeyPress \n");
+    this._browser.messageManager.sendAsyncMessage("Finder:KeyPress",
+      {keyCode: aEvent.keyCode, shiftKey: aEvent.shiftKey});
+  }
 }

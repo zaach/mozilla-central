@@ -12,12 +12,16 @@ const Cu = Components.utils;
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 const Services = Cu.import("resource://gre/modules/Services.jsm").Services;
 
-function Finder(docShell) {
+function Finder(docShell, document) {
     this._fastFind = Cc["@mozilla.org/typeaheadfind;1"].createInstance(Components.interfaces.nsITypeAheadFind);
     this._fastFind.init(docShell);
 
     this._docShell = docShell;
+    this._document = document; // Todo: Not sure how to get this.
     this._listeners = [];
+
+    this._previousLink = null;
+    this._drewOutline = false;
 }
 
 Finder.prototype = {
@@ -29,9 +33,11 @@ Finder.prototype = {
     this._listeners = this._listeners.filter(function (l) l != aListener);
   },
 
-  _notify: function (aResult) {
+  _notify: function (aResult, aFindBackwards, aLinksOnly) {
+    this._outlineLink(aLinksOnly);
+
   	for (var l of this._listeners)
-        l.onFindResult(aResult);
+        l.onFindResult(aResult, aFindBackwards);
   },
 
   get searchString() {
@@ -44,24 +50,121 @@ Finder.prototype = {
 
   fastFind: function (aSearchString, aLinksOnly) {
     Services.tm.mainThread.dispatch(() => {
-        this._notify(this._fastFind.find(aSearchString, aLinksOnly));
+        let result = this._fastFind.find(aSearchString, aLinksOnly);
+        this._notify(result, false, aLinksOnly);
     }, Ci.nsIThread.DISPATCH_NORMAL);
   },
 
   findAgain: function (aFindBackwards, aLinksOnly) {
     Services.tm.mainThread.dispatch(() => {
-        this._notify(this._fastFind.findAgain(aFindBackwards, aLinksOnly));
+        let result = this._fastFind.findAgain(aFindBackwards, aLinksOnly);
+        this._notify(result, aFindBackwards, aLinksOnly);
     }, Ci.nsIThread.DISPATCH_NORMAL);
   },
 
   highlight: function (aHighlight, aWord) {
     Services.tm.mainThread.dispatch(() => {
-        this._notify(this._highlight(aHighlight, aWord, null));
+        let reuslt = this._highlight(aHighlight, aWord, null);
+        this._notify(result, false, false);
     }, Ci.nsIThread.DISPATCH_NORMAL);
   },
 
+  removeSelection: function() {
+    let fastFind = this._fastFind;
+    if (fastFind.foundEditable)
+      fastFind.collapseSelection();
+    else
+      fastFind.setSelectionModeAndRepaint(Ci.nsISelectionController.SELECTION_ON);
+
+    // We also drew our own outline, remove that as well.
+    if (this._previousLink && this._drewOutline) {
+      this._previousLink.style.outline = this._tmpOutline;
+      this._previousLink.style.outlineOffset = this._tmpOutlineOffset;
+    }
+  },
+
+  focusContent: function() {
+    let fastFind = this._fastFind;
+
+    try {
+        // Try to find the best possible match that should recieve focus.
+        if (fastFind.foundLink) {
+          fastFind.foundLink.focus();
+        } else if (fastFind.foundEditable) {
+          fastFind.foundEditable.focus();
+          fastFind.collapseSelection();
+        } else {
+          this._getWindow().focus()
+        }
+    } catch (e) {}
+
+  },
+
+  keyPress: function (aEvent) {
+    let controller = this._getSelectionController(this._getWindow());
+
+    switch (aEvent.keyCode) {
+    case Ci.nsIDOMKeyEvent.DOM_VK_RETURN:
+      if (this._fastFind.foundLink) // Todo: Handle ctrl click.
+        this._fastFind.foundLink.click();
+      break;
+    case Ci.nsIDOMKeyEvent.DOM_VK_TAB:
+      if (aEvent.shiftKey)
+        this._document.commandDispatcher.rewindFocus();
+      else
+        this._document.commandDispatcher.advanceFocus();
+      break;
+    case Ci.nsIDOMKeyEvent.DOM_VK_PAGE_UP:
+      controller.scrollPage(false);
+      break;
+    case Ci.nsIDOMKeyEvent.DOM_VK_PAGE_DOWN:
+      controller.scrollPage(true);
+      break;
+    case Ci.nsIDOMKeyEvent.DOM_VK_UP:
+      controller.scrollLine(false);
+      break;
+    case Ci.nsIDOMKeyEvent.DOM_VK_DOWN:
+      controller.scrollLine(true);
+      break;
+    }
+  },
+
+  _getWindow: function () {
+    return this._docShell.QueryInterface(Ci.nsIInterfaceRequestor).getInterface(Ci.nsIDOMWindow);
+  },
+
+  _outlineLink: function (aLinksOnly) {
+    let foundLink = this._fastFind.foundLink;
+
+    if (foundLink == this._previousLink)
+      return;
+
+    if (this._previousLink && this._drewOutline) {
+      // restore original outline
+      this._previousLink.style.outline = this._tmpOutline;
+      this._previousLink.style.outlineOffset = this._tmpOutlineOffset;
+    }
+
+    this._drewOutline = (foundLink && aLinksOnly);
+    if (this._drewOutline) {
+      // backup original outline
+      this._tmpOutline = foundLink.style.outline;
+      this._tmpOutlineOffset = foundLink.style.outlineOffset;
+
+      // draw pseudo focus rect
+      // XXX Should we change the following style for FAYT pseudo focus?
+      // XXX Shouldn't we change default design if outline is visible
+      //     already?
+      // Don't set the outline-color, we should always use initial value.
+      foundLink.style.outline = "1px dotted";
+      foundLink.style.outlineOffset = "0";
+    }
+
+    this._previousLink = foundLink;
+  },
+
   _highlight: function (aHighlight, aWord, aWindow) {
-    var win = aWindow || this._docShell.QueryInterface(Ci.nsIInterfaceRequestor).getInterface(Ci.nsIDOMWindow);
+    var win = aWindow || this._getWindow();
 
     var result = Ci.nsITypeAheadFind.FIND_NOTFOUND;
     for (var i = 0; win.frames && i < win.frames.length; i++) {
@@ -134,16 +237,13 @@ Finder.prototype = {
     var node = aRange.startContainer;
     var controller = aController;
 
-    /*
     var editableNode = this._getEditableNode(node);
     if (editableNode)
       controller = editableNode.editor.selectionController;
-    */
 
     var findSelection = controller.getSelection(Ci.nsISelectionController.SELECTION_FIND);
     findSelection.addRange(aRange);
 
-    /*
     if (editableNode) {
       // Highlighting added, so cache this editor, and hook up listeners
       // to ensure we deal properly with edits within the highlighting
@@ -161,7 +261,6 @@ Finder.prototype = {
         this._editors[x].addDocumentStateListener(this._stateListeners[x]);
       }
     }
-    */
   },
 
   _getSelectionController: function(aWindow) {
@@ -179,6 +278,16 @@ Finder.prototype = {
                              .getInterface(Ci.nsISelectionDisplay)
                              .QueryInterface(Ci.nsISelectionController);
     return controller;
+  },
+
+  _getEditableNode: function (aNode) {
+    while (aNode) {
+      if (aNode instanceof Components.interfaces.nsIDOMNSEditableElement) {
+        return aNode.editor ? aNode : null;
+      }
+      aNode = aNode.parentNode;
+    }
+    return null;
   }
 
 }

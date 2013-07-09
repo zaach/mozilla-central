@@ -9,6 +9,7 @@
 #include "mozilla/dom/ContentParent.h"
 #include "nsJSUtils.h"
 #include "jsfriendapi.h"
+#include "jsdbgapi.h"
 #include "jsproxy.h"
 #include "HeapAPI.h"
 #include "xpcprivate.h"

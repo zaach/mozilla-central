@@ -295,10 +295,14 @@ let FinderListener = {
     addMessageListener("Finder:FastFind", this);
     addMessageListener("Finder:FindAgain", this);
     addMessageListener("Finder:Highlight", this);
+    addMessageListener("Finder:RemoveSelection", this);
+    addMessageListener("Finder:FocusContent", this);
+    addMessageListener("Finder:KeyPress", this);
   },
 
-  onFindResult: function (aResult) {
-    sendSyncMessage("Finder:Result", {result: aResult, searchString: this.finder.searchString});
+  onFindResult: function (aResult, aFindBackwards) {
+    sendSyncMessage("Finder:Result", {result: aResult, findBackwards: aFindBackwards,
+      searchString: this.finder.searchString});
   },
 
   receiveMessage: function(aMessage) {
@@ -316,6 +320,15 @@ let FinderListener = {
       break;
     case "Finder:Highlight":
       this.finder.highlight(json.highlight, json.word);
+      break;
+    case "Finder:RemoveSelection":
+      this.finder.removeSelection();
+      break;
+    case "Finder:FocusContent":
+      this.finder.focusContent();
+      break;
+    case "Finder:KeyPress":
+      this.finder.keyPress(json);
       break;
     }
   }

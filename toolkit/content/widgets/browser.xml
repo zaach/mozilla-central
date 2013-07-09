@@ -368,27 +368,6 @@
       </method>
 
       <field name="_finder">null</field>
-      <property name="finder"
-                readonly="true">
-        <getter>
-        <![CDATA[
-          if (!this._finder) {
-            if (!("@mozilla.org/typeaheadfind;1" in Components.classes))
-              return null;
-
-            if (!this.docShell)
-              return null;
-
-            this._finder = Components.classes["@mozilla.org/typeaheadfind;1"]
-                                       .createInstance(Components.interfaces.nsITypeAheadFind);
-            this._finder.init(this.docShell);
-          }
-          return this._finder;
-        ]]>
-        </getter>
-      </property>
-
-      <field name="_finder">null</field>
 
       <property name="finder"
                 readonly="true">
