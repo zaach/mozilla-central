@@ -71,6 +71,7 @@
 #include "nsIXPCSecurityManager.h"
 #include "nsInterfaceHashtable.h"
 #include "nsPIDOMWindow.h"
+#include "nsFocusManager.h"
 #include "nsPIWindowRoot.h"
 #include "nsGlobalWindow.h"
 #include "nsPresContext.h"

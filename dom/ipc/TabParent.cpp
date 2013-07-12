@@ -317,8 +317,8 @@ TabParent::RecvMoveFocus(const bool& aForward)
     nsCOMPtr<nsIDOMElement> dummy;
     uint32_t type = aForward ? uint32_t(nsIFocusManager::MOVEFOCUS_FORWARD)
                              : uint32_t(nsIFocusManager::MOVEFOCUS_BACKWARD);
-    fm->MoveFocus(nullptr, mFrameElement, type, nsIFocusManager::FLAG_BYKEY, 
-                  getter_AddRefs(dummy));
+    fm->MoveFocus(nullptr, mFrameElement, type, (nsIFocusManager::FLAG_BYKEY |
+                  nsIFocusManager::FLAG_IGNORE_CONTENT), getter_AddRefs(dummy));
   }
   return true;
 }

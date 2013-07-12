@@ -4,6 +4,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "mozilla/dom/TabParent.h"
+#include "mozilla/dom/PBrowserChild.h"
+#include "mozilla/dom/TabChild.h"
 
 #include "nsFocusManager.h"
 
@@ -493,6 +495,12 @@ nsFocusManager::MoveFocus(nsIDOMWindow* aWindow, nsIDOMElement* aStartElement,
     aFlags |= FLAG_BYMOVEFOCUS;
   }
 
+  if (TabParent::GetFrom(mFocusedContent) && !(aFlags & FLAG_IGNORE_CONTENT)) {
+    LOGFOCUS(("Let Content handle MoveFocus!"));
+    LOGFOCUS(("<<MoveFocus end>>"));
+    return NS_OK;
+  }
+
   nsCOMPtr<nsPIDOMWindow> window;
   nsCOMPtr<nsIContent> startContent;
   if (aStartElement) {
@@ -528,6 +536,10 @@ nsFocusManager::MoveFocus(nsIDOMWindow* aWindow, nsIDOMElement* aStartElement,
   else if (aType == MOVEFOCUS_ROOT || aType == MOVEFOCUS_CARET) {
     // no content was found, so clear the focus for these two types.
     ClearFocus(window);
+
+    if (TabChild* tabChild = GetTabChildFrom(window)) {
+      tabChild->FocusNextElement();
+    }
   }
 
   LOGFOCUS(("<<MoveFocus end>>"));
