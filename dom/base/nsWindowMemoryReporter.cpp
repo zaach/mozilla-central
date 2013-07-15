@@ -144,7 +144,7 @@ CollectWindowReports(nsGlobalWindow *aWindow,
   if (location) {
     bool ok;
     nsAutoCString id;
-    if (NS_SUCCEEDED(addonManager->MapURIToAddonID(location, id, &ok)) && ok) {
+    if (addonManager && NS_SUCCEEDED(addonManager->MapURIToAddonID(location, id, &ok)) && ok) {
       windowPath += NS_LITERAL_CSTRING("add-ons/") + id +
                     NS_LITERAL_CSTRING("/");
     }
