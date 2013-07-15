@@ -3075,7 +3075,7 @@ nsEventStateManager::PostHandleEvent(nsPresContext* aPresContext,
   NS_ENSURE_ARG(aPresContext);
   NS_ENSURE_ARG_POINTER(aStatus);
 
-  HandleCrossProcessEvent(aEvent, aTargetFrame, aStatus);
+  bool dispatched = HandleCrossProcessEvent(aEvent, aTargetFrame, aStatus);
 
   mCurrentTarget = aTargetFrame;
   mCurrentTargetContent = nullptr;
@@ -3518,7 +3518,7 @@ nsEventStateManager::PostHandleEvent(nsPresContext* aPresContext,
     if (nsEventStatus_eConsumeNoDefault != *aStatus) {
       nsKeyEvent* keyEvent = (nsKeyEvent*)aEvent;
       //This is to prevent keyboard scrolling while alt modifier in use.
-      if (!keyEvent->IsAlt()) {
+      if (!keyEvent->IsAlt() && !dispatched) {
         switch(keyEvent->keyCode) {
           case NS_VK_TAB:
           case NS_VK_F6:
