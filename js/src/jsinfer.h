@@ -626,7 +626,7 @@ class StackTypeSet : public TypeSet
     /* Get the prototype shared by all objects in this set, or NULL. */
     JSObject *getCommonPrototype();
 
-    /* Get the typed array type of all objects in this set, or TypedArray::TYPE_MAX. */
+    /* Get the typed array type of all objects in this set, or TypedArrayObject::TYPE_MAX. */
     int getTypedArrayType();
 
     /* Whether all objects have JSCLASS_IS_DOMJSCLASS set. */
@@ -1136,6 +1136,9 @@ typedef HashSet<ReadBarriered<TypeObject>, TypeObjectEntry, SystemAllocPolicy> T
 bool
 UseNewType(JSContext *cx, JSScript *script, jsbytecode *pc);
 
+bool
+UseNewTypeForClone(JSFunction *fun);
+
 /*
  * Whether Array.prototype, or an object on its proto chain, has an
  * indexed property.
@@ -1409,7 +1412,7 @@ struct TypeCompartment
      * or JSProto_Object to indicate a type whose class is unknown (not just
      * js_ObjectClass).
      */
-    TypeObject *newTypeObject(JSContext *cx, Class *clasp, Handle<TaggedProto> proto,
+    TypeObject *newTypeObject(ExclusiveContext *cx, Class *clasp, Handle<TaggedProto> proto,
                               bool unknown = false);
 
     /* Get or make an object for an allocation site, and add to the allocation site table. */

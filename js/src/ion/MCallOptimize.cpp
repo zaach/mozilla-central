@@ -9,9 +9,9 @@
 #include "builtin/ParallelArray.h"
 #include "builtin/TestingFunctions.h"
 
-#include "MIR.h"
-#include "MIRGraph.h"
-#include "IonBuilder.h"
+#include "ion/MIR.h"
+#include "ion/MIRGraph.h"
+#include "ion/IonBuilder.h"
 
 #include "jsscriptinlines.h"
 
@@ -90,8 +90,8 @@ IonBuilder::inlineNativeCall(CallInfo &callInfo, JSNative native)
         return inlineRegExpTest(callInfo);
 
     // Array intrinsics.
-    if (native == intrinsic_UnsafeSetElement)
-        return inlineUnsafeSetElement(callInfo);
+    if (native == intrinsic_UnsafePutElements)
+        return inlineUnsafePutElements(callInfo);
     if (native == intrinsic_NewDenseArray)
         return inlineNewDenseArray(callInfo);
 
@@ -954,7 +954,7 @@ IonBuilder::inlineRegExpTest(CallInfo &callInfo)
 }
 
 IonBuilder::InliningStatus
-IonBuilder::inlineUnsafeSetElement(CallInfo &callInfo)
+IonBuilder::inlineUnsafePutElements(CallInfo &callInfo)
 {
     uint32_t argc = callInfo.argc();
     if (argc < 3 || (argc % 3) != 0 || callInfo.constructing())
@@ -963,7 +963,7 @@ IonBuilder::inlineUnsafeSetElement(CallInfo &callInfo)
     /* Important:
      *
      * Here we inline each of the stores resulting from a call to
-     * %UnsafeSetElement().  It is essential that these stores occur
+     * UnsafePutElements().  It is essential that these stores occur
      * atomically and cannot be interrupted by a stack or recursion
      * check.  If this is not true, race conditions can occur.
      */
@@ -1017,7 +1017,7 @@ IonBuilder::inlineUnsafeSetElement(CallInfo &callInfo)
             continue;
         }
 
-        JS_NOT_REACHED("Element access not dense array nor typed array");
+        MOZ_ASSUME_UNREACHABLE("Element access not dense array nor typed array");
     }
 
     return InliningStatus_Inlined;
@@ -1027,10 +1027,10 @@ bool
 IonBuilder::inlineUnsafeSetDenseArrayElement(CallInfo &callInfo, uint32_t base)
 {
     // Note: we do not check the conditions that are asserted as true
-    // in intrinsic_UnsafeSetElement():
+    // in intrinsic_UnsafePutElements():
     // - arr is a dense array
     // - idx < initialized length
-    // Furthermore, note that inlineUnsafeSetElement ensures the type of the
+    // Furthermore, note that inlineUnsafePutElements ensures the type of the
     // value is reflected in the JSID_VOID property of the array.
 
     MDefinition *obj = callInfo.getArg(base + 0);
@@ -1050,7 +1050,7 @@ IonBuilder::inlineUnsafeSetTypedArrayElement(CallInfo &callInfo,
                                              int arrayType)
 {
     // Note: we do not check the conditions that are asserted as true
-    // in intrinsic_UnsafeSetElement():
+    // in intrinsic_UnsafePutElements():
     // - arr is a typed array
     // - idx < length
 
@@ -1088,7 +1088,7 @@ IonBuilder::inlineForceSequentialOrInParallelSection(CallInfo &callInfo)
         return InliningStatus_Inlined;
     }
 
-    JS_NOT_REACHED("Invalid execution mode");
+    MOZ_ASSUME_UNREACHABLE("Invalid execution mode");
 }
 
 IonBuilder::InliningStatus
@@ -1172,7 +1172,7 @@ IonBuilder::inlineParallelArrayTail(CallInfo &callInfo,
     if (returnTypes->unknownObject() || returnTypes->getObjectCount() != 1)
         return InliningStatus_NotInlined;
     types::TypeObject *typeObject = returnTypes->getTypeObject(0);
-    if (typeObject->clasp != &ParallelArrayObject::class_)
+    if (!typeObject || typeObject->clasp != &ParallelArrayObject::class_)
         return InliningStatus_NotInlined;
 
     // Create the call and add in the non-this arguments.
@@ -1262,7 +1262,7 @@ IonBuilder::inlineNewDenseArray(CallInfo &callInfo)
         return inlineNewDenseArrayForParallelExecution(callInfo);
     }
 
-    JS_NOT_REACHED("unknown ExecutionMode");
+    MOZ_ASSUME_UNREACHABLE("unknown ExecutionMode");
 }
 
 IonBuilder::InliningStatus

@@ -477,8 +477,10 @@ static JSObject *
 FindObjectForHasInstance(JSContext *cx, HandleObject objArg)
 {
     RootedObject obj(cx, objArg), proto(cx);
-    while (obj && !IS_WN_REFLECTOR(obj) && !IsDOMObject(obj) &&
-           !mozilla::jsipc::JavaScriptParent::IsCPOW(obj)) {
+
+    while (obj && !IS_WN_REFLECTOR(obj) &&
+           !IsDOMObject(obj) && !mozilla::jsipc::JavaScriptParent::IsCPOW(obj))
+    {
         if (js::IsWrapper(obj)) {
             obj = js::CheckedUnwrap(obj, /* stopAtOuter = */ false);
             continue;
@@ -491,7 +493,7 @@ FindObjectForHasInstance(JSContext *cx, HandleObject objArg)
 }
 
 nsresult
-xpc_HasInstance(JSContext *cx, HandleObject objArg, const nsID *iid, bool *bp)
+xpc::HasInstance(JSContext *cx, HandleObject objArg, const nsID *iid, bool *bp)
 {
     *bp = false;
 
@@ -504,7 +506,7 @@ xpc_HasInstance(JSContext *cx, HandleObject objArg, const nsID *iid, bool *bp)
         // there's nothing to do in this HasInstance hook.
         nsISupports *identity = UnwrapDOMObjectToISupports(obj);
         if (!identity)
-            return NS_OK;
+            return NS_OK;;
         nsCOMPtr<nsISupports> supp;
         identity->QueryInterface(*iid, getter_AddRefs(supp));
         *bp = supp;
@@ -556,11 +558,9 @@ nsJSIID::HasInstance(nsIXPConnectWrappedNative *wrapper,
     // we have a JSObject
     RootedObject obj(cx, JSVAL_TO_OBJECT(val));
 
-    // is this really a native xpcom object with a wrapper?
     const nsIID* iid;
     mInfo->GetIIDShared(&iid);
-
-    return xpc_HasInstance(cx, obj, iid, bp);
+    return xpc::HasInstance(cx, obj, iid, bp);
 }
 
 /* string canCreateWrapper (in nsIIDPtr iid); */

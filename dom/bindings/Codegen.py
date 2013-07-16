@@ -542,13 +542,16 @@ class CGHeaders(CGWrapper):
     """
     def __init__(self, descriptors, dictionaries, callbacks,
                  callbackDescriptors,
-                 declareIncludes, defineIncludes, child,
+                 declareIncludes, defineIncludes, prefix, child,
                  config=None, jsImplementedDescriptors=[]):
         """
         Builds a set of includes to cover |descriptors|.
 
         Also includes the files in |declareIncludes| in the header
         file and the files in |defineIncludes| in the .cpp.
+
+        |prefix| contains the basename of the file that we generate include
+        statements for.
         """
 
         # Determine the filenames for which we need headers.
@@ -625,6 +628,12 @@ class CGHeaders(CGWrapper):
             elif unrolled.isFloat() and not unrolled.isUnrestricted():
                 # Restricted floats are tested for finiteness
                 bindingHeaders.add("mozilla/FloatingPoint.h")
+            elif unrolled.isEnum():
+                filename = self.getDeclarationFilename(unrolled.inner)
+                # Do nothing if the enum is defined in the same webidl file
+                # (the binding header doesn't need to include itself).
+                if filename != prefix + ".h":
+                    declareIncludes.add(filename)
 
         callForEachType(descriptors + callbackDescriptors, dictionaries,
                         callbacks, addHeadersForType)
@@ -955,26 +964,22 @@ def DeferredFinalizeSmartPtr(descriptor):
         smartPtr = 'nsRefPtr<%s>'
     return smartPtr % descriptor.nativeType
 
-class CGDeferredFinalizePointers(CGThing):
+class CGAppendDeferredFinalizePointer(CGAbstractStaticMethod):
     def __init__(self, descriptor):
-        CGThing.__init__(self)
-        self.descriptor = descriptor
-
-    def declare(self):
-        return ""
-
-    def define(self):
-        return """nsTArray<%s >* sDeferredFinalizePointers;
-""" % DeferredFinalizeSmartPtr(self.descriptor)
-
-class CGGetDeferredFinalizePointers(CGAbstractStaticMethod):
-    def __init__(self, descriptor):
-        CGAbstractStaticMethod.__init__(self, descriptor, "GetDeferredFinalizePointers", "void*", [])
+        CGAbstractStaticMethod.__init__(self, descriptor, "AppendDeferredFinalizePointer", "void*", [Argument('void*', 'data'), Argument('void*', 'thing')])
 
     def definition_body(self):
-        return """  nsTArray<%s >* pointers = sDeferredFinalizePointers;
-  sDeferredFinalizePointers = nullptr;
-  return pointers;""" % DeferredFinalizeSmartPtr(self.descriptor)
+        smartPtr = DeferredFinalizeSmartPtr(self.descriptor)
+        return """  nsTArray<%(smartPtr)s >* pointers = static_cast<nsTArray<%(smartPtr)s >*>(data);
+  if (!pointers) {
+    pointers = new nsTArray<%(smartPtr)s >();
+  }
+
+  %(nativeType)s* self = static_cast<%(nativeType)s*>(thing);
+
+  %(smartPtr)s* defer = pointers->AppendElement();
+  Take(*defer, self);
+  return pointers;""" % { 'smartPtr': smartPtr, 'nativeType': self.descriptor.nativeType }
 
 class CGDeferredFinalize(CGAbstractStaticMethod):
     def __init__(self, descriptor):
@@ -1006,29 +1011,12 @@ def finalizeHook(descriptor, hookName, context):
         if descriptor.workers:
             finalize += "self->Release();"
         elif descriptor.nativeOwnership == 'nsisupports':
-            finalize += "xpc::DeferredRelease(reinterpret_cast<nsISupports*>(self));"
+            finalize += "nsContentUtils::DeferredFinalize(reinterpret_cast<nsISupports*>(self));"
         else:
-            smartPtr = DeferredFinalizeSmartPtr(descriptor)
-            finalize += """static bool registered = false;
-if (!registered) {
-  if (!RegisterForDeferredFinalization(GetDeferredFinalizePointers,
-                                       DeferredFinalize)) {
-    %(smartPtr)s dying;
-    Take(dying, self);
-    return;
-  }
-  registered = true;
-}
-if (!sDeferredFinalizePointers) {
-  sDeferredFinalizePointers = new nsAutoTArray<%(smartPtr)s, 16>();
-}
-%(smartPtr)s* defer = sDeferredFinalizePointers->AppendElement();
-if (!defer) {
-  %(smartPtr)s dying;
-  Take(dying, self);
-  return;
-}
-Take(*defer, self);""" % { 'smartPtr': smartPtr }
+            finalize += """nsContentUtils::DeferredFinalize(AppendDeferredFinalizePointer,
+                                 DeferredFinalize,
+                                 self);
+"""
     return CGIfWrapper(CGGeneric(finalize), "self")
 
 class CGClassFinalizeHook(CGAbstractClassHook):
@@ -3899,16 +3887,31 @@ def getWrapTemplateForType(type, descriptorProvider, result, successCode,
     # if body.
     exceptionCodeIndented = CGIndenter(CGGeneric(exceptionCode))
 
-    def setValue(value, callWrapValue=False):
+    def setValue(value, callWrapValue=None):
         """
-        Returns the code to set the jsval to value. If "callWrapValue" is true
-        MaybeWrapValue will be called on the jsval.
+        Returns the code to set the jsval to value.
+
+        "callWrapValue" can be set to the following values:
+          * None: no wrapping will be done.
+          * "object": will wrap using MaybeWrapObjectValue.
+          * "objectOrNull": will wrap using MaybeWrapObjectOrNullValue.
+          * "nonDOMObject": will wrap using MaybeWrapNonDOMObjectValue.
+          * "nonDOMObjectOrNull": will wrap using MaybeWrapNonDOMObjectOrNullValue
+          * "value": will wrap using MaybeWrapValue.
         """
         if not callWrapValue:
             tail = successCode
         else:
-            tail = ("if (!MaybeWrapValue(cx, ${jsvalHandle})) {\n" +
-                    ("%s\n" % exceptionCodeIndented.define()) +
+            methodMap = {
+                "object": "MaybeWrapObjectValue",
+                "objectOrNull": "MaybeWrapObjectOrNullValue",
+                "nonDOMObject": "MaybeWrapNonDOMObjectValue",
+                "nonDOMObjectOrNull": "MaybeWrapNonDOMObjectOrNullValue",
+                "value": "MaybeWrapValue"
+                }
+            tail = (("if (!%s(cx, ${jsvalHandle})) {\n"
+                     "%s\n" % (methodMap[callWrapValue],
+                               exceptionCodeIndented.define())) +
                     "}\n" +
                     successCode)
         return ("${jsvalRef}.set(%s);\n" +
@@ -4080,11 +4083,13 @@ if (!returnArray) {
         # to wrap here.
         # NB: setValue(..., True) calls JS_WrapValue(), so is fallible
         if descriptorProvider.workers:
-            return (setValue("JS::ObjectOrNullValue(%s)" % result, True), False)
+            return (setValue("JS::ObjectOrNullValue(%s)" % result,
+                             "objectOrNull"),
+                    False)
 
         wrapCode = setValue(
             "JS::ObjectValue(*GetCallbackFromCallbackObject(%(result)s))",
-            True)
+            "object")
         if type.nullable():
             wrapCode = (
                 "if (%(result)s) {\n" +
@@ -4099,17 +4104,25 @@ if (!returnArray) {
         # See comments in WrapNewBindingObject explaining why we need
         # to wrap here.
         # NB: setValue(..., True) calls JS_WrapValue(), so is fallible
-        return (setValue(result, True), False)
+        return (setValue(result, "value"), False)
 
     if type.isObject() or type.isSpiderMonkeyInterface():
         # See comments in WrapNewBindingObject explaining why we need
         # to wrap here.
         if type.nullable():
             toValue = "JS::ObjectOrNullValue(%s)"
+            if type.isSpiderMonkeyInterface():
+                wrapType = "nonDOMObjectOrNull"
+            else:
+                wrapType = "objectOrNull"
         else:
             toValue = "JS::ObjectValue(*%s)"
+            if type.isSpiderMonkeyInterface():
+                wrapType = "nonDOMObject"
+            else:
+                wrapType = "object"
         # NB: setValue(..., True) calls JS_WrapValue(), so is fallible
-        return (setValue(toValue % result, True), False)
+        return (setValue(toValue % result, wrapType), False)
 
     if type.isUnion():
         if type.nullable():
@@ -5057,7 +5070,7 @@ class CGMethodCall(CGThing):
                      argCountCases,
                      CGGeneric('return ThrowErrorMessage(cx, MSG_MISSING_ARGUMENTS, "%s");\n' % methodName)))
         overloadCGThings.append(
-            CGGeneric('MOZ_NOT_REACHED("We have an always-returning default case");\n'
+            CGGeneric('MOZ_CRASH("We have an always-returning default case");\n'
                       'return false;'))
         self.cgRoot = CGWrapper(CGIndenter(CGList(overloadCGThings, "\n")),
                                 pre="\n")
@@ -7574,8 +7587,7 @@ class CGDescriptor(CGThing):
 
         if descriptor.concrete:
             if descriptor.nativeOwnership == 'owned' or descriptor.nativeOwnership == 'refcounted':
-                cgThings.append(CGDeferredFinalizePointers(descriptor))
-                cgThings.append(CGGetDeferredFinalizePointers(descriptor))
+                cgThings.append(CGAppendDeferredFinalizePointer(descriptor))
                 cgThings.append(CGDeferredFinalize(descriptor))
 
             if not descriptor.proxy:
@@ -8363,9 +8375,10 @@ class CGBindingRoot(CGThing):
         requiresPreferences = any(descriptorRequiresPreferences(d) for d in descriptors)
         hasOwnedDescriptors = any(d.nativeOwnership == 'owned' for d in descriptors)
         requiresContentUtils = any(d.interface.hasInterfaceObject() for d in descriptors)
-        def descriptorHasChromeOnlyMembers(desc):
-            return any(isChromeOnly(a) for a in desc.interface.members)
-        hasChromeOnlyMembers = any(descriptorHasChromeOnlyMembers(d) for d in descriptors)
+        def descriptorHasChromeOnly(desc):
+            return (any(isChromeOnly(a) for a in desc.interface.members) or
+                    desc.interface.getExtendedAttribute("ChromeOnly") is not None)
+        hasChromeOnly = any(descriptorHasChromeOnly(d) for d in descriptors)
         # XXXkhuey ugly hack but this is going away soon.
         isEventTarget = webIDLFile.endswith("EventTarget.webidl")
         hasWorkerStuff = len(config.getDescriptors(webIDLFile=webIDLFile,
@@ -8482,8 +8495,9 @@ class CGBindingRoot(CGThing):
                             + (['mozilla/dom/NonRefcountedDOMObject.h'] if hasOwnedDescriptors else [])
                             + (['nsContentUtils.h'] if requiresContentUtils else [])
                             + (['nsCxPusher.h'] if mainDictionaries else [])
-                            + (['AccessCheck.h'] if hasChromeOnlyMembers else [])
+                            + (['AccessCheck.h'] if hasChromeOnly else [])
                             + (['xpcprivate.h'] if isEventTarget else []),
+                         prefix,
                          curr,
                          config,
                          jsImplemented)
@@ -9107,10 +9121,10 @@ class CGExampleRoot(CGThing):
                                 "mozilla/ErrorResult.h" ],
                               [ "%s.h" % interfaceName,
                                 "mozilla/dom/%sBinding.h" % interfaceName,
-                                "nsContentUtils.h" ], self.root);
+                                "nsContentUtils.h" ], "", self.root);
 
-        # In the header, #pragma once before everything
-        self.root = CGWrapper(self.root, declarePre="#pragma once\n\n")
+        # And now some include guards
+        self.root = CGIncludeGuard(interfaceName, self.root)
 
         # And our license block comes before everything else
         self.root = CGWrapper(self.root, pre="""/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
@@ -9970,7 +9984,8 @@ struct PrototypeIDMap;
                                                             workers=False,
                                                             register=True)]
         defineIncludes.append('nsScriptNameSpaceManager.h')
-        curr = CGHeaders([], [], [], [], [], defineIncludes, curr)
+        curr = CGHeaders([], [], [], [], [], defineIncludes, 'RegisterBindings',
+                         curr)
 
         # Add include guards.
         curr = CGIncludeGuard('RegisterBindings', curr)
@@ -10022,7 +10037,8 @@ struct PrototypeIDMap;
 
         curr = CGList([stack[0], curr], "\n")
 
-        curr = CGHeaders([], [], [], [], includes, implincludes, curr)
+        curr = CGHeaders([], [], [], [], includes, implincludes, 'UnionTypes',
+                         curr)
 
         # Add include guards.
         curr = CGIncludeGuard('UnionTypes', curr)
@@ -10044,7 +10060,7 @@ struct PrototypeIDMap;
         curr = CGWrapper(curr, post='\n')
 
         headers.update(["nsDebug.h", "mozilla/dom/UnionTypes.h", "nsDOMQS.h", "XPCWrapper.h"])
-        curr = CGHeaders([], [], [], [], headers, [], curr)
+        curr = CGHeaders([], [], [], [], headers, [], 'UnionConversions', curr)
 
         # Add include guards.
         curr = CGIncludeGuard('UnionConversions', curr)

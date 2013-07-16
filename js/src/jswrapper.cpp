@@ -17,8 +17,6 @@
 
 #include "jsobjinlines.h"
 
-#include "builtin/Iterator-inl.h"
-
 using namespace js;
 using namespace js::gc;
 
@@ -47,21 +45,22 @@ JSObject *
 Wrapper::Renew(JSContext *cx, JSObject *existing, JSObject *obj, Wrapper *handler)
 {
     JS_ASSERT(!obj->isCallable());
-    return RenewProxyObject(cx, existing, handler, ObjectValue(*obj));
+    existing->as<ProxyObject>().renew(cx, handler, ObjectValue(*obj));
+    return existing;
 }
 
 Wrapper *
 Wrapper::wrapperHandler(JSObject *wrapper)
 {
     JS_ASSERT(wrapper->isWrapper());
-    return static_cast<Wrapper*>(GetProxyHandler(wrapper));
+    return static_cast<Wrapper*>(wrapper->as<ProxyObject>().handler());
 }
 
 JSObject *
 Wrapper::wrappedObject(JSObject *wrapper)
 {
     JS_ASSERT(wrapper->isWrapper());
-    return GetProxyTargetObject(wrapper);
+    return wrapper->as<ProxyObject>().target();
 }
 
 JS_FRIEND_API(JSObject *)
@@ -71,7 +70,7 @@ js::UncheckedUnwrap(JSObject *wrapped, bool stopAtOuter, unsigned *flagsp)
     while (wrapped->isWrapper() &&
            !JS_UNLIKELY(stopAtOuter && wrapped->getClass()->ext.innerObject)) {
         flags |= Wrapper::wrapperHandler(wrapped)->flags();
-        wrapped = GetProxyPrivate(wrapped).toObjectOrNull();
+        wrapped = wrapped->as<ProxyObject>().private_().toObjectOrNull();
     }
     if (flagsp)
         *flagsp = flags;
@@ -191,18 +190,12 @@ bool CrossCompartmentWrapper::finalizeInBackground(Value priv)
 #define NOTHING (true)
 
 bool
-CrossCompartmentWrapper::isExtensible(JSObject *wrapper)
+CrossCompartmentWrapper::isExtensible(JSContext *cx, HandleObject wrapper, bool *extensible)
 {
-    // The lack of a context to enter a compartment here is troublesome.  We
-    // don't know anything about the wrapped object (it might even be a
-    // proxy!), and embeddings' proxy handlers could theoretically trigger
-    // compartment mismatches here (because isExtensible wouldn't be called in
-    // the wrapped object's compartment.  But that's probably not very likely.
-    // (Famous last words.)
-    //
-    // Given that we're likely going to make this method take a context and
-    // maybe be fallible at some point, punt on the issue for now.
-    return wrappedObject(wrapper)->isExtensible();
+    PIERCE(cx, wrapper,
+           NOTHING,
+           Wrapper::isExtensible(cx, wrapper, extensible),
+           NOTHING);
 }
 
 bool
@@ -605,11 +598,12 @@ SecurityWrapper<Base>::SecurityWrapper(unsigned flags)
 
 template <class Base>
 bool
-SecurityWrapper<Base>::isExtensible(JSObject *wrapper)
+SecurityWrapper<Base>::isExtensible(JSContext *cx, HandleObject wrapper, bool *extensible)
 {
     // Just like BaseProxyHandler, SecurityWrappers claim by default to always
     // be extensible, so as not to leak information about the state of the
     // underlying wrapped thing.
+    *extensible = true;
     return true;
 }
 
@@ -691,10 +685,11 @@ DeadObjectProxy::DeadObjectProxy()
 }
 
 bool
-DeadObjectProxy::isExtensible(JSObject *proxy)
+DeadObjectProxy::isExtensible(JSContext *cx, HandleObject proxy, bool *extensible)
 {
     // This is kind of meaningless, but dead-object semantics aside,
     // [[Extensible]] always being true is consistent with other proxy types.
+    *extensible = true;
     return true;
 }
 
@@ -840,20 +835,8 @@ js::NewDeadProxyObject(JSContext *cx, JSObject *parent)
 bool
 js::IsDeadProxyObject(JSObject *obj)
 {
-    return IsProxy(obj) && GetProxyHandler(obj) == &DeadObjectProxy::singleton;
-}
-
-static void
-NukeSlot(JSObject *wrapper, uint32_t slot, Value v)
-{
-    Value old = wrapper->getSlot(slot);
-    if (old.isMarkable()) {
-        Zone *zone = ZoneOfValue(old);
-        AutoMarkInDeadZone amd(zone);
-        wrapper->setReservedSlot(slot, v);
-    } else {
-        wrapper->setReservedSlot(slot, v);
-    }
+    return obj->is<ProxyObject>() &&
+           obj->as<ProxyObject>().handler() == &DeadObjectProxy::singleton;
 }
 
 void
@@ -863,16 +846,7 @@ js::NukeCrossCompartmentWrapper(JSContext *cx, JSObject *wrapper)
 
     NotifyGCNukeWrapper(wrapper);
 
-    NukeSlot(wrapper, JSSLOT_PROXY_PRIVATE, NullValue());
-    SetProxyHandler(wrapper, &DeadObjectProxy::singleton);
-
-    if (IsFunctionProxy(wrapper)) {
-        NukeSlot(wrapper, JSSLOT_PROXY_CALL, NullValue());
-        NukeSlot(wrapper, JSSLOT_PROXY_CONSTRUCT, NullValue());
-    }
-
-    NukeSlot(wrapper, JSSLOT_PROXY_EXTRA + 0, NullValue());
-    NukeSlot(wrapper, JSSLOT_PROXY_EXTRA + 1, NullValue());
+    wrapper->as<ProxyObject>().nuke(&DeadObjectProxy::singleton);
 
     JS_ASSERT(IsDeadProxyObject(wrapper));
 }

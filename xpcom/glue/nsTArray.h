@@ -21,7 +21,7 @@
 #include "nsQuickSort.h"
 #include "nsDebug.h"
 #include "nsTraceRefcnt.h"
-#include NEW_H
+#include <new>
 
 namespace JS {
 template <class T>
@@ -265,7 +265,6 @@ private:
   static void HandleOOM() {
     fputs("Out of memory allocating nsTArray buffer.\n", stderr);
     MOZ_CRASH();
-    MOZ_NOT_REACHED();
   }
 };
 

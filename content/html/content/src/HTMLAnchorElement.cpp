@@ -4,17 +4,17 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "mozilla/MemoryReporting.h"
 #include "mozilla/dom/HTMLAnchorElement.h"
-#include "mozilla/dom/HTMLAnchorElementBinding.h"
 
+#include "mozilla/dom/HTMLAnchorElementBinding.h"
+#include "mozilla/MemoryReporting.h"
 #include "nsCOMPtr.h"
 #include "nsContentUtils.h"
 #include "nsGkAtoms.h"
-#include "nsIPresShell.h"
-#include "nsIDocument.h"
-#include "nsPresContext.h"
 #include "nsHTMLDNSPrefetch.h"
+#include "nsIDocument.h"
+#include "nsIPresShell.h"
+#include "nsPresContext.h"
 
 NS_IMPL_NS_NEW_HTML_ELEMENT(Anchor)
 

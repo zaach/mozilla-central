@@ -12,15 +12,8 @@ include $(DEPTH)/config/autoconf.mk
 LIBRARY_NAME	= jsdombase_s
 MSVC_ENABLE_PGO := 1
 LIBXUL_LIBRARY	= 1
-FORCE_STATIC_LIB = 1
 FAIL_ON_WARNINGS := 1
 
-DISABLED_EXTRA_COMPONENTS = \
-  SiteSpecificUserAgent.js \
-  SiteSpecificUserAgent.manifest \
-  ConsoleAPI.js \
-  ConsoleAPI.manifest \
-  $(NULL)
 
 include $(topsrcdir)/dom/dom-config.mk
 

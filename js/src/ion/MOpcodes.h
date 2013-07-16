@@ -98,6 +98,7 @@ namespace ion {
     _(Elements)                                                             \
     _(ConstantElements)                                                     \
     _(ConvertElementsToDoubles)                                             \
+    _(MaybeToDoubleElement)                                                 \
     _(LoadSlot)                                                             \
     _(StoreSlot)                                                            \
     _(FunctionEnvironment)                                                  \
@@ -213,7 +214,7 @@ class MInstructionVisitor // interface i.e. pure abstract class
 class MInstructionVisitorWithDefaults : public MInstructionVisitor
 {
   public:
-#define VISIT_INS(op) virtual bool visit##op(M##op *) { JS_NOT_REACHED("NYI: " #op); return false; }
+#define VISIT_INS(op) virtual bool visit##op(M##op *) { MOZ_ASSUME_UNREACHABLE("NYI: " #op); }
     MIR_OPCODE_LIST(VISIT_INS)
 #undef VISIT_INS
 };

@@ -12,7 +12,6 @@
 
 #include "vm/ForkJoin.h"
 
-#include "gc/Barrier-inl.h"
 #include "vm/ObjectImpl-inl.h"
 
 using namespace js;
@@ -70,7 +69,7 @@ StoreBuffer::WholeCellEdges::mark(JSTracer *trc)
     JS_ASSERT(kind == JSTRACE_IONCODE);
     static_cast<ion::IonCode *>(tenured)->trace(trc);
 #else
-    MOZ_NOT_REACHED("Only objects can be in the wholeCellBuffer if IonMonkey is disabled.");
+    MOZ_ASSUME_UNREACHABLE("Only objects can be in the wholeCellBuffer if IonMonkey is disabled.");
 #endif
 }
 

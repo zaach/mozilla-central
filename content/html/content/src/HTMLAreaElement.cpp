@@ -4,10 +4,11 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "mozilla/MemoryReporting.h"
 #include "mozilla/dom/HTMLAreaElement.h"
+
+#include "mozilla/Attributes.h"
 #include "mozilla/dom/HTMLAreaElementBinding.h"
-#include "base/compiler_specific.h"
+#include "mozilla/MemoryReporting.h"
 
 NS_IMPL_NS_NEW_HTML_ELEMENT(Area)
 
@@ -15,10 +16,9 @@ namespace mozilla {
 namespace dom {
 
 HTMLAreaElement::HTMLAreaElement(already_AddRefed<nsINodeInfo> aNodeInfo)
-  : nsGenericHTMLElement(aNodeInfo),
-    ALLOW_THIS_IN_INITIALIZER_LIST(Link(this))
+  : nsGenericHTMLElement(aNodeInfo)
+  , Link(MOZ_THIS_IN_INITIALIZER_LIST())
 {
-  SetIsDOMBinding();
 }
 
 HTMLAreaElement::~HTMLAreaElement()

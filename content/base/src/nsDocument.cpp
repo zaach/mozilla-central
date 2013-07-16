@@ -22,6 +22,7 @@
 #include "plstr.h"
 #include "prprf.h"
 
+#include "mozilla/Telemetry.h"
 #include "nsIInterfaceRequestor.h"
 #include "nsIInterfaceRequestorUtils.h"
 #include "nsDocument.h"
@@ -1420,6 +1421,46 @@ nsDocument::~nsDocument()
 
   NS_ASSERTION(!mIsShowing, "Destroying a currently-showing document");
 
+  if (IsTopLevelContentDocument()) {
+    //don't report for about: pages
+    nsCOMPtr<nsIPrincipal> principal = GetPrincipal();
+    nsCOMPtr<nsIURI> uri;
+    principal->GetURI(getter_AddRefs(uri));
+    bool isAboutScheme = true;
+    if (uri) {
+      uri->SchemeIs("about", &isAboutScheme);
+    }
+
+    if (!isAboutScheme) {
+      // Record the mixed content status of the docshell in Telemetry
+      enum {
+        NO_MIXED_CONTENT = 0, // There is no Mixed Content on the page
+        MIXED_DISPLAY_CONTENT = 1, // The page attempted to load Mixed Display Content
+        MIXED_ACTIVE_CONTENT = 2, // The page attempted to load Mixed Active Content
+        MIXED_DISPLAY_AND_ACTIVE_CONTENT = 3 // The page attempted to load Mixed Display & Mixed Active Content
+      };
+
+      bool mixedActiveLoaded = GetHasMixedActiveContentLoaded();
+      bool mixedActiveBlocked = GetHasMixedActiveContentBlocked();
+
+      bool mixedDisplayLoaded = GetHasMixedDisplayContentLoaded();
+      bool mixedDisplayBlocked = GetHasMixedDisplayContentBlocked();
+
+      bool hasMixedDisplay = (mixedDisplayBlocked || mixedDisplayLoaded);
+      bool hasMixedActive = (mixedActiveBlocked || mixedActiveLoaded);
+
+      uint32_t mixedContentLevel = NO_MIXED_CONTENT;
+      if (hasMixedDisplay && hasMixedActive) {
+        mixedContentLevel = MIXED_DISPLAY_AND_ACTIVE_CONTENT;
+      } else if (hasMixedActive){
+        mixedContentLevel = MIXED_ACTIVE_CONTENT;
+      } else if (hasMixedDisplay) {
+        mixedContentLevel = MIXED_DISPLAY_CONTENT;
+      }
+      Accumulate(Telemetry::MIXED_CONTENT_PAGE_LOAD, mixedContentLevel);
+    }
+  }
+
   mInDestructor = true;
   mInUnlinkOrDeletion = true;
 
@@ -1575,11 +1616,15 @@ nsDocument::Release()
       return mRefCnt.get();
     }
     NS_ASSERT_OWNINGTHREAD(nsDocument);
-    mRefCnt.stabilizeForDeletion();
     nsNodeUtils::LastRelease(this);
-    return 0;
   }
   return count;
+}
+
+NS_IMETHODIMP_(void)
+nsDocument::DeleteCycleCollectable()
+{
+  delete this;
 }
 
 NS_IMPL_CYCLE_COLLECTION_CAN_SKIP_BEGIN(nsDocument)
@@ -2379,6 +2424,14 @@ nsDocument::StartDocumentLoad(const char* aCommand, nsIChannel* aChannel,
   RetrieveRelevantHeaders(aChannel);
 
   mChannel = aChannel;
+  nsCOMPtr<nsIInputStreamChannel> inStrmChan = do_QueryInterface(mChannel);
+  if (inStrmChan) {
+    bool isSrcdocChannel;
+    inStrmChan->GetIsSrcdocChannel(&isSrcdocChannel);
+    if (isSrcdocChannel) {
+      mIsSrcdocDocument = true;
+    }
+  }
 
   // If this document is being loaded by a docshell, copy its sandbox flags
   // to the document. These are immutable after being set here.
@@ -2959,7 +3012,23 @@ nsDocument::GetReferrer(nsAString& aReferrer)
 void
 nsIDocument::GetReferrer(nsAString& aReferrer) const
 {
-  CopyUTF8toUTF16(mReferrer, aReferrer);
+  if (mIsSrcdocDocument && mParentDocument)
+      mParentDocument->GetReferrer(aReferrer);
+  else
+    CopyUTF8toUTF16(mReferrer, aReferrer);
+}
+
+nsresult
+nsIDocument::GetSrcdocData(nsAString &aSrcdocData)
+{
+  if (mIsSrcdocDocument) {
+    nsCOMPtr<nsIInputStreamChannel> inStrmChan = do_QueryInterface(mChannel);
+    if (inStrmChan) {
+      return inStrmChan->GetSrcdocData(aSrcdocData);
+    }
+  }
+  aSrcdocData = NullString();
+  return NS_OK;
 }
 
 NS_IMETHODIMP
@@ -4113,6 +4182,23 @@ nsIDocument::SetContainer(nsISupports* aContainer)
 {
   mDocumentContainer = do_GetWeakReference(aContainer);
   EnumerateFreezableElements(NotifyActivityChanged, nullptr);
+  // Get the Docshell
+  nsCOMPtr<nsIDocShell> docShell = do_QueryInterface(aContainer);
+  if (docShell) {
+    int32_t itemType;
+    docShell->GetItemType(&itemType);
+    // check itemtype
+    if (itemType == nsIDocShellTreeItem::typeContent) {
+      // check if same type root
+      nsCOMPtr<nsIDocShellTreeItem> sameTypeRoot;
+      docShell->GetSameTypeRootTreeItem(getter_AddRefs(sameTypeRoot));
+      NS_ASSERTION(sameTypeRoot, "No document shell root tree item from document shell tree item!");
+
+      if (sameTypeRoot == docShell) {
+        static_cast<nsDocument*>(this)->SetIsTopLevelContentDocument(true);
+      }
+    }
+  }
 }
 
 void
@@ -4241,6 +4327,18 @@ nsDocument::SetScriptHandlingObject(nsIScriptGlobalObject* aScriptObject)
     mHasHadScriptHandlingObject = true;
     mHasHadDefaultView = false;
   }
+}
+
+bool
+nsDocument::IsTopLevelContentDocument()
+{
+  return mIsTopLevelContentDocument;
+}
+
+void
+nsDocument::SetIsTopLevelContentDocument(bool aIsTopLevelContentDocument)
+{
+  mIsTopLevelContentDocument = aIsTopLevelContentDocument;
 }
 
 nsPIDOMWindow *
@@ -6099,18 +6197,6 @@ nsDocument::ClearBoxObjectFor(nsIContent* aContent)
   }
 }
 
-nsresult
-nsDocument::GetXBLChildNodesFor(nsIContent* aContent, nsIDOMNodeList** aResult)
-{
-  return BindingManager()->GetXBLChildNodesFor(aContent, aResult);
-}
-
-nsresult
-nsDocument::GetContentListFor(nsIContent* aContent, nsIDOMNodeList** aResult)
-{
-  return BindingManager()->GetContentListFor(aContent, aResult);
-}
-
 void
 nsDocument::FlushSkinBindings()
 {
@@ -6824,12 +6910,7 @@ nsDocument::GetViewportInfo(uint32_t aDisplayWidth,
     }
     // Now convert the scale into device pixels per CSS pixel.
     nsIWidget *widget = nsContentUtils::WidgetForDocument(this);
-#ifdef MOZ_WIDGET_ANDROID
-    // Temporarily use special Android code until bug 803207 is fixed
-    double pixelRatio = widget ? nsContentUtils::GetDevicePixelsPerMetaViewportPixel(widget) : 1.0;
-#else
     double pixelRatio = widget ? widget->GetDefaultScale() : 1.0;
-#endif
     float scaleFloat = mScaleFloat * pixelRatio;
     float scaleMinFloat= mScaleMinFloat * pixelRatio;
     float scaleMaxFloat = mScaleMaxFloat * pixelRatio;
@@ -8404,8 +8485,7 @@ nsDocument::MaybePreLoadImage(nsIURI* uri, const nsAString &aCrossOriginAttr)
     loadFlags |= imgILoader::LOAD_CORS_USE_CREDENTIALS;
     break;
   default:
-    /* should never happen */
-    MOZ_NOT_REACHED("Unknown CORS mode!");
+    MOZ_CRASH("Unknown CORS mode!");
   }
 
   // Image not in cache - trigger preload
@@ -9221,7 +9301,7 @@ NS_IMETHODIMP
 nsDocument::CreateTouchList(nsIVariant* aPoints,
                             nsIDOMTouchList** aRetVal)
 {
-  nsRefPtr<nsDOMTouchList> retval = new nsDOMTouchList();
+  nsRefPtr<nsDOMTouchList> retval = new nsDOMTouchList(ToSupports(this));
   if (aPoints) {
     uint16_t type;
     aPoints->GetDataType(&type);
@@ -9258,18 +9338,18 @@ nsDocument::CreateTouchList(nsIVariant* aPoints,
   return NS_OK;
 }
 
-already_AddRefed<nsIDOMTouchList>
+already_AddRefed<nsDOMTouchList>
 nsIDocument::CreateTouchList()
 {
-  nsRefPtr<nsDOMTouchList> retval = new nsDOMTouchList();
+  nsRefPtr<nsDOMTouchList> retval = new nsDOMTouchList(ToSupports(this));
   return retval.forget();
 }
 
-already_AddRefed<nsIDOMTouchList>
+already_AddRefed<nsDOMTouchList>
 nsIDocument::CreateTouchList(Touch& aTouch,
                              const Sequence<OwningNonNull<Touch> >& aTouches)
 {
-  nsRefPtr<nsDOMTouchList> retval = new nsDOMTouchList();
+  nsRefPtr<nsDOMTouchList> retval = new nsDOMTouchList(ToSupports(this));
   retval->Append(&aTouch);
   for (uint32_t i = 0; i < aTouches.Length(); ++i) {
     retval->Append(aTouches[i].get());
@@ -9277,10 +9357,10 @@ nsIDocument::CreateTouchList(Touch& aTouch,
   return retval.forget();
 }
 
-already_AddRefed<nsIDOMTouchList>
+already_AddRefed<nsDOMTouchList>
 nsIDocument::CreateTouchList(const Sequence<OwningNonNull<Touch> >& aTouches)
 {
-  nsRefPtr<nsDOMTouchList> retval = new nsDOMTouchList();
+  nsRefPtr<nsDOMTouchList> retval = new nsDOMTouchList(ToSupports(this));
   for (uint32_t i = 0; i < aTouches.Length(); ++i) {
     retval->Append(aTouches[i].get());
   }
@@ -11078,8 +11158,7 @@ nsDocument::SizeOfExcludingThis(MallocSizeOf aMallocSizeOf) const
   // nsDocuments can only appear at the top of the DOM tree, and we use the
   // specialized DocSizeOfExcludingThis() in that case.  So this should never
   // be called.
-  MOZ_NOT_REACHED("nsDocument::SizeOfExcludingThis");
-  return 0;
+  MOZ_CRASH();
 }
 
 void
@@ -11154,6 +11233,18 @@ nsDocument::DocSizeOfExcludingThis(nsWindowSizes* aWindowSizes) const
   // Measurement of the following members may be added later if DMD finds it
   // is worthwhile:
   // - many!
+}
+
+NS_IMETHODIMP
+nsDocument::QuerySelector(const nsAString& aSelector, nsIDOMElement **aReturn)
+{
+  return nsINode::QuerySelector(aSelector, aReturn);
+}
+
+NS_IMETHODIMP
+nsDocument::QuerySelectorAll(const nsAString& aSelector, nsIDOMNodeList **aReturn)
+{
+  return nsINode::QuerySelectorAll(aSelector, aReturn);
 }
 
 already_AddRefed<nsIDocument>

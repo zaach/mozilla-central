@@ -236,6 +236,7 @@ nsContextMenu.prototype = {
             .disabled = !this.hasBGImage;
 
     this.showItem("context-viewimageinfo", this.onImage);
+    this.showItem("context-viewimagedesc", this.onImage && this.imageDescURL !== "");
   },
 
   initMiscItems: function CM_initMiscItems() {
@@ -460,6 +461,246 @@ nsContextMenu.prototype = {
     }.bind(this));
   },
 
+  // Set various context menu attributes based on the state of the world.
+  setTarget: function (aNode, aRangeParent, aRangeOffset) {
+    const xulNS = "http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul";
+    if (aNode.namespaceURI == xulNS ||
+        aNode.nodeType == Node.DOCUMENT_NODE ||
+        this.isDisabledForEvents(aNode)) {
+      this.shouldDisplay = false;
+      return;
+    }
+
+    // Initialize contextual info.
+    this.onImage           = false;
+    this.onLoadedImage     = false;
+    this.onCompletedImage  = false;
+    this.imageDescURL      = "";
+    this.onCanvas          = false;
+    this.onVideo           = false;
+    this.onAudio           = false;
+    this.onTextInput       = false;
+    this.onKeywordField    = false;
+    this.mediaURL          = "";
+    this.onLink            = false;
+    this.onMailtoLink      = false;
+    this.onSaveableLink    = false;
+    this.link              = null;
+    this.linkURL           = "";
+    this.linkURI           = null;
+    this.linkProtocol      = "";
+    this.onMathML          = false;
+    this.inFrame           = false;
+    this.inSyntheticDoc    = false;
+    this.hasBGImage        = false;
+    this.bgImageURL        = "";
+    this.onEditableArea    = false;
+    this.isDesignMode      = false;
+    this.onCTPPlugin       = false;
+
+    // Remember the node that was clicked.
+    this.target = aNode;
+
+    this.browser = this.target.ownerDocument.defaultView
+                                .QueryInterface(Ci.nsIInterfaceRequestor)
+                                .getInterface(Ci.nsIWebNavigation)
+                                .QueryInterface(Ci.nsIDocShell)
+                                .chromeEventHandler;
+    this.onSocial = !!this.browser.getAttribute("origin");
+
+    // Check if we are in a synthetic document (stand alone image, video, etc.).
+    this.inSyntheticDoc =  this.target.ownerDocument.mozSyntheticDocument;
+    // First, do checks for nodes that never have children.
+    if (this.target.nodeType == Node.ELEMENT_NODE) {
+      // See if the user clicked on an image.
+      if (this.target instanceof Ci.nsIImageLoadingContent &&
+          this.target.currentURI) {
+        this.onImage = true;
+
+        var request =
+          this.target.getRequest(Ci.nsIImageLoadingContent.CURRENT_REQUEST);
+        if (request && (request.imageStatus & request.STATUS_SIZE_AVAILABLE))
+          this.onLoadedImage = true;
+        if (request && (request.imageStatus & request.STATUS_LOAD_COMPLETE))
+          this.onCompletedImage = true;
+
+        this.mediaURL = this.target.currentURI.spec;
+
+        var descURL = this.target.getAttribute("longdesc");
+        if (descURL) {
+          this.imageDescURL = makeURLAbsolute(this.target.ownerDocument.body.baseURI, descURL);
+        }
+      }
+      else if (this.target instanceof HTMLCanvasElement) {
+        this.onCanvas = true;
+      }
+      else if (this.target instanceof HTMLVideoElement) {
+        this.mediaURL = this.target.currentSrc || this.target.src;
+        // Firefox always creates a HTMLVideoElement when loading an ogg file
+        // directly. If the media is actually audio, be smarter and provide a
+        // context menu with audio operations.
+        if (this.target.readyState >= this.target.HAVE_METADATA &&
+            (this.target.videoWidth == 0 || this.target.videoHeight == 0)) {
+          this.onAudio = true;
+        } else {
+          this.onVideo = true;
+        }
+      }
+      else if (this.target instanceof HTMLAudioElement) {
+        this.onAudio = true;
+        this.mediaURL = this.target.currentSrc || this.target.src;
+      }
+      else if (this.target instanceof HTMLInputElement ) {
+        this.onTextInput = this.isTargetATextBox(this.target);
+        // Allow spellchecking UI on all text and search inputs.
+        if (this.onTextInput && ! this.target.readOnly &&
+            (this.target.type == "text" || this.target.type == "search")) {
+          this.onEditableArea = true;
+          InlineSpellCheckerUI.init(this.target.QueryInterface(Ci.nsIDOMNSEditableElement).editor);
+          InlineSpellCheckerUI.initFromEvent(aRangeParent, aRangeOffset);
+        }
+        this.onKeywordField = this.isTargetAKeywordField(this.target);
+      }
+      else if (this.target instanceof HTMLTextAreaElement) {
+        this.onTextInput = true;
+        if (!this.target.readOnly) {
+          this.onEditableArea = true;
+          InlineSpellCheckerUI.init(this.target.QueryInterface(Ci.nsIDOMNSEditableElement).editor);
+          InlineSpellCheckerUI.initFromEvent(aRangeParent, aRangeOffset);
+        }
+      }
+      else if (this.target instanceof HTMLHtmlElement) {
+        var bodyElt = this.target.ownerDocument.body;
+        if (bodyElt) {
+          let computedURL;
+          try {
+            computedURL = this.getComputedURL(bodyElt, "background-image");
+            this._hasMultipleBGImages = false;
+          } catch (e) {
+            this._hasMultipleBGImages = true;
+          }
+          if (computedURL) {
+            this.hasBGImage = true;
+            this.bgImageURL = makeURLAbsolute(bodyElt.baseURI,
+                                              computedURL);
+          }
+        }
+      }
+      else if ((this.target instanceof HTMLEmbedElement ||
+                this.target instanceof HTMLObjectElement ||
+                this.target instanceof HTMLAppletElement) &&
+               this.target.mozMatchesSelector(":-moz-handler-clicktoplay")) {
+        this.onCTPPlugin = true;
+      }
+    }
+
+    // Second, bubble out, looking for items of interest that can have childen.
+    // Always pick the innermost link, background image, etc.
+    const XMLNS = "http://www.w3.org/XML/1998/namespace";
+    var elem = this.target;
+    while (elem) {
+      if (elem.nodeType == Node.ELEMENT_NODE) {
+        // Link?
+        if (!this.onLink &&
+            // Be consistent with what hrefAndLinkNodeForClickEvent
+            // does in browser.js
+             ((elem instanceof HTMLAnchorElement && elem.href) ||
+              (elem instanceof HTMLAreaElement && elem.href) ||
+              elem instanceof HTMLLinkElement ||
+              elem.getAttributeNS("http://www.w3.org/1999/xlink", "type") == "simple")) {
+
+          // Target is a link or a descendant of a link.
+          this.onLink = true;
+
+          // Remember corresponding element.
+          this.link = elem;
+          this.linkURL = this.getLinkURL();
+          this.linkURI = this.getLinkURI();
+          this.linkProtocol = this.getLinkProtocol();
+          this.onMailtoLink = (this.linkProtocol == "mailto");
+          this.onSaveableLink = this.isLinkSaveable( this.link );
+        }
+
+        // Background image?  Don't bother if we've already found a
+        // background image further down the hierarchy.  Otherwise,
+        // we look for the computed background-image style.
+        if (!this.hasBGImage &&
+            !this._hasMultipleBGImages) {
+          let bgImgUrl;
+          try {
+            bgImgUrl = this.getComputedURL(elem, "background-image");
+            this._hasMultipleBGImages = false;
+          } catch (e) {
+            this._hasMultipleBGImages = true;
+          }
+          if (bgImgUrl) {
+            this.hasBGImage = true;
+            this.bgImageURL = makeURLAbsolute(elem.baseURI,
+                                              bgImgUrl);
+          }
+        }
+      }
+
+      elem = elem.parentNode;
+    }
+
+    // See if the user clicked on MathML
+    const NS_MathML = "http://www.w3.org/1998/Math/MathML";
+    if ((this.target.nodeType == Node.TEXT_NODE &&
+         this.target.parentNode.namespaceURI == NS_MathML)
+         || (this.target.namespaceURI == NS_MathML))
+      this.onMathML = true;
+
+    // See if the user clicked in a frame.
+    var docDefaultView = this.target.ownerDocument.defaultView;
+    if (docDefaultView != docDefaultView.top) {
+      // srcdoc iframes are not considered frames for concerns about web
+      // content with about:srcdoc in location bar masqurading as trusted
+      // chrome/addon content.
+      if (!this.target.ownerDocument.isSrcdocDocument)
+        this.inFrame = true;
+    }
+
+    // if the document is editable, show context menu like in text inputs
+    if (!this.onEditableArea) {
+      var win = this.target.ownerDocument.defaultView;
+      if (win) {
+        var isEditable = false;
+        try {
+          var editingSession = win.QueryInterface(Ci.nsIInterfaceRequestor)
+                                  .getInterface(Ci.nsIWebNavigation)
+                                  .QueryInterface(Ci.nsIInterfaceRequestor)
+                                  .getInterface(Ci.nsIEditingSession);
+          if (editingSession.windowIsEditable(win) &&
+              this.getComputedStyle(this.target, "-moz-user-modify") == "read-write") {
+            isEditable = true;
+          }
+        }
+        catch(ex) {
+          // If someone built with composer disabled, we can't get an editing session.
+        }
+
+        if (isEditable) {
+          this.onTextInput       = true;
+          this.onKeywordField    = false;
+          this.onImage           = false;
+          this.onLoadedImage     = false;
+          this.onCompletedImage  = false;
+          this.onMathML          = false;
+          this.inFrame           = false;
+          this.hasBGImage        = false;
+          this.isDesignMode      = true;
+          this.onEditableArea = true;
+          InlineSpellCheckerUI.init(editingSession.getEditorForWindow(win));
+          var canSpell = InlineSpellCheckerUI.canSpellCheck;
+          InlineSpellCheckerUI.initFromEvent(aRangeParent, aRangeOffset);
+          this.showItem("spell-check-enabled", canSpell);
+          this.showItem("spell-separator", canSpell);
+        }
+      }
+    }
+  },
+
   // Returns the computed style attribute for the given element.
   getComputedStyle: function(aElem, aProp) {
     return aElem.ownerDocument
@@ -622,6 +863,14 @@ nsContextMenu.prototype = {
   viewImageInfo: function() {
     BrowserPageInfo(this.target.ownerDocument.defaultView.top.document,
                     "mediaTab", this.target);
+  },
+
+  viewImageDesc: function(e) {
+    var doc = this.target.ownerDocument;
+    urlSecurityCheck(this.imageDescURL, this.browser.contentPrincipal,
+                     Ci.nsIScriptSecurityManager.DISALLOW_SCRIPT);
+    openUILink(this.imageDescURL, e, { disallowInheritPrincipal: true,
+                             referrerURI: doc.documentURIObject });
   },
 
   viewFrameInfo: function() {

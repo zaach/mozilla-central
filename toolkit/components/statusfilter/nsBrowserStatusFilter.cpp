@@ -101,10 +101,9 @@ NS_IMETHODIMP
 nsBrowserStatusFilter::GetLoadType(uint32_t *aLoadType)
 {
     *aLoadType = 0;
-    NS_NOTREACHED("nsBrowserStatusFilter::GetLoadType"); 
+    NS_NOTREACHED("nsBrowserStatusFilter::GetLoadType");
     return NS_ERROR_NOT_IMPLEMENTED;
 }
-
 
 //-----------------------------------------------------------------------------
 // nsBrowserStatusFilter::nsIWebProgressListener

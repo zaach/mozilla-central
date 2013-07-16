@@ -4,7 +4,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "IonFrames.h"
+#include "ion/IonFrames.h"
 
 #include "jsobj.h"
 #include "jsscript.h"
@@ -26,7 +26,6 @@
 
 #include "ion/IonFrameIterator-inl.h"
 #include "ion/IonFrames-inl.h"
-#include "ion/PcScriptCache-inl.h"
 #include "vm/Probes-inl.h"
 
 namespace js {
@@ -233,6 +232,31 @@ IonFrameIterator::actualArgs() const
     return jsFrame()->argv() + 1;
 }
 
+static inline size_t
+SizeOfFramePrefix(FrameType type)
+{
+    switch (type) {
+      case IonFrame_Entry:
+        return IonEntryFrameLayout::Size();
+      case IonFrame_BaselineJS:
+      case IonFrame_OptimizedJS:
+      case IonFrame_Unwound_OptimizedJS:
+        return IonJSFrameLayout::Size();
+      case IonFrame_BaselineStub:
+        return IonBaselineStubFrameLayout::Size();
+      case IonFrame_Rectifier:
+        return IonRectifierFrameLayout::Size();
+      case IonFrame_Unwound_Rectifier:
+        return IonUnwoundRectifierFrameLayout::Size();
+      case IonFrame_Exit:
+        return IonExitFrameLayout::Size();
+      case IonFrame_Osr:
+        return IonOsrFrameLayout::Size();
+      default:
+        MOZ_ASSUME_UNREACHABLE("unknown frame type");
+    }
+}
+
 uint8_t *
 IonFrameIterator::prevFp() const
 {
@@ -394,7 +418,7 @@ HandleException(JSContext *cx, const IonFrameIterator &frame, ResumeFromExceptio
             return;
 
           default:
-            JS_NOT_REACHED("Invalid trap status");
+            MOZ_ASSUME_UNREACHABLE("Invalid trap status");
         }
     }
 
@@ -409,6 +433,13 @@ HandleException(JSContext *cx, const IonFrameIterator &frame, ResumeFromExceptio
         if (pcOffset < tn->start)
             continue;
         if (pcOffset >= tn->start + tn->length)
+            continue;
+
+        // Skip if the try note's stack depth exceeds the frame's stack depth.
+        // See the big comment in TryNoteIter::settle for more info.
+        JS_ASSERT(frame.baselineFrame()->numValueSlots() >= script->nfixed);
+        size_t stackDepth = frame.baselineFrame()->numValueSlots() - script->nfixed;
+        if (tn->stackDepth > stackDepth)
             continue;
 
         // Unwind scope chain (pop block objects).
@@ -456,7 +487,7 @@ HandleException(JSContext *cx, const IonFrameIterator &frame, ResumeFromExceptio
             break;
 
           default:
-            JS_NOT_REACHED("Invalid try note");
+            MOZ_ASSUME_UNREACHABLE("Invalid try note");
         }
     }
 
@@ -555,8 +586,9 @@ HandleParallelFailure(ResumeFromException *rfe)
     ForkJoinSlice *slice = ForkJoinSlice::Current();
     IonFrameIterator iter(slice->perThreadData->ionTop);
 
+    parallel::Spew(parallel::SpewBailouts, "Bailing from VM reentry");
+
     while (!iter.isEntry()) {
-        parallel::Spew(parallel::SpewBailouts, "Bailing from VM reentry");
         if (iter.isScripted()) {
             slice->bailoutRecord->setCause(ParallelBailoutFailedIC,
                                            iter.script(), iter.script(), NULL);
@@ -627,7 +659,7 @@ MarkCalleeToken(JSTracer *trc, CalleeToken token)
         return CalleeToToken(script);
       }
       default:
-        JS_NOT_REACHED("unknown callee token type");
+        MOZ_ASSUME_UNREACHABLE("unknown callee token type");
     }
 }
 
@@ -746,6 +778,26 @@ MarkIonJSFrame(JSTracer *trc, const IonFrameIterator &frame)
         }
     }
 #endif
+
+#ifdef JSGC_GENERATIONAL
+    if (trc->runtime->isHeapMinorCollecting()) {
+        // Minor GCs may move slots/elements allocated in the nursery. Update
+        // any slots/elements pointers stored in this frame.
+
+        GeneralRegisterSet slotsRegs = safepoint.slotsOrElementsSpills();
+        spill = frame.spillBase();
+        for (GeneralRegisterBackwardIterator iter(safepoint.allSpills()); iter.more(); iter++) {
+            --spill;
+            if (slotsRegs.has(*iter))
+                trc->runtime->gcNursery.forwardBufferPointer(reinterpret_cast<HeapSlot **>(spill));
+        }
+
+        while (safepoint.getSlotsOrElementsSlot(&slot)) {
+            HeapSlot **slots = reinterpret_cast<HeapSlot **>(layout->slotRef(slot));
+            trc->runtime->gcNursery.forwardBufferPointer(slots);
+        }
+    }
+#endif
 }
 
 static void
@@ -777,8 +829,7 @@ JitActivationIterator::jitStackRange(uintptr_t *&min, uintptr_t *&end)
         if (exitFrame->isWrapperExit() && f->outParam == Type_Handle) {
             switch (f->outParamRootType) {
               case VMFunction::RootNone:
-                JS_NOT_REACHED("Handle outparam must have root type");
-                break;
+                MOZ_ASSUME_UNREACHABLE("Handle outparam must have root type");
               case VMFunction::RootObject:
               case VMFunction::RootString:
               case VMFunction::RootPropertyName:
@@ -920,8 +971,7 @@ MarkIonExitFrame(JSTracer *trc, const IonFrameIterator &frame)
     if (f->outParam == Type_Handle) {
         switch (f->outParamRootType) {
           case VMFunction::RootNone:
-            JS_NOT_REACHED("Handle outparam must have root type");
-            break;
+            MOZ_ASSUME_UNREACHABLE("Handle outparam must have root type");
           case VMFunction::RootObject:
             gc::MarkObjectRoot(trc, footer->outParam<JSObject *>(), "ion-vm-out");
             break;
@@ -960,8 +1010,7 @@ MarkJitActivation(JSTracer *trc, const JitActivationIterator &activations)
             MarkIonJSFrame(trc, frames);
             break;
           case IonFrame_Unwound_OptimizedJS:
-            JS_NOT_REACHED("invalid");
-            break;
+            MOZ_ASSUME_UNREACHABLE("invalid");
           case IonFrame_Rectifier:
           case IonFrame_Unwound_Rectifier:
             break;
@@ -971,8 +1020,7 @@ MarkJitActivation(JSTracer *trc, const JitActivationIterator &activations)
             // dead.
             break;
           default:
-            JS_NOT_REACHED("unexpected frame type");
-            break;
+            MOZ_ASSUME_UNREACHABLE("unexpected frame type");
         }
     }
 }
@@ -1000,6 +1048,15 @@ GetPcScript(JSContext *cx, JSScript **scriptRes, jsbytecode **pcRes)
 
     // Recover the return address.
     IonFrameIterator it(rt->mainThread.ionTop);
+
+    // If the previous frame is a rectifier frame (maybe unwound),
+    // skip past it.
+    if (it.prevType() == IonFrame_Rectifier || it.prevType() == IonFrame_Unwound_Rectifier) {
+        ++it;
+        JS_ASSERT(it.prevType() == IonFrame_BaselineStub ||
+                  it.prevType() == IonFrame_BaselineJS ||
+                  it.prevType() == IonFrame_OptimizedJS);
+    }
 
     // If the previous frame is a stub frame, skip the exit frame so that
     // returnAddress below gets the return address into the BaselineJS
@@ -1114,8 +1171,7 @@ SnapshotIterator::FromTypedPayload(JSValueType type, uintptr_t payload)
       case JSVAL_TYPE_OBJECT:
         return ObjectValue(*reinterpret_cast<JSObject *>(payload));
       default:
-        JS_NOT_REACHED("unexpected type - needs payload");
-        return UndefinedValue();
+        MOZ_ASSUME_UNREACHABLE("unexpected type - needs payload");
     }
 }
 
@@ -1184,8 +1240,7 @@ SnapshotIterator::slotValue(const Slot &slot)
         return ionScript_->getConstant(slot.constantIndex());
 
       default:
-        JS_NOT_REACHED("huh?");
-        return UndefinedValue();
+        MOZ_ASSUME_UNREACHABLE("huh?");
     }
 }
 
@@ -1204,7 +1259,7 @@ IonFrameIterator::ionScript() const
       case CalleeToken_ParallelFunction:
         return script()->parallelIonScript();
       default:
-        JS_NOT_REACHED("unknown callee token type");
+        MOZ_ASSUME_UNREACHABLE("unknown callee token type");
     }
 }
 
@@ -1237,11 +1292,6 @@ InlineFrameIteratorMaybeGC<allowGC>::resetOn(const IonFrameIterator *iter)
 }
 template void InlineFrameIteratorMaybeGC<NoGC>::resetOn(const IonFrameIterator *iter);
 template void InlineFrameIteratorMaybeGC<CanGC>::resetOn(const IonFrameIterator *iter);
-
-// Disable PGO.
-#if defined(_MSC_VER)
-# pragma optimize("g", off)
-#endif
 
 template <AllowGC allowGC>
 void
@@ -1302,11 +1352,6 @@ InlineFrameIteratorMaybeGC<allowGC>::findNextFrame()
 }
 template void InlineFrameIteratorMaybeGC<NoGC>::findNextFrame();
 template void InlineFrameIteratorMaybeGC<CanGC>::findNextFrame();
-
-// Reenable default optimization flags.
-#if defined(_MSC_VER)
-# pragma optimize("", on)
-#endif
 
 template <AllowGC allowGC>
 bool

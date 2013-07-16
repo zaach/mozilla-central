@@ -8,10 +8,9 @@
 
 #include "mozilla/DebugOnly.h"
 
-#include "jstypedarray.h"
-
 #include "ion/IonCode.h"
 #include "vm/Shape.h"
+#include "vm/TypedArrayObject.h"
 
 #include "jscompartmentinlines.h"
 #include "jsinferinlines.h"
@@ -286,6 +285,7 @@ IsAboutToBeFinalized(T **thingp)
 {
     JS_ASSERT(thingp);
     JS_ASSERT(*thingp);
+
 #ifdef JSGC_GENERATIONAL
     Nursery &nursery = (*thingp)->runtime()->gcNursery;
     if (nursery.isInside(*thingp))
@@ -293,6 +293,16 @@ IsAboutToBeFinalized(T **thingp)
 #endif
     if (!(*thingp)->tenuredZone()->isGCSweeping())
         return false;
+
+    /*
+     * We should return false for things that have been allocated during
+     * incremental sweeping, but this possibility doesn't occur at the moment
+     * because this function is only called at the very start of the sweeping a
+     * compartment group.  Rather than do the extra check, we just assert that
+     * it's not necessary.
+     */
+    JS_ASSERT(!(*thingp)->arenaHeader()->allocatedDuringIncremental);
+
     return !(*thingp)->isMarked();
 }
 
@@ -356,6 +366,7 @@ DeclMarkerImpl(BaseShape, UnownedBaseShape)
 DeclMarkerImpl(IonCode, ion::IonCode)
 DeclMarkerImpl(Object, ArgumentsObject)
 DeclMarkerImpl(Object, ArrayBufferObject)
+DeclMarkerImpl(Object, ArrayBufferViewObject)
 DeclMarkerImpl(Object, DebugScopeObject)
 DeclMarkerImpl(Object, GlobalObject)
 DeclMarkerImpl(Object, JSObject)

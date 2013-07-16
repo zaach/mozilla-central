@@ -18,7 +18,6 @@
 #include "AccessCheck.h"
 #include "WrapperFactory.h"
 #include "XrayWrapper.h"
-#include "JavaScriptParent.h"
 
 #include "nsContentUtils.h"
 #include "nsCxPusher.h"
@@ -284,7 +283,7 @@ FinishCreate(XPCWrappedNativeScope* Scope,
 nsresult
 XPCWrappedNative::WrapNewGlobal(xpcObjectHelper &nativeHelper,
                                 nsIPrincipal *principal, bool initStandardClasses,
-                                ZoneSpecifier zoneSpec,
+                                JS::CompartmentOptions& aOptions,
                                 XPCWrappedNative **wrappedGlobal)
 {
     AutoJSContext cx;
@@ -314,7 +313,7 @@ XPCWrappedNative::WrapNewGlobal(xpcObjectHelper &nativeHelper,
     MOZ_ASSERT(clasp->flags & JSCLASS_IS_GLOBAL);
 
     // Create the global.
-    RootedObject global(cx, xpc::CreateGlobalObject(cx, clasp, principal, zoneSpec));
+    RootedObject global(cx, xpc::CreateGlobalObject(cx, clasp, principal, aOptions));
     if (!global)
         return NS_ERROR_FAILURE;
     XPCWrappedNativeScope *scope = GetCompartmentPrivate(global)->scope;
@@ -825,13 +824,8 @@ XPCWrappedNative::Destroy()
     if (mIdentity) {
         XPCJSRuntime* rt = GetRuntime();
         if (rt && rt->GetDoingFinalization()) {
-            if (rt->DeferredRelease(mIdentity)) {
-                mIdentity = nullptr;
-            } else {
-                NS_WARNING("Failed to append object for deferred release.");
-                // XXX do we really want to do this???
-                NS_RELEASE(mIdentity);
-            }
+            nsContentUtils::DeferredFinalize(mIdentity);
+            mIdentity = nullptr;
         } else {
             NS_RELEASE(mIdentity);
         }
@@ -1154,7 +1148,7 @@ XPCWrappedNative::FlatJSObjectFinalized()
         for (int i = XPC_WRAPPED_NATIVE_TEAROFFS_PER_CHUNK-1; i >= 0; i--, to++) {
             JSObject* jso = to->GetJSObjectPreserveColor();
             if (jso) {
-                NS_ASSERTION(JS_IsAboutToBeFinalized(&jso), "bad!");
+                MOZ_ASSERT(JS_IsAboutToBeFinalizedUnbarriered(&jso));
                 JS_SetPrivate(jso, nullptr);
                 to->JSObjectFinalized();
             }
@@ -1169,11 +1163,7 @@ XPCWrappedNative::FlatJSObjectFinalized()
 #endif
                 XPCJSRuntime* rt = GetRuntime();
                 if (rt) {
-                    if (!rt->DeferredRelease(obj)) {
-                        NS_WARNING("Failed to append object for deferred release.");
-                        // XXX do we really want to do this???
-                        obj->Release();
-                    }
+                    nsContentUtils::DeferredFinalize(obj);
                 } else {
                     obj->Release();
                 }
@@ -1990,8 +1980,6 @@ class CallMethodHelper
     jsval* const mArgv;
     const uint32_t mArgc;
 
-    bool mIsNativeMethod;
-
     JS_ALWAYS_INLINE JSBool
     GetArraySizeFromParam(uint8_t paramIndex, uint32_t* result) const;
 
@@ -2051,7 +2039,6 @@ public:
         , mOptArgcIndex(UINT8_MAX)
         , mArgv(ccx.GetArgv())
         , mArgc(ccx.GetArgc())
-        , mIsNativeMethod(true)
 
     {
         // Success checked later.
@@ -2115,9 +2102,6 @@ XPCWrappedNative::CallMethod(XPCCallContext& ccx,
 JSBool
 CallMethodHelper::Call()
 {
-    if (nsXPCWrappedJSClass::IsWrappedJS(mCallee))
-        mIsNativeMethod = false;
-
     mCallContext.SetRetVal(JSVAL_VOID);
 
     XPCJSRuntime::Get()->SetPendingException(nullptr);
@@ -2577,21 +2561,6 @@ CallMethodHelper::ConvertIndependentParam(uint8_t i)
     if (!XPCConvert::JSData2Native(&dp->val, src, type, true, &param_iid, &err)) {
         ThrowBadParam(err, i, mCallContext);
         return false;
-    }
-
-    if (mIsNativeMethod && src.isObject() &&
-        (type_tag == nsXPTType::T_INTERFACE || type_tag == nsXPTType::T_INTERFACE_IS))
-    {
-        nsISupports *supports = static_cast<nsISupports *>(dp->val.p);
-        if (nsXPCWrappedJSClass::IsWrappedJS(supports)) {
-            nsCOMPtr<nsIXPConnectWrappedJS> wrappedjs(do_QueryInterface(supports));
-            JSObject *wrappedobj = wrappedjs->GetJSObject();
-            wrappedobj = js::UncheckedUnwrap(wrappedobj);
-            if (mozilla::jsipc::JavaScriptParent::IsCPOW(wrappedobj)) {
-                ThrowBadParam(NS_ERROR_XPC_CANT_PASS_CPOW_TO_NATIVE, i, mCallContext);
-                return false;
-            }
-        }
     }
 
     return true;

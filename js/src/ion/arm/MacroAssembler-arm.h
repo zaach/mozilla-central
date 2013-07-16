@@ -238,6 +238,9 @@ class MacroAssemblerARM : public Assembler
     // implicitly assumes that we can overwrite dest at the beginning of the sequence
     void ma_mod_mask(Register src, Register dest, Register hold, int32_t shift);
 
+    // division
+    void ma_sdiv(Register num, Register div, Register dest, Condition cond = Always);
+
     // memory
     // shortcut for when we know we're transferring 32 bits of data
     void ma_dtr(LoadStore ls, Register rn, Imm32 offset, Register rt,
@@ -359,7 +362,7 @@ class MacroAssemblerARM : public Assembler
             return transferMultipleByRunsImpl
                 <FloatRegisterBackwardIterator>(set, ls, rm, mode, -1);
         }
-        JS_NOT_REACHED("Invalid data transfer addressing mode");
+        MOZ_ASSUME_UNREACHABLE("Invalid data transfer addressing mode");
     }
 
 private:
@@ -417,7 +420,12 @@ class MacroAssemblerARMCompat : public MacroAssemblerARM
     bool dynamicAlignment_;
 
     bool enoughMemory_;
-    VFPRegister floatArgsInGPR[2];
+
+    // Used to work around the move resolver's lack of support for
+    // moving into register pairs, which the softfp ABI needs.
+    MoveResolver::MoveOperand floatArgsInGPR[2];
+    bool floatArgsInGPRValid[2];
+
     // Compute space needed for the function call and set the properties of the
     // callee.  It returns the space which has to be allocated for calling the
     // function.
@@ -480,10 +488,10 @@ class MacroAssemblerARMCompat : public MacroAssemblerARM
         ma_mov(Imm32(imm.value), dest);
     }
     void mov(Register src, Address dest) {
-        JS_NOT_REACHED("NYI-IC");
+        MOZ_ASSUME_UNREACHABLE("NYI-IC");
     }
     void mov(Address src, Register dest) {
-        JS_NOT_REACHED("NYI-IC");
+        MOZ_ASSUME_UNREACHABLE("NYI-IC");
     }
 
     void call(const Register reg) {
@@ -1013,6 +1021,7 @@ class MacroAssemblerARMCompat : public MacroAssemblerARM
     void linkExitFrame();
     void linkParallelExitFrame(const Register &pt);
     void handleFailureWithHandler(void *handler);
+    void handleFailureWithHandlerTail();
 
     /////////////////////////////////////////////////////////////////
     // Common interface.

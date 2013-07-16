@@ -11,12 +11,12 @@
 
 #include "mozilla/MemoryReporting.h"
 
-#include "IonCode.h"
+#include "ion/IonCode.h"
 #include "jsweakcache.h"
 #include "js/Value.h"
 #include "vm/Stack.h"
-#include "IonFrames.h"
-#include "CompileInfo.h"
+#include "ion/IonFrames.h"
+#include "ion/CompileInfo.h"
 
 namespace js {
 namespace ion {
@@ -126,6 +126,9 @@ class IonRuntime
     // Executable allocator.
     JSC::ExecutableAllocator *execAlloc_;
 
+    // Shared post-exception-handler tail
+    IonCode *exceptionTail_;
+
     // Trampoline for entering JIT code. Contains OSR prologue.
     IonCode *enterJIT_;
 
@@ -169,6 +172,7 @@ class IonRuntime
     AutoFlushCache *flusher_;
 
   private:
+    IonCode *generateExceptionTailStub(JSContext *cx);
     IonCode *generateEnterJIT(JSContext *cx, EnterJitType type);
     IonCode *generateArgumentsRectifier(JSContext *cx, ExecutionMode mode, void **returnAddrOut);
     IonCode *generateBailoutTable(JSContext *cx, uint32_t frameClass);
@@ -284,13 +288,17 @@ class IonCompartment
         return rt->bailoutHandler_;
     }
 
+    IonCode *getExceptionTail() {
+        return rt->exceptionTail_;
+    }
+
     IonCode *getBailoutTable(const FrameSizeClass &frameClass);
 
     IonCode *getArgumentsRectifier(ExecutionMode mode) {
         switch (mode) {
           case SequentialExecution: return rt->argumentsRectifier_;
           case ParallelExecution:   return rt->parallelArgumentsRectifier_;
-          default:                  JS_NOT_REACHED("No such execution mode");
+          default:                  MOZ_ASSUME_UNREACHABLE("No such execution mode");
         }
     }
 
@@ -326,7 +334,7 @@ class IonCompartment
         switch (mode) {
           case SequentialExecution: return stringConcatStub_;
           case ParallelExecution:   return parallelStringConcatStub_;
-          default:                  JS_NOT_REACHED("No such execution mode");
+          default:                  MOZ_ASSUME_UNREACHABLE("No such execution mode");
         }
     }
 

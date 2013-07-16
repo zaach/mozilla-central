@@ -267,6 +267,9 @@ let SessionStoreInternal = {
   // set default load state
   _loadState: STATE_STOPPED,
 
+  // initial state to restore after startup
+  _initialState: null,
+
   // During the initial restore and setBrowserState calls tracks the number of
   // windows yet to be restored
   _restoreCount: -1,
@@ -429,6 +432,11 @@ let SessionStoreInternal = {
                 }
               };
               this._initialState = { windows: [{ tabs: [{ entries: [pageData] }] }] };
+            } else if (this._hasSingleTabWithURL(this._initialState.windows,
+                                                 "about:welcomeback")) {
+              // On a single about:welcomeback URL that crashed, replace about:welcomeback
+              // with about:sessionrestore, to make clear to the user that we crashed.
+              this._initialState.windows[0].tabs[0].entries[0].url = "about:sessionrestore";
             }
           }
 
@@ -456,7 +464,11 @@ let SessionStoreInternal = {
 
     // A Lazy getter for the sessionstore.js backup promise.
     XPCOMUtils.defineLazyGetter(this, "_backupSessionFileOnce", function () {
-      return _SessionFile.createBackupCopy();
+      // We're creating a backup of sessionstore.js by moving it to .bak
+      // because that's a lot faster than creating a copy. sessionstore.js
+      // would be overwritten shortly afterwards anyway so we can save time
+      // and just move instead of copy.
+      return _SessionFile.moveToBackupPath();
     });
 
     // at this point, we've as good as resumed the session, so we can
@@ -500,12 +512,12 @@ let SessionStoreInternal = {
     return Task.spawn(function task() {
       try {
         // Perform background backup
-        yield _SessionFile.createUpgradeBackupCopy("-" + buildID);
+        yield _SessionFile.createBackupCopy("-" + buildID);
 
         this._prefBranch.setCharPref(PREF_UPGRADE, buildID);
 
         // In case of success, remove previous backup.
-        yield _SessionFile.removeUpgradeBackup("-" + latestBackup);
+        yield _SessionFile.removeBackupCopy("-" + latestBackup);
       } catch (ex) {
         debug("Could not perform upgrade backup " + ex);
         debug(ex.stack);
@@ -768,7 +780,7 @@ let SessionStoreInternal = {
           // actually wanted to restore so that we can do it later in case
           // the user opens another, non-private window.
           this._deferredInitialState = this._initialState;
-          delete this._initialState;
+          this._initialState = null;
 
           // Nothing to restore now, notify observers things are complete.
           Services.obs.notifyObservers(null, NOTIFY_WINDOWS_RESTORED, "");
@@ -779,11 +791,12 @@ let SessionStoreInternal = {
           this._restoreCount = this._initialState.windows ? this._initialState.windows.length : 0;
           this.restoreWindow(aWindow, this._initialState,
                              this._isCmdLineEmpty(aWindow, this._initialState));
-          delete this._initialState;
+          this._initialState = null;
 
-          // _loadState changed from "stopped" to "running"
-          // force a save operation so that crashes happening during startup are correctly counted
-          this.saveState(true);
+          // _loadState changed from "stopped" to "running". Save the session's
+          // load state immediately so that crashes happening during startup
+          // are correctly counted.
+          _SessionFile.writeLoadStateOnceAfterStartup(STATE_RUNNING_STR);
         }
       }
       else {
@@ -2091,6 +2104,12 @@ let SessionStoreInternal = {
     if (aEntry.referrerURI)
       entry.referrer = aEntry.referrerURI.spec;
 
+    if (aEntry.srcdocData)
+      entry.srcdocData = aEntry.srcdocData;
+
+    if (aEntry.isSrcdocEntry)
+      entry.isSrcdocEntry = aEntry.isSrcdocEntry;
+
     if (aEntry.contentType)
       entry.contentType = aEntry.contentType;
 
@@ -2274,7 +2293,8 @@ let SessionStoreInternal = {
     }
     var isHTTPS = this._getURIFromString((aContent.parent || aContent).
                                          document.location.href).schemeIs("https");
-    let isAboutSR = aContent.top.document.location.href == "about:sessionrestore";
+    let topURL = aContent.top.document.location.href;
+    let isAboutSR = topURL == "about:sessionrestore" || topURL == "about:welcomeback";
     if (aFullData || this.checkPrivacyLevel(isHTTPS, aIsPinned) || isAboutSR) {
       if (aFullData || aUpdateFormData) {
         let formData = DocumentUtils.getFormData(aContent.document);
@@ -3357,6 +3377,8 @@ let SessionStoreInternal = {
       shEntry.contentType = aEntry.contentType;
     if (aEntry.referrer)
       shEntry.referrerURI = this._getURIFromString(aEntry.referrer);
+    if (aEntry.isSrcdocEntry)
+      shEntry.srcdocData = aEntry.srcdocData;
 
     if (aEntry.cacheKey) {
       var cacheKey = Cc["@mozilla.org/supports-PRUint32;1"].
@@ -3498,7 +3520,7 @@ let SessionStoreInternal = {
         // for about:sessionrestore we saved the field as JSON to avoid
         // nested instances causing humongous sessionstore.js files.
         // cf. bug 467409
-        if (aData.url == "about:sessionrestore" &&
+        if ((aData.url == "about:sessionrestore" || aData.url == "about:welcomeback") &&
             "sessionData" in formdata.id &&
             typeof formdata.id["sessionData"] == "object") {
           formdata.id["sessionData"] =
@@ -4122,11 +4144,10 @@ let SessionStoreInternal = {
       return false;
 
     // don't wrap a single about:sessionrestore page
-    if (winData.length == 1 && winData[0].tabs &&
-        winData[0].tabs.length == 1 && winData[0].tabs[0].entries &&
-        winData[0].tabs[0].entries.length == 1 &&
-        winData[0].tabs[0].entries[0].url == "about:sessionrestore")
+    if (this._hasSingleTabWithURL(winData, "about:sessionrestore") ||
+        this._hasSingleTabWithURL(winData, "about:welcomeback")) {
       return false;
+    }
 
     // don't automatically restore in Safe Mode
     if (Services.appinfo.inSafeMode)
@@ -4140,6 +4161,23 @@ let SessionStoreInternal = {
     return max_resumed_crashes != -1 &&
            (aRecentCrashes > max_resumed_crashes ||
             sessionAge && sessionAge >= SIX_HOURS_IN_MS);
+  },
+
+  /**
+   * @param aWinData is the set of windows in session state
+   * @param aURL is the single URL we're looking for
+   * @returns whether the window data contains only the single URL passed
+   */
+  _hasSingleTabWithURL: function(aWinData, aURL) {
+    if (aWinData &&
+        aWinData.length == 1 &&
+        aWinData[0].tabs &&
+        aWinData[0].tabs.length == 1 &&
+        aWinData[0].tabs[0].entries &&
+        aWinData[0].tabs[0].entries.length == 1) {
+      return aURL == aWinData[0].tabs[0].entries[0].url;
+    }
+    return false;
   },
 
   /**

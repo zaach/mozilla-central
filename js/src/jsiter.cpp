@@ -106,7 +106,7 @@ Enumerate(JSContext *cx, HandleObject pobj, jsid id,
     if (JS_UNLIKELY(!pobj->getTaggedProto().isObject() && JSID_IS_ATOM(id, cx->names().proto)))
         return true;
 
-    if (!(flags & JSITER_OWNONLY) || pobj->isProxy() || pobj->getOps()->enumerate) {
+    if (!(flags & JSITER_OWNONLY) || pobj->is<ProxyObject>() || pobj->getOps()->enumerate) {
         /* If we've already seen this, we definitely won't add it. */
         IdSet::AddPtr p = ht.lookupForAdd(id);
         if (JS_UNLIKELY(!!p))
@@ -117,7 +117,7 @@ Enumerate(JSContext *cx, HandleObject pobj, jsid id,
          * the prototype chain, but custom enumeration behaviors might return
          * duplicated properties, so always add in such cases.
          */
-        if ((pobj->isProxy() || pobj->getProto() || pobj->getOps()->enumerate) && !ht.add(p, id))
+        if ((pobj->is<ProxyObject>() || pobj->getProto() || pobj->getOps()->enumerate) && !ht.add(p, id))
             return false;
     }
 
@@ -206,7 +206,7 @@ Snapshot(JSContext *cx, JSObject *pobj_, unsigned flags, AutoIdVector *props)
             if (!EnumerateNativeProperties(cx, pobj, flags, ht, props))
                 return false;
         } else {
-            if (pobj->isProxy()) {
+            if (pobj->is<ProxyObject>()) {
                 AutoIdVector proxyProps(cx);
                 if (flags & JSITER_OWNONLY) {
                     if (flags & JSITER_HIDDEN) {
@@ -334,7 +334,7 @@ GetCustomIterator(JSContext *cx, HandleObject obj, unsigned flags, MutableHandle
 
     /* Otherwise call it and return that object. */
     Value arg = BooleanValue((flags & JSITER_FOREACH) == 0);
-    if (!Invoke(cx, ObjectValue(*obj), vp, 1, &arg, vp.address()))
+    if (!Invoke(cx, ObjectValue(*obj), vp, 1, &arg, vp))
         return false;
     if (vp.isPrimitive()) {
         /*
@@ -342,7 +342,7 @@ GetCustomIterator(JSContext *cx, HandleObject obj, unsigned flags, MutableHandle
          * trace, so the object we are iterating over is on top of the stack (-1).
          */
         JSAutoByteString bytes;
-        if (!js_AtomToPrintableString(cx, name, &bytes))
+        if (!AtomToPrintableString(cx, name, &bytes))
             return false;
         RootedValue val(cx, ObjectValue(*obj));
         js_ReportValueError2(cx, JSMSG_BAD_TRAP_RETURN_VALUE,
@@ -375,7 +375,7 @@ static inline PropertyIteratorObject *
 NewPropertyIteratorObject(JSContext *cx, unsigned flags)
 {
     if (flags & JSITER_ENUMERATE) {
-        RootedTypeObject type(cx, cx->compartment()->getNewType(cx, &PropertyIteratorObject::class_, NULL));
+        RootedTypeObject type(cx, cx->getNewType(&PropertyIteratorObject::class_, NULL));
         if (!type)
             return NULL;
 
@@ -584,7 +584,7 @@ js::GetIterator(JSContext *cx, HandleObject obj, unsigned flags, MutableHandleVa
             return false;
         }
 
-        if (!Invoke(cx, ObjectOrNullValue(obj), method, 0, NULL, vp.address()))
+        if (!Invoke(cx, ObjectOrNullValue(obj), method, 0, NULL, vp))
             return false;
 
         JSObject *resultObj = ToObject(cx, vp);
@@ -682,7 +682,7 @@ js::GetIterator(JSContext *cx, HandleObject obj, unsigned flags, MutableHandleVa
         }
 
       miss:
-        if (obj->isProxy()) {
+        if (obj->is<ProxyObject>()) {
             types::MarkIteratorUnknown(cx);
             return Proxy::iterate(cx, obj, flags, vp);
         }
@@ -1244,7 +1244,7 @@ js_IteratorMore(JSContext *cx, HandleObject iterobj, MutableHandleValue rval)
         /* Call the iterator object's .next method. */
         if (!JSObject::getProperty(cx, iterobj, iterobj, cx->names().next, rval))
             return false;
-        if (!Invoke(cx, ObjectValue(*iterobj), rval, 0, NULL, rval.address())) {
+        if (!Invoke(cx, ObjectValue(*iterobj), rval, 0, NULL, rval)) {
             /* Check for StopIteration. */
             if (!cx->isExceptionPending() || !IsStopIteration(cx->getPendingException()))
                 return false;
@@ -1354,6 +1354,14 @@ GeneratorWriteBarrierPre(JSContext *cx, JSGenerator *gen)
     JS::Zone *zone = cx->zone();
     if (zone->needsBarrier())
         MarkGeneratorFrame(zone->barrierTracer(), gen);
+}
+
+static void
+GeneratorWriteBarrierPost(JSContext *cx, JSGenerator *gen)
+{
+#ifdef JSGC_GENERATIONAL
+    cx->runtime()->gcStoreBuffer.putWholeCell(gen->obj);
+#endif
 }
 
 /*
@@ -1588,6 +1596,7 @@ SendToGenerator(JSContext *cx, JSGeneratorOp op, HandleObject obj,
         JS_ASSERT(op != JSGENOP_CLOSE);
         gen->fp->clearYielding();
         gen->state = JSGEN_OPEN;
+        GeneratorWriteBarrierPost(cx, gen);
         return ok;
     }
 

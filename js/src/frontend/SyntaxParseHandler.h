@@ -7,6 +7,9 @@
 #ifndef frontend_SyntaxParseHandler_h
 #define frontend_SyntaxParseHandler_h
 
+#include "frontend/ParseNode.h"
+#include "frontend/TokenStream.h"
+
 namespace js {
 namespace frontend {
 
@@ -39,7 +42,8 @@ class SyntaxParseHandler
     };
     typedef Definition::Kind DefinitionNode;
 
-    SyntaxParseHandler(JSContext *cx, TokenStream &tokenStream, bool foldConstants,
+    SyntaxParseHandler(ExclusiveContext *cx, LifoAlloc &alloc,
+                       TokenStream &tokenStream, bool foldConstants,
                        Parser<SyntaxParseHandler> *syntaxParser, LazyScript *lazyOuterFunction)
       : lastAtom(NULL),
         tokenStream(tokenStream)
@@ -170,6 +174,7 @@ class SyntaxParseHandler
         return NodeGeneric;
     }
     void addList(Node pn, Node kid) {}
+    bool isUnparenthesizedYield(Node pn) { return false; }
 
     void setOp(Node pn, JSOp op) {}
     void setBlockId(Node pn, unsigned blockid) {}

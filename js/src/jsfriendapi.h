@@ -393,10 +393,15 @@ struct Atom {
 
 } /* namespace shadow */
 
-extern JS_FRIEND_DATA(js::Class) FunctionProxyClass;
-extern JS_FRIEND_DATA(js::Class) OuterWindowProxyClass;
-extern JS_FRIEND_DATA(js::Class) ObjectProxyClass;
-extern JS_FRIEND_DATA(js::Class) ObjectClass;
+// These are equal to |&{Function,Object,OuterWindow}ProxyObject::class_|.  Use
+// them in places where you don't want to #include vm/ProxyObject.h.
+extern JS_FRIEND_DATA(js::Class*) FunctionProxyClassPtr;
+extern JS_FRIEND_DATA(js::Class*) ObjectProxyClassPtr;
+extern JS_FRIEND_DATA(js::Class*) OuterWindowProxyClassPtr;
+
+// This is equal to |&JSObject::class_|.  Use it in places where you don't want
+// to #include jsobj.h.
+extern JS_FRIEND_DATA(js::Class*) ObjectClassPtr;
 
 inline js::Class *
 GetObjectClass(JSObject *obj)
@@ -498,9 +503,9 @@ inline bool
 GetObjectProto(JSContext *cx, JS::Handle<JSObject*> obj, JS::MutableHandle<JSObject*> proto)
 {
     js::Class *clasp = GetObjectClass(obj);
-    if (clasp == &js::ObjectProxyClass ||
-        clasp == &js::OuterWindowProxyClass ||
-        clasp == &js::FunctionProxyClass)
+    if (clasp == js::ObjectProxyClassPtr ||
+        clasp == js::OuterWindowProxyClassPtr ||
+        clasp == js::FunctionProxyClassPtr)
     {
         return JS_GetPrototype(cx, obj, proto.address());
     }
@@ -625,6 +630,12 @@ GetNativeStackLimit(const JSRuntime *rt)
     return PerThreadDataFriendFields::getMainThread(rt)->nativeStackLimit;
 }
 
+inline uintptr_t
+GetNativeStackLimit(JSContext *cx)
+{
+    return GetNativeStackLimit(GetRuntime(cx));
+}
+
 /*
  * These macros report a stack overflow and run |onerror| if we are close to
  * using up the C stack. The JS_CHECK_CHROME_RECURSION variant gives us a little
@@ -634,7 +645,7 @@ GetNativeStackLimit(const JSRuntime *rt)
 #define JS_CHECK_RECURSION(cx, onerror)                              \
     JS_BEGIN_MACRO                                                              \
         int stackDummy_;                                                        \
-        if (!JS_CHECK_STACK_SIZE(js::GetNativeStackLimit(js::GetRuntime(cx)), &stackDummy_)) { \
+        if (!JS_CHECK_STACK_SIZE(js::GetNativeStackLimit(cx), &stackDummy_)) {  \
             js_ReportOverRecursed(cx);                                          \
             onerror;                                                            \
         }                                                                       \
@@ -643,7 +654,7 @@ GetNativeStackLimit(const JSRuntime *rt)
 #define JS_CHECK_RECURSION_WITH_EXTRA_DONT_REPORT(cx, extra, onerror)           \
     JS_BEGIN_MACRO                                                              \
         uint8_t stackDummy_;                                                    \
-        if (!JS_CHECK_STACK_SIZE(js::GetNativeStackLimit(js::GetRuntime(cx)),   \
+        if (!JS_CHECK_STACK_SIZE(js::GetNativeStackLimit(cx),                   \
                                  &stackDummy_ - (extra)))                       \
         {                                                                       \
             onerror;                                                            \
@@ -653,7 +664,7 @@ GetNativeStackLimit(const JSRuntime *rt)
 #define JS_CHECK_CHROME_RECURSION(cx, onerror)                                  \
     JS_BEGIN_MACRO                                                              \
         int stackDummy_;                                                        \
-        if (!JS_CHECK_STACK_SIZE_WITH_TOLERANCE(js::GetNativeStackLimit(js::GetRuntime(cx)), \
+        if (!JS_CHECK_STACK_SIZE_WITH_TOLERANCE(js::GetNativeStackLimit(cx),    \
                                                 &stackDummy_,                   \
                                                 1024 * sizeof(size_t)))         \
         {                                                                       \
@@ -1566,7 +1577,8 @@ struct JSJitInfo {
     enum OpType {
         Getter,
         Setter,
-        Method
+        Method,
+        OpType_None
     };
 
     union {
@@ -1583,7 +1595,13 @@ struct JSJitInfo {
                                keep returning the same value for the given
                                "this" object" */
     JSValueType returnType; /* The return type tag.  Might be JSVAL_TYPE_UNKNOWN */
+
+    /* An alternative native that's safe to call in parallel mode. */
+    JSParallelNative parallelNative;
 };
+
+#define JS_JITINFO_NATIVE_PARALLEL(op)                                         \
+    {{NULL},0,0,JSJitInfo::OpType_None,false,false,false,JSVAL_TYPE_MISSING,op}
 
 static JS_ALWAYS_INLINE const JSJitInfo *
 FUNCTION_VALUE_TO_JITINFO(const JS::Value& v)
@@ -1789,5 +1807,13 @@ js_DefineOwnProperty(JSContext *cx, JSObject *objArg, jsid idArg,
 
 extern JS_FRIEND_API(JSBool)
 js_ReportIsNotFunction(JSContext *cx, const JS::Value& v);
+
+#ifdef JSGC_GENERATIONAL
+extern JS_FRIEND_API(void)
+JS_StorePostBarrierCallback(JSContext* cx, void (*callback)(JSTracer *trc, void *key), void *key);
+#else
+inline void
+JS_StorePostBarrierCallback(JSContext* cx, void (*callback)(JSTracer *trc, void *key), void *key) {}
+#endif /* JSGC_GENERATIONAL */
 
 #endif /* jsfriendapi_h */

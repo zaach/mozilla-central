@@ -43,6 +43,7 @@
 #include "vm/Interpreter.h"
 #include "vm/NumericConversions.h"
 #include "vm/RegExpObject.h"
+#include "vm/RegExpStatics.h"
 #include "vm/ScopeObject.h"
 #include "vm/Shape.h"
 #include "vm/StringBuffer.h"
@@ -52,8 +53,6 @@
 #include "jsautooplen.h"        // generated headers last
 
 #include "vm/Interpreter-inl.h"
-#include "vm/RegExpObject-inl.h"
-#include "vm/RegExpStatics-inl.h"
 #include "vm/StringObject-inl.h"
 #include "vm/String-inl.h"
 
@@ -343,7 +342,7 @@ static JSBool
 str_uneval(JSContext *cx, unsigned argc, Value *vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
-    JSString *str = ValueToSource(cx, args.get(0));
+    JSString *str = ValueToSource(cx, args.handleOrUndefinedAt(0));
     if (!str)
         return false;
 
@@ -550,7 +549,7 @@ js_str_toString(JSContext *cx, unsigned argc, Value *vp)
  */
 
 JS_ALWAYS_INLINE bool
-ValueToIntegerRange(JSContext *cx, const Value &v, int32_t *out)
+ValueToIntegerRange(JSContext *cx, HandleValue v, int32_t *out)
 {
     if (v.isInt32()) {
         *out = v.toInt32();
@@ -640,7 +639,7 @@ str_substring(JSContext *cx, unsigned argc, Value *vp)
             begin = args[0].toInt32();
         } else {
             RootedString strRoot(cx, str);
-            if (!ValueToIntegerRange(cx, args[0], &begin))
+            if (!ValueToIntegerRange(cx, args.handleAt(0), &begin))
                 return false;
             str = strRoot;
         }
@@ -655,7 +654,7 @@ str_substring(JSContext *cx, unsigned argc, Value *vp)
                 end = args[1].toInt32();
             } else {
                 RootedString strRoot(cx, str);
-                if (!ValueToIntegerRange(cx, args[1], &end))
+                if (!ValueToIntegerRange(cx, args.handleAt(1), &end))
                     return false;
                 str = strRoot;
             }
@@ -866,7 +865,7 @@ js_str_charAt(JSContext *cx, unsigned argc, Value *vp)
             return false;
 
         double d = 0.0;
-        if (args.length() > 0 && !ToInteger(cx, args[0], &d))
+        if (args.length() > 0 && !ToInteger(cx, args.handleAt(0), &d))
             return false;
 
         if (d < 0 || str->length() <= d)
@@ -903,7 +902,7 @@ js_str_charCodeAt(JSContext *cx, unsigned argc, Value *vp)
             return false;
 
         double d = 0.0;
-        if (args.length() > 0 && !ToInteger(cx, args[0], &d))
+        if (args.length() > 0 && !ToInteger(cx, args.handleAt(0), &d))
             return false;
 
         if (d < 0 || str->length() <= d)
@@ -1227,7 +1226,7 @@ str_contains(JSContext *cx, unsigned argc, Value *vp)
             pos = (i < 0) ? 0U : uint32_t(i);
         } else {
             double d;
-            if (!ToInteger(cx, args[1], &d))
+            if (!ToInteger(cx, args.handleAt(1), &d))
                 return false;
             pos = uint32_t(Min(Max(d, 0.0), double(UINT32_MAX)));
         }
@@ -1278,7 +1277,7 @@ str_indexOf(JSContext *cx, unsigned argc, Value *vp)
             pos = (i < 0) ? 0U : uint32_t(i);
         } else {
             double d;
-            if (!ToInteger(cx, args[1], &d))
+            if (!ToInteger(cx, args.handleAt(1), &d))
                 return false;
             pos = uint32_t(Min(Max(d, 0.0), double(UINT32_MAX)));
         }
@@ -1406,7 +1405,7 @@ str_startsWith(JSContext *cx, unsigned argc, Value *vp)
             pos = (i < 0) ? 0U : uint32_t(i);
         } else {
             double d;
-            if (!ToInteger(cx, args[1], &d))
+            if (!ToInteger(cx, args.handleAt(1), &d))
                 return false;
             pos = uint32_t(Min(Max(d, 0.0), double(UINT32_MAX)));
         }
@@ -1463,7 +1462,7 @@ str_endsWith(JSContext *cx, unsigned argc, Value *vp)
             pos = (i < 0) ? 0U : uint32_t(i);
         } else {
             double d;
-            if (!ToInteger(cx, args[1], &d))
+            if (!ToInteger(cx, args.handleAt(1), &d))
                 return false;
             pos = uint32_t(Min(Max(d, 0.0), double(UINT32_MAX)));
         }
@@ -3135,7 +3134,7 @@ str_substr(JSContext *cx, unsigned argc, Value *vp)
     int32_t length, len, begin;
     if (args.length() > 0) {
         length = int32_t(str->length());
-        if (!ValueToIntegerRange(cx, args[0], &begin))
+        if (!ValueToIntegerRange(cx, args.handleAt(0), &begin))
             return false;
 
         if (begin >= length) {
@@ -3149,7 +3148,7 @@ str_substr(JSContext *cx, unsigned argc, Value *vp)
         }
 
         if (args.hasDefined(1)) {
-            if (!ValueToIntegerRange(cx, args[1], &len))
+            if (!ValueToIntegerRange(cx, args.handleAt(1), &len))
                 return false;
 
             if (len <= 0) {
@@ -3240,7 +3239,7 @@ str_slice(JSContext *cx, unsigned argc, Value *vp)
     if (args.length() != 0) {
         double begin, end, length;
 
-        if (!ToInteger(cx, args[0], &begin))
+        if (!ToInteger(cx, args.handleAt(0), &begin))
             return false;
         length = str->length();
         if (begin < 0) {
@@ -3252,7 +3251,7 @@ str_slice(JSContext *cx, unsigned argc, Value *vp)
         }
 
         if (args.hasDefined(1)) {
-            if (!ToInteger(cx, args[1], &end))
+            if (!ToInteger(cx, args.handleAt(1), &end))
                 return false;
             if (end < 0) {
                 end += length;
@@ -3518,7 +3517,7 @@ js_String(JSContext *cx, unsigned argc, Value *vp)
         str = cx->runtime()->emptyString;
     }
 
-    if (IsConstructing(args)) {
+    if (args.isConstructing()) {
         StringObject *strobj = StringObject::create(cx, str);
         if (!strobj)
             return false;
@@ -3630,22 +3629,22 @@ js_InitStringClass(JSContext *cx, HandleObject obj)
 
 template <AllowGC allowGC>
 JSStableString *
-js_NewString(ThreadSafeContext *tcx, jschar *chars, size_t length)
+js_NewString(ThreadSafeContext *cx, jschar *chars, size_t length)
 {
-    return JSStableString::new_<allowGC>(tcx, chars, length);
+    return JSStableString::new_<allowGC>(cx, chars, length);
 }
 
 template JSStableString *
-js_NewString<CanGC>(ThreadSafeContext *tcx, jschar *chars, size_t length);
+js_NewString<CanGC>(ThreadSafeContext *cx, jschar *chars, size_t length);
 
 template JSStableString *
-js_NewString<NoGC>(ThreadSafeContext *tcx, jschar *chars, size_t length);
+js_NewString<NoGC>(ThreadSafeContext *cx, jschar *chars, size_t length);
 
 JSLinearString *
 js_NewDependentString(JSContext *cx, JSString *baseArg, size_t start, size_t length)
 {
     if (length == 0)
-        return cx->runtime()->emptyString;
+        return cx->emptyString();
 
     JSLinearString *base = baseArg->ensureLinear(cx);
     if (!base)
@@ -3664,7 +3663,7 @@ js_NewDependentString(JSContext *cx, JSString *baseArg, size_t start, size_t len
 
 template <AllowGC allowGC>
 JSFlatString *
-js_NewStringCopyN(JSContext *cx, const jschar *s, size_t n)
+js_NewStringCopyN(ExclusiveContext *cx, const jschar *s, size_t n)
 {
     if (JSShortString::lengthFits(n))
         return NewShortString<allowGC>(cx, TwoByteChars(s, n));
@@ -3681,36 +3680,36 @@ js_NewStringCopyN(JSContext *cx, const jschar *s, size_t n)
 }
 
 template JSFlatString *
-js_NewStringCopyN<CanGC>(JSContext *cx, const jschar *s, size_t n);
+js_NewStringCopyN<CanGC>(ExclusiveContext *cx, const jschar *s, size_t n);
 
 template JSFlatString *
-js_NewStringCopyN<NoGC>(JSContext *cx, const jschar *s, size_t n);
+js_NewStringCopyN<NoGC>(ExclusiveContext *cx, const jschar *s, size_t n);
 
 template <AllowGC allowGC>
 JSFlatString *
-js_NewStringCopyN(ThreadSafeContext *tcx, const char *s, size_t n)
+js_NewStringCopyN(ThreadSafeContext *cx, const char *s, size_t n)
 {
     if (JSShortString::lengthFits(n))
-        return NewShortString<allowGC>(tcx, JS::Latin1Chars(s, n));
+        return NewShortString<allowGC>(cx, JS::Latin1Chars(s, n));
 
-    jschar *chars = InflateString(tcx, s, &n);
+    jschar *chars = InflateString(cx, s, &n);
     if (!chars)
         return NULL;
-    JSFlatString *str = js_NewString<allowGC>(tcx, chars, n);
+    JSFlatString *str = js_NewString<allowGC>(cx, chars, n);
     if (!str)
         js_free(chars);
     return str;
 }
 
 template JSFlatString *
-js_NewStringCopyN<CanGC>(ThreadSafeContext *tcx, const char *s, size_t n);
+js_NewStringCopyN<CanGC>(ThreadSafeContext *cx, const char *s, size_t n);
 
 template JSFlatString *
-js_NewStringCopyN<NoGC>(ThreadSafeContext *tcx, const char *s, size_t n);
+js_NewStringCopyN<NoGC>(ThreadSafeContext *cx, const char *s, size_t n);
 
 template <AllowGC allowGC>
 JSFlatString *
-js_NewStringCopyZ(JSContext *cx, const jschar *s)
+js_NewStringCopyZ(ExclusiveContext *cx, const jschar *s)
 {
     size_t n = js_strlen(s);
     if (JSShortString::lengthFits(n))
@@ -3728,23 +3727,23 @@ js_NewStringCopyZ(JSContext *cx, const jschar *s)
 }
 
 template JSFlatString *
-js_NewStringCopyZ<CanGC>(JSContext *cx, const jschar *s);
+js_NewStringCopyZ<CanGC>(ExclusiveContext *cx, const jschar *s);
 
 template JSFlatString *
-js_NewStringCopyZ<NoGC>(JSContext *cx, const jschar *s);
+js_NewStringCopyZ<NoGC>(ExclusiveContext *cx, const jschar *s);
 
 template <AllowGC allowGC>
 JSFlatString *
-js_NewStringCopyZ(ThreadSafeContext *tcx, const char *s)
+js_NewStringCopyZ(ThreadSafeContext *cx, const char *s)
 {
-    return js_NewStringCopyN<allowGC>(tcx, s, strlen(s));
+    return js_NewStringCopyN<allowGC>(cx, s, strlen(s));
 }
 
 template JSFlatString *
-js_NewStringCopyZ<CanGC>(ThreadSafeContext *tcx, const char *s);
+js_NewStringCopyZ<CanGC>(ThreadSafeContext *cx, const char *s);
 
 template JSFlatString *
-js_NewStringCopyZ<NoGC>(ThreadSafeContext *tcx, const char *s);
+js_NewStringCopyZ<NoGC>(ThreadSafeContext *cx, const char *s);
 
 const char *
 js_ValueToPrintable(JSContext *cx, const Value &vArg, JSAutoByteString *bytes, bool asSource)
@@ -3765,17 +3764,17 @@ js_ValueToPrintable(JSContext *cx, const Value &vArg, JSAutoByteString *bytes, b
 
 template <AllowGC allowGC>
 JSString *
-js::ToStringSlow(JSContext *cx, typename MaybeRooted<Value, allowGC>::HandleType arg)
+js::ToStringSlow(ExclusiveContext *cx, typename MaybeRooted<Value, allowGC>::HandleType arg)
 {
     /* As with ToObjectSlow, callers must verify that |arg| isn't a string. */
     JS_ASSERT(!arg.isString());
 
     Value v = arg;
     if (!v.isPrimitive()) {
-        if (!allowGC)
+        if (!cx->shouldBeJSContext() || !allowGC)
             return NULL;
         RootedValue v2(cx, v);
-        if (!ToPrimitive(cx, JSTYPE_STRING, &v2))
+        if (!ToPrimitive(cx->asJSContext(), JSTYPE_STRING, &v2))
             return NULL;
         v = v2;
     }
@@ -3798,13 +3797,13 @@ js::ToStringSlow(JSContext *cx, typename MaybeRooted<Value, allowGC>::HandleType
 }
 
 template JSString *
-js::ToStringSlow<CanGC>(JSContext *cx, HandleValue arg);
+js::ToStringSlow<CanGC>(ExclusiveContext *cx, HandleValue arg);
 
 template JSString *
-js::ToStringSlow<NoGC>(JSContext *cx, Value arg);
+js::ToStringSlow<NoGC>(ExclusiveContext *cx, Value arg);
 
 JSString *
-js::ValueToSource(JSContext *cx, const Value &v)
+js::ValueToSource(JSContext *cx, HandleValue v)
 {
     JS_CHECK_RECURSION(cx, return NULL);
     assertSameCompartment(cx, v);
@@ -3812,7 +3811,7 @@ js::ValueToSource(JSContext *cx, const Value &v)
     if (v.isUndefined())
         return cx->names().void0;
     if (v.isString())
-        return js_QuoteString(cx, v.toString(), '"');
+        return StringToSource(cx, v.toString());
     if (v.isPrimitive()) {
         /* Special case to preserve negative zero, _contra_ toString. */
         if (v.isDouble() && IsNegativeZero(v.toDouble())) {
@@ -3821,8 +3820,7 @@ js::ValueToSource(JSContext *cx, const Value &v)
 
             return js_NewStringCopyN<CanGC>(cx, js_negzero_ucNstr, 2);
         }
-        RootedValue vRoot(cx, v);
-        return ToString<CanGC>(cx, vRoot);
+        return ToString<CanGC>(cx, v);
     }
 
     RootedValue rval(cx, NullValue());
@@ -3831,11 +3829,17 @@ js::ValueToSource(JSContext *cx, const Value &v)
     if (!JSObject::getProperty(cx, obj, obj, cx->names().toSource, &fval))
         return NULL;
     if (js_IsCallable(fval)) {
-        if (!Invoke(cx, ObjectValue(*obj), fval, 0, NULL, rval.address()))
+        if (!Invoke(cx, ObjectValue(*obj), fval, 0, NULL, &rval))
             return NULL;
     }
 
     return ToString<CanGC>(cx, rval);
+}
+
+JSString *
+js::StringToSource(JSContext *cx, JSString *str)
+{
+    return js_QuoteString(cx, str, '"');
 }
 
 bool
@@ -3967,14 +3971,14 @@ js_strchr_limit(const jschar *s, jschar c, const jschar *limit)
 }
 
 jschar *
-js::InflateString(ThreadSafeContext *tcx, const char *bytes, size_t *lengthp)
+js::InflateString(ThreadSafeContext *cx, const char *bytes, size_t *lengthp)
 {
     size_t nchars;
     jschar *chars;
     size_t nbytes = *lengthp;
 
     nchars = nbytes;
-    chars = tcx->pod_malloc<jschar>(nchars + 1);
+    chars = cx->pod_malloc<jschar>(nchars + 1);
     if (!chars)
         goto bad;
     for (size_t i = 0; i < nchars; i++)

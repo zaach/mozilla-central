@@ -635,7 +635,7 @@ static void RecordFrameMetrics(nsIFrame* aForFrame,
 
   nsIntRect visible = aVisibleRect.ScaleToNearestPixels(
     resolution.scale, resolution.scale, auPerDevPixel);
-  aRoot->SetVisibleRegion(nsIntRegion(visible));
+  aRoot->SetVisibleRegion(visible);
 
   FrameMetrics metrics;
   metrics.mViewport = CSSRect::FromAppUnits(aViewport);
@@ -669,7 +669,8 @@ static void RecordFrameMetrics(nsIFrame* aForFrame,
   if (TabChild *tc = GetTabChildFrom(presShell)) {
     metrics.mZoom = tc->GetZoom();
   }
-  metrics.mResolution = resolution;
+  metrics.mResolution = LayoutDeviceToLayerScale(presShell->GetXResolution(),
+                                                 presShell->GetYResolution());
 
   metrics.mDevPixelsPerCSSPixel = CSSToLayoutDeviceScale(
     (float)nsPresContext::AppUnitsPerCSSPixel() / auPerDevPixel);
@@ -3277,7 +3278,7 @@ nsDisplayScrollInfoLayer::nsDisplayScrollInfoLayer(
   nsDisplayListBuilder* aBuilder,
   nsIFrame* aScrolledFrame,
   nsIFrame* aScrollFrame)
-  : nsDisplayScrollLayer(aBuilder, aScrolledFrame, aScrolledFrame, aScrollFrame)
+  : nsDisplayScrollLayer(aBuilder, aScrollFrame, aScrolledFrame, aScrollFrame)
 {
 #ifdef NS_BUILD_REFCNT_LOGGING
   MOZ_COUNT_CTOR(nsDisplayScrollInfoLayer);

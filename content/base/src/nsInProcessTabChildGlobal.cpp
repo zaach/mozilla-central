@@ -27,8 +27,8 @@ using mozilla::dom::StructuredCloneClosure;
 bool
 nsInProcessTabChildGlobal::DoSendSyncMessage(JSContext* aCx,
                                              const nsAString& aMessage,
-                                             const StructuredCloneData& aData,
-                                             JSObject* aCpows,
+                                             const mozilla::dom::StructuredCloneData& aData,
+                                             JS::Handle<JSObject *> aCpows,
                                              InfallibleTArray<nsString>* aJSONRetVal)
 {
   nsTArray<nsCOMPtr<nsIRunnable> > asyncMessages;
@@ -39,10 +39,9 @@ nsInProcessTabChildGlobal::DoSendSyncMessage(JSContext* aCx,
     async->Run();
   }
   if (mChromeMessageManager) {
-    SameProcessCpowHolder cpows(aCpows);
+    SameProcessCpowHolder cpows(js::GetRuntime(aCx), aCpows);
     nsRefPtr<nsFrameMessageManager> mm = mChromeMessageManager;
-    mm->ReceiveMessage(mOwner, aMessage, true, &aData, &cpows,
-                       aJSONRetVal);
+    mm->ReceiveMessage(mOwner, aMessage, true, &aData, &cpows, aJSONRetVal);
   }
   return true;
 }
@@ -54,7 +53,7 @@ public:
                          nsInProcessTabChildGlobal* aTabChild,
                          const nsAString& aMessage,
                          const StructuredCloneData& aData,
-                         JSObject* aCpows)
+                         JS::Handle<JSObject *> aCpows)
     : mRuntime(js::GetRuntime(aCx)),
       mTabChild(aTabChild),
       mMessage(aMessage),
@@ -72,8 +71,9 @@ public:
 
   ~nsAsyncMessageToParent()
   {
-    if (mCpows)
-        js_RemoveObjectRoot(mRuntime, &mCpows);
+    if (mCpows) {
+        JS_RemoveObjectRootRT(mRuntime, &mCpows);
+    }
   }
 
   NS_IMETHOD Run()
@@ -90,11 +90,10 @@ public:
       data.mDataLength = mData.nbytes();
       data.mClosure = mClosure;
 
-      SameProcessCpowHolder cpows(mCpows);
+      SameProcessCpowHolder cpows(mRuntime, JS::Handle<JSObject *>::fromMarkedLocation(&mCpows));
 
       nsRefPtr<nsFrameMessageManager> mm = mTabChild->mChromeMessageManager;
-      mm->ReceiveMessage(mTabChild->mOwner, mMessage, false, &data,
-                         &cpows, nullptr, nullptr);
+      mm->ReceiveMessage(mTabChild->mOwner, mMessage, false, &data, &cpows, nullptr);
     }
     return NS_OK;
   }
@@ -113,7 +112,7 @@ bool
 nsInProcessTabChildGlobal::DoSendAsyncMessage(JSContext* aCx,
                                               const nsAString& aMessage,
                                               const StructuredCloneData& aData,
-                                              JSObject* aCpows)
+                                              JS::Handle<JSObject *> aCpows)
 {
   nsCOMPtr<nsIRunnable> ev =
     new nsAsyncMessageToParent(aCx, this, aMessage, aData, aCpows);
@@ -142,7 +141,6 @@ nsInProcessTabChildGlobal::nsInProcessTabChildGlobal(nsIDocShell* aShell,
 
 nsInProcessTabChildGlobal::~nsInProcessTabChildGlobal()
 {
-  NS_ASSERTION(!mCx, "Couldn't release JSContext?!?");
 }
 
 /* [notxpcom] boolean markForCC (); */
@@ -165,23 +163,14 @@ nsInProcessTabChildGlobal::Init()
                    "Couldn't initialize nsInProcessTabChildGlobal");
   mMessageManager = new nsFrameMessageManager(this,
                                               nullptr,
-                                              mCx,
                                               mozilla::dom::ipc::MM_CHILD);
   return NS_OK;
 }
 
-NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN_INHERITED(nsInProcessTabChildGlobal,
-                                                nsDOMEventTargetHelper)
-  NS_IMPL_CYCLE_COLLECTION_UNLINK(mMessageManager)
-  NS_IMPL_CYCLE_COLLECTION_UNLINK(mGlobal)
-  nsFrameScriptExecutor::Unlink(tmp);
-NS_IMPL_CYCLE_COLLECTION_UNLINK_END
-
-NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INHERITED(nsInProcessTabChildGlobal,
-                                                  nsDOMEventTargetHelper)
-  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mMessageManager)
-  nsFrameScriptExecutor::Traverse(tmp, cb);
-NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
+NS_IMPL_CYCLE_COLLECTION_INHERITED_2(nsInProcessTabChildGlobal,
+                                     nsDOMEventTargetHelper,
+                                     mMessageManager,
+                                     mGlobal)
 
 NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION_INHERITED(nsInProcessTabChildGlobal)
   NS_INTERFACE_MAP_ENTRY(nsIMessageListenerManager)
@@ -272,9 +261,7 @@ nsInProcessTabChildGlobal::DelayedDisconnect()
 
   if (!mLoadingScript) {
     nsContentUtils::ReleaseWrapper(static_cast<EventTarget*>(this), this);
-    if (mCx) {
-      DestroyCx();
-    }
+    mGlobal = nullptr;
   } else {
     mDelayedDisconnect = true;
   }

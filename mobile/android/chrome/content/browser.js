@@ -181,11 +181,11 @@ function fuzzyEquals(a, b) {
 }
 
 /**
- * Convert a font size from CSS pixels (px) to twenteiths-of-a-point
+ * Convert a font size to CSS pixels (px) from twentieiths-of-a-point
  * (twips).
  */
-function convertFromPxToTwips(aSize) {
-  return (20.0 * 12.0 * (aSize/16.0));
+function convertFromTwipsToPx(aSize) {
+  return aSize/240 * 16.0;
 }
 
 #ifdef MOZ_CRASHREPORTER
@@ -1576,7 +1576,8 @@ var NativeWindow = {
 
   menu: {
     _callbacks: [],
-    _menuId: 0,
+    _menuId: 1,
+    toolsMenuID: -1,
     add: function() {
       let options;
       if (arguments.length == 1) {
@@ -2441,10 +2442,6 @@ nsBrowserAccess.prototype = {
 
   isTabContentWindow: function(aWindow) {
     return BrowserApp.getBrowserForWindow(aWindow) != null;
-  },
-
-  getContentWindow: function() {
-    return BrowserApp.selectedBrowser.contentWindow;
   }
 };
 
@@ -2476,7 +2473,7 @@ function Tab(aURL, aParams) {
   this.viewportExcludesHorizontalMargins = true;
   this.viewportExcludesVerticalMargins = true;
   this.viewportMeasureCallback = null;
-  this.lastPageSizeAfterViewportChange = { width: 0, height: 0 };
+  this.lastPageSizeUsedForViewportChange = { width: 0, height: 0 };
   this.contentDocumentIsDisplayed = true;
   this.pluginDoorhangerTimeout = null;
   this.shouldShowPluginDoorhanger = true;
@@ -2639,12 +2636,11 @@ Tab.prototype = {
   /**
    * Retrieves the font size in twips for a given element.
    */
-  getFontSizeInTwipsFor: function(aElement) {
+  getInflatedFontSizeFor: function(aElement) {
     // GetComputedStyle should always give us CSS pixels for a font size.
     let fontSizeStr = this.window.getComputedStyle(aElement)['fontSize'];
     let fontSize = fontSizeStr.slice(0, -2);
-    // This is in px, so we want to convert it to points then to twips.
-    return convertFromPxToTwips(fontSize);
+    return aElement.fontSizeInflation * fontSize;
   },
 
   /**
@@ -2653,14 +2649,12 @@ Tab.prototype = {
    * preference.
    */
   getZoomToMinFontSize: function(aElement) {
-    let currentZoom = this._zoom;
-    let minFontSize = Services.prefs.getIntPref("browser.zoom.reflowZoom.minFontSizeTwips");
-    let curFontSize = this.getFontSizeInTwipsFor(aElement);
-    if (!fuzzyEquals(curFontSize*(currentZoom), minFontSize)) {
-      return 1.0 + minFontSize / curFontSize;
-    }
-
-    return 1.0;
+    // We only use the font.size.inflation.minTwips preference because this is
+    // the only one that is controlled by the user-interface in the 'Settings'
+    // menu. Thus, if font.size.inflation.emPerLine is changed, this does not
+    // effect reflow-on-zoom.
+    let minFontSize = convertFromTwipsToPx(Services.prefs.getIntPref("font.size.inflation.minTwips"));
+    return minFontSize / this.getInflatedFontSizeFor(aElement);
   },
 
   performReflowOnZoom: function(aViewport) {
@@ -2807,7 +2801,7 @@ Tab.prototype = {
     if (BrowserApp.selectedTab == this) {
       if (resolution != this._drawZoom) {
         this._drawZoom = resolution;
-        cwu.setResolution(resolution, resolution);
+        cwu.setResolution(resolution / window.devicePixelRatio, resolution / window.devicePixelRatio);
       }
     } else if (!fuzzyEquals(resolution, zoom)) {
       dump("Warning: setDisplayPort resolution did not match zoom for background tab! (" + resolution + " != " + zoom + ")");
@@ -3087,7 +3081,7 @@ Tab.prototype = {
       if (BrowserApp.selectedTab == this) {
         let cwu = window.top.QueryInterface(Ci.nsIInterfaceRequestor).getInterface(Ci.nsIDOMWindowUtils);
         this._drawZoom = aZoom;
-        cwu.setResolution(aZoom, aZoom);
+        cwu.setResolution(aZoom / window.devicePixelRatio, aZoom / window.devicePixelRatio);
       }
     }
   },
@@ -3165,67 +3159,72 @@ Tab.prototype = {
     return viewport;
   },
 
-  sendViewportUpdate: function(aPageSizeUpdate, aAfterViewportSizeChange) {
+  sendViewportUpdate: function(aPageSizeUpdate) {
     let viewport = this.getViewport();
     let displayPort = getBridge().getDisplayPort(aPageSizeUpdate, BrowserApp.isBrowserContentDocumentDisplayed(), this.id, viewport);
     if (displayPort != null)
       this.setDisplayPort(displayPort);
+  },
 
-    if (aAfterViewportSizeChange) {
-      // Store the page size that was used to calculate the viewport so that we
-      // can verify it's changed when we consider remeasuring.
-      this.lastPageSizeAfterViewportChange =
-        { width: viewport.pageRight - viewport.pageLeft,
-          height: viewport.pageBottom - viewport.pageTop };
-    } else if (aPageSizeUpdate &&
-               (gViewportMargins.top > 0 || gViewportMargins.right > 0
-                  || gViewportMargins.bottom > 0 || gViewportMargins.left > 0)) {
-      // If the page size has changed so that it might or might not fit on the
-      // screen with the margins included, run updateViewportSize to resize the
-      // browser accordingly.
-      // A page will receive the smaller viewport when its page size fits
-      // within the screen size, so remeasure when the page size remains within
-      // the threshold of screen + margins, in case it's sizing itself relative
-      // to the viewport.
-      let hasHorizontalMargins = gViewportMargins.left > 0 || gViewportMargins.right > 0;
-      let hasVerticalMargins = gViewportMargins.top > 0 || gViewportMargins.bottom > 0;
-      let pageHeightGreaterThanScreenHeight, pageWidthGreaterThanScreenWidth;
+  updateViewportForPageSize: function() {
+    let hasHorizontalMargins = gViewportMargins.left != 0 || gViewportMargins.right != 0;
+    let hasVerticalMargins = gViewportMargins.top != 0 || gViewportMargins.bottom != 0;
 
-      if (hasHorizontalMargins) {
-        pageWidthGreaterThanScreenWidth =
-            Math.round(viewport.pageRight - viewport.pageLeft)
-            > gScreenWidth + gViewportMargins.left + gViewportMargins.right;
+    if (!hasHorizontalMargins && !hasVerticalMargins) {
+      // If there are no margins, then we don't need to do any remeasuring
+      return;
+    }
+
+    // If the page size has changed so that it might or might not fit on the
+    // screen with the margins included, run updateViewportSize to resize the
+    // browser accordingly.
+    // A page will receive the smaller viewport when its page size fits
+    // within the screen size, so remeasure when the page size remains within
+    // the threshold of screen + margins, in case it's sizing itself relative
+    // to the viewport.
+    let viewport = this.getViewport();
+    let pageWidth = viewport.pageRight - viewport.pageLeft;
+    let pageHeight = viewport.pageBottom - viewport.pageTop;
+    let remeasureNeeded = false;
+
+    if (hasHorizontalMargins) {
+      let screenWidth = gScreenWidth + gViewportMargins.left + gViewportMargins.right;
+      let viewportShouldExcludeHorizontalMargins = (Math.round(pageWidth) <= screenWidth);
+      if (viewportShouldExcludeHorizontalMargins != this.viewportExcludesHorizontalMargins) {
+        remeasureNeeded = true;
       }
-      if (hasVerticalMargins) {
-        pageHeightGreaterThanScreenHeight =
-            Math.round(viewport.pageBottom - viewport.pageTop)
-            > gScreenHeight + gViewportMargins.top + gViewportMargins.bottom;
+    }
+    if (hasVerticalMargins) {
+      let screenHeight = gScreenHeight + gViewportMargins.top + gViewportMargins.bottom;
+      let viewportShouldExcludeVerticalMargins = (Math.round(pageHeight) <= screenHeight);
+      if (viewportShouldExcludeVerticalMargins != this.viewportExcludesVerticalMargins) {
+        remeasureNeeded = true;
       }
+    }
 
-      if ((hasHorizontalMargins
-           && (pageWidthGreaterThanScreenWidth != this.viewportExcludesHorizontalMargins)) ||
-          (hasVerticalMargins
-           && (pageHeightGreaterThanScreenHeight != this.viewportExcludesVerticalMargins))) {
-        if (!this.viewportMeasureCallback) {
-          this.viewportMeasureCallback = setTimeout(function() {
-            this.viewportMeasureCallback = null;
+    if (remeasureNeeded) {
+      if (!this.viewportMeasureCallback) {
+        this.viewportMeasureCallback = setTimeout(function() {
+          this.viewportMeasureCallback = null;
 
-            let viewport = this.getViewport();
-            if (Math.abs((viewport.pageRight - viewport.pageLeft)
-                           - this.lastPageSizeAfterViewportChange.width) >= 0.5 ||
-                Math.abs((viewport.pageBottom - viewport.pageTop)
-                           - this.lastPageSizeAfterViewportChange.height) >= 0.5) {
-              this.updateViewportSize(gScreenWidth);
-            }
-          }.bind(this), kViewportRemeasureThrottle);
-        }
-      } else if (this.viewportMeasureCallback) {
-        // If the page changed size twice since we last measured the viewport and
-        // the latest size change reveals we don't need to remeasure, cancel any
-        // pending remeasure.
-        clearTimeout(this.viewportMeasureCallback);
-        this.viewportMeasureCallback = null;
+          // Re-fetch the viewport as it may have changed between setting the timeout
+          // and running this callback
+          let viewport = this.getViewport();
+          let pageWidth = viewport.pageRight - viewport.pageLeft;
+          let pageHeight = viewport.pageBottom - viewport.pageTop;
+
+          if (Math.abs(pageWidth - this.lastPageSizeUsedForViewportChange.width) >= 0.5 ||
+              Math.abs(pageHeight - this.lastPageSizeUsedForViewportChange.height) >= 0.5) {
+            this.updateViewportSize(gScreenWidth);
+          }
+        }.bind(this), kViewportRemeasureThrottle);
       }
+    } else if (this.viewportMeasureCallback) {
+      // If the page changed size twice since we last measured the viewport and
+      // the latest size change reveals we don't need to remeasure, cancel any
+      // pending remeasure.
+      clearTimeout(this.viewportMeasureCallback);
+      this.viewportMeasureCallback = null;
     }
   },
 
@@ -3421,6 +3420,7 @@ Tab.prototype = {
           return;
 
         this.sendViewportUpdate(true);
+        this.updateViewportForPageSize();
         break;
       }
 
@@ -3521,8 +3521,12 @@ Tab.prototype = {
 
   onLocationChange: function(aWebProgress, aRequest, aLocationURI, aFlags) {
     let contentWin = aWebProgress.DOMWindow;
-    if (contentWin != contentWin.top)
-        return;
+
+    // Browser webapps may load content inside iframes that can not reach across the app/frame boundary
+    // i.e. even though the page is loaded in an iframe window.top != webapp
+    // Make cure this window is a top level tab before moving on.
+    if (BrowserApp.getBrowserForWindow(contentWin) == null)
+      return;
 
     this._hostChanged = true;
 
@@ -3678,7 +3682,7 @@ Tab.prototype = {
       aMetadata.minZoom = aMetadata.maxZoom = NaN;
     }
 
-    let scaleRatio = aMetadata.scaleRatio;
+    let scaleRatio = window.devicePixelRatio;
 
     if (aMetadata.defaultZoom > 0)
       aMetadata.defaultZoom *= scaleRatio;
@@ -3719,8 +3723,8 @@ Tab.prototype = {
 
     let metadata = this.metadata;
     if (metadata.autoSize) {
-      viewportW = screenW / metadata.scaleRatio;
-      viewportH = screenH / metadata.scaleRatio;
+      viewportW = screenW / window.devicePixelRatio;
+      viewportH = screenH / window.devicePixelRatio;
     } else {
       viewportW = metadata.width;
       viewportH = metadata.height;
@@ -3779,6 +3783,13 @@ Tab.prototype = {
         this.viewportExcludesVerticalMargins = false;
       }
 
+      // Store the page size that was used to calculate the viewport so that we
+      // can verify it's changed when we consider remeasuring in updateViewportForPageSize
+      this.lastPageSizeUsedForViewportChange = {
+        width: pageWidth,
+        height: pageHeight
+      };
+
       minScale = screenW / pageWidth;
     }
     minScale = this.clampZoom(minScale);
@@ -3806,7 +3817,7 @@ Tab.prototype = {
     let zoom = (aInitialLoad && metadata.defaultZoom) ? metadata.defaultZoom : this.clampZoom(this._zoom * zoomScale);
     this.setResolution(zoom, false);
     this.setScrollClampingSize(zoom);
-    this.sendViewportUpdate(false, true);
+    this.sendViewportUpdate();
   },
 
   sendViewportMetadata: function sendViewportMetadata() {
@@ -3814,7 +3825,7 @@ Tab.prototype = {
     sendMessageToJava({
       type: "Tab:ViewportMetadata",
       allowZoom: metadata.allowZoom,
-      defaultZoom: metadata.defaultZoom || metadata.scaleRatio,
+      defaultZoom: metadata.defaultZoom || window.devicePixelRatio,
       minZoom: metadata.minZoom || 0,
       maxZoom: metadata.maxZoom || 0,
       isRTL: metadata.isRTL,
@@ -4237,8 +4248,8 @@ var BrowserEventHandler = {
     if (BrowserEventHandler.mReflozPref) {
       let zoomFactor = BrowserApp.selectedTab.getZoomToMinFontSize(aElement);
 
-      bRect.width = zoomFactor == 1.0 ? bRect.width : gScreenWidth / zoomFactor;
-      bRect.height = zoomFactor == 1.0 ? bRect.height : bRect.height / zoomFactor;
+      bRect.width = zoomFactor <= 1.0 ? bRect.width : gScreenWidth / zoomFactor;
+      bRect.height = zoomFactor <= 1.0 ? bRect.height : bRect.height / zoomFactor;
       if (zoomFactor == 1.0 || this._isRectZoomedIn(bRect, viewport)) {
         if (aCanZoomOut) {
           this._zoomOut();
@@ -5453,8 +5464,8 @@ var ViewportHandler = {
           break;
 
         let oldScreenWidth = gScreenWidth;
-        gScreenWidth = window.outerWidth;
-        gScreenHeight = window.outerHeight;
+        gScreenWidth = window.outerWidth * window.devicePixelRatio;
+        gScreenHeight = window.outerHeight * window.devicePixelRatio;
         let tabs = BrowserApp.tabs;
         for (let i = 0; i < tabs.length; i++)
           tabs[i].updateViewportSize(oldScreenWidth);
@@ -5554,23 +5565,6 @@ var ViewportHandler = {
     return Math.max(min, Math.min(max, num));
   },
 
-  // The device-pixel-to-CSS-px ratio used to adjust meta viewport values.
-  // This is higher on higher-dpi displays, so pages stay about the same physical size.
-  getScaleRatio: function getScaleRatio() {
-    let prefValue = Services.prefs.getIntPref("browser.viewport.scaleRatio");
-    if (prefValue > 0)
-      return prefValue / 100;
-
-    let dpi = this.displayDPI;
-    if (dpi < 200) // Includes desktop displays, and LDPI and MDPI Android devices
-      return 1;
-    else if (dpi < 300) // Includes Nokia N900, and HDPI Android devices
-      return 1.5;
-
-    // For very high-density displays like the iPhone 4, calculate an integer ratio.
-    return Math.floor(dpi / 150);
-  },
-
   get displayDPI() {
     let utils = window.QueryInterface(Ci.nsIInterfaceRequestor).getInterface(Ci.nsIDOMWindowUtils);
     delete this.displayDPI;
@@ -5606,7 +5600,6 @@ var ViewportHandler = {
  *   autoSize (boolean): Resize the CSS viewport when the window resizes.
  *   allowZoom (boolean): Let the user zoom in or out.
  *   isSpecified (boolean): Whether the page viewport is specified or not.
- *   scaleRatio (float): The device-pixel-to-CSS-px ratio.
  */
 function ViewportMetadata(aMetadata = {}) {
   this.width = ("width" in aMetadata) ? aMetadata.width : 0;
@@ -5617,7 +5610,6 @@ function ViewportMetadata(aMetadata = {}) {
   this.autoSize = ("autoSize" in aMetadata) ? aMetadata.autoSize : false;
   this.allowZoom = ("allowZoom" in aMetadata) ? aMetadata.allowZoom : true;
   this.isSpecified = ("isSpecified" in aMetadata) ? aMetadata.isSpecified : false;
-  this.scaleRatio = ViewportHandler.getScaleRatio();
   this.isRTL = ("isRTL" in aMetadata) ? aMetadata.isRTL : false;
   Object.seal(this);
 }
@@ -5631,7 +5623,6 @@ ViewportMetadata.prototype = {
   autoSize: null,
   allowZoom: null,
   isSpecified: null,
-  scaleRatio: null,
   isRTL: null,
 };
 
@@ -6562,28 +6553,17 @@ var WebappsUI = {
 
     if (!showPrompt || Services.prompt.confirm(null, Strings.browser.GetStringFromName("webapps.installTitle"), name + "\n" + aData.app.origin)) {
       // Get a profile for the app to be installed in. We'll download everything before creating the icons.
+      let origin = aData.app.origin;
       let profilePath = sendMessageToJava({
         type: "WebApps:PreInstall",
         name: manifest.name,
         manifestURL: aData.app.manifestURL,
-        origin: aData.app.origin
+        origin: origin
       });
-      let file = null;
       if (profilePath) {
-        file = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsILocalFile);
+        let file = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsILocalFile);
         file.initWithPath(profilePath);
-
-        // build any app specific default prefs
-        let prefs = [];
-        if (manifest.orientation) {
-          prefs.push({name:"app.orientation.default", value: manifest.orientation});
-        }
-
-        // write them into the app profile
-        let defaultPrefsFile = file.clone();
-        defaultPrefsFile.append(this.DEFAULT_PREFS_FILENAME);
-        this.writeDefaultPrefs(defaultPrefsFile, prefs);
-
+  
         let self = this;
         DOMApplicationRegistry.confirmInstall(aData, false, file, null,
           function (manifest) {
@@ -6603,10 +6583,12 @@ var WebappsUI = {
                   let source = Services.io.newURI(fullsizeIcon, "UTF8", null);
                   persist.saveURI(source, null, null, null, null, iconFile, null);
 
+                  // aData.app.origin may now point to the app: url that hosts this app
                   sendMessageToJava({
                     type: "WebApps:PostInstall",
                     name: manifest.name,
                     manifestURL: aData.app.manifestURL,
+                    originalOrigin: origin,
                     origin: aData.app.origin,
                     iconURL: fullsizeIcon
                   });
@@ -6623,6 +6605,7 @@ var WebappsUI = {
                 } catch(ex) {
                   console.log(ex);
                 }
+                self.writeDefaultPrefs(file, manifest);
               }
             );
           }
@@ -6633,7 +6616,20 @@ var WebappsUI = {
     }
   },
 
-  writeDefaultPrefs: function webapps_writeDefaultPrefs(aFile, aPrefs) {
+  writeDefaultPrefs: function webapps_writeDefaultPrefs(aProfile, aManifest) {
+      // build any app specific default prefs
+      let prefs = [];
+      if (aManifest.orientation) {
+        prefs.push({name:"app.orientation.default", value: aManifest.orientation.join(",") });
+      }
+
+      // write them into the app profile
+      let defaultPrefsFile = aProfile.clone();
+      defaultPrefsFile.append(this.DEFAULT_PREFS_FILENAME);
+      this._writeData(defaultPrefsFile, prefs);
+  },
+
+  _writeData: function(aFile, aPrefs) {
     if (aPrefs.length > 0) {
       let data = JSON.stringify(aPrefs);
 
@@ -7369,9 +7365,6 @@ var Distribution = {
   // File used to store campaign data
   _file: null,
 
-  // Path to distribution directory for distribution customizations
-  _path: null,
-
   init: function dc_init() {
     Services.obs.addObserver(this, "Distribution:Set", false);
     Services.obs.addObserver(this, "prefservice:after-app-defaults", false);
@@ -7393,8 +7386,6 @@ var Distribution = {
   observe: function dc_observe(aSubject, aTopic, aData) {
     switch (aTopic) {
       case "Distribution:Set":
-        this._path = aData;
-
         // Reload the default prefs so we can observe "prefservice:after-app-defaults"
         Services.prefs.QueryInterface(Ci.nsIObserver).observe(null, "reload-default-prefs", null);
         break;
@@ -7435,20 +7426,12 @@ var Distribution = {
   },
 
   getPrefs: function dc_getPrefs() {
-    let file;
-    if (this._path) {
-      file = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsILocalFile);
-      file.initWithPath(this._path);
-      // Store the path in a pref for DirectoryProvider to read.
-      Services.prefs.setCharPref("distribution.path", this._path);
-    } else {
-      // If a path isn't specified, look in the data directory:
-      // /data/data/org.mozilla.xxx/distribution
-      file = Services.dirsvc.get("XCurProcD", Ci.nsIFile);
-      file.append("distribution");
-    }
-    file.append("preferences.json");
+    // Get the distribution directory, and bail if it doesn't exist.
+    let file = FileUtils.getDir("XREAppDist", [], false);
+    if (!file.exists())
+      return;
 
+    file.append("preferences.json");
     this.readJSON(file, this.applyPrefs);
   },
 

@@ -107,13 +107,13 @@ JavaScriptShared::init()
 }
 
 bool
-JavaScriptShared::convertIdToGeckoString(JSContext *cx, jsid id, nsString *to)
+JavaScriptShared::convertIdToGeckoString(JSContext *cx, JS::HandleId id, nsString *to)
 {
-    jsval idval;
-    if (!JS_IdToValue(cx, id, &idval))
+    RootedValue idval(cx);
+    if (!JS_IdToValue(cx, id, idval.address()))
         return false;
 
-    JSString *str = JS_ValueToString(cx, idval);
+    RootedString str(cx, JS_ValueToString(cx, idval));
     if (!str)
         return false;
 
@@ -126,13 +126,13 @@ JavaScriptShared::convertIdToGeckoString(JSContext *cx, jsid id, nsString *to)
 }
 
 bool
-JavaScriptShared::convertGeckoStringToId(JSContext *cx, const nsString &from, jsid *to)
+JavaScriptShared::convertGeckoStringToId(JSContext *cx, const nsString &from, JS::MutableHandleId to)
 {
-    JSString *str = JS_NewUCStringCopyN(cx, from.BeginReading(), from.Length());
+    RootedString str(cx, JS_NewUCStringCopyN(cx, from.BeginReading(), from.Length()));
     if (!str)
         return false;
 
-    return JS_ValueToId(cx, StringValue(str), to);
+    return JS_ValueToId(cx, StringValue(str), to.address());
 }
 
 bool
@@ -339,14 +339,14 @@ JavaScriptShared::fromDescriptor(JSContext *cx, const JSPropertyDescriptor &desc
 }
 
 JSBool
-UnknownPropertyStub(JSContext *cx, JS::HandleObject obj, JS::HandleId id, JS::MutableHandleValue vp)
+UnknownPropertyStub(JSContext *cx, HandleObject obj, HandleId id, MutableHandleValue vp)
 {
     JS_ReportError(cx, "getter could not be wrapped via CPOWs");
     return JS_FALSE;
 }
 
 JSBool
-UnknownStrictPropertyStub(JSContext *cx, JS::HandleObject obj, JS::HandleId id, JSBool strict, JS::MutableHandleValue vp)
+UnknownStrictPropertyStub(JSContext *cx, HandleObject obj, HandleId id, JSBool strict, MutableHandleValue vp)
 {
     JS_ReportError(cx, "setter could not be wrapped via CPOWs");
     return JS_FALSE;
@@ -409,26 +409,29 @@ JavaScriptShared::Unwrap(JSContext *cx, const InfallibleTArray<CpowEntry> &aCpow
     if (!aCpows.Length())
         return true;
 
-    JSObject *obj = JS_NewObject(cx, NULL, NULL, NULL);
+    RootedObject obj(cx, JS_NewObject(cx, NULL, NULL, NULL));
     if (!obj)
         return false;
 
+    RootedValue v(cx);
+    RootedString str(cx);
     for (size_t i = 0; i < aCpows.Length(); i++) {
         const nsString &name = aCpows[i].name();
-        JSString *str = JS_NewUCStringCopyN(cx, name.BeginReading(), name.Length());
-        if (!str)
-            return false;
 
-        jsid id;
-        if (!JS_ValueToId(cx, STRING_TO_JSVAL(str), &id))
-            return false;
-
-        jsval v;
         if (!toValue(cx, aCpows[i].value(), &v))
             return false;
 
-        if (!JS_DefinePropertyById(cx, obj, id, v, NULL, NULL, JSPROP_ENUMERATE))
+        if (!JS_DefineUCProperty(cx,
+                                 obj,
+                                 name.BeginReading(),
+                                 name.Length(),
+                                 v,
+                                 NULL,
+                                 NULL,
+                                 JSPROP_ENUMERATE))
+        {
             return false;
+        }
     }
 
     *objp = obj;
@@ -436,7 +439,7 @@ JavaScriptShared::Unwrap(JSContext *cx, const InfallibleTArray<CpowEntry> &aCpow
 }
 
 bool
-JavaScriptShared::Wrap(JSContext *cx, JSObject *aObj, InfallibleTArray<CpowEntry> *outCpows)
+JavaScriptShared::Wrap(JSContext *cx, HandleObject aObj, InfallibleTArray<CpowEntry> *outCpows)
 {
     if (!aObj)
         return true;
@@ -445,15 +448,16 @@ JavaScriptShared::Wrap(JSContext *cx, JSObject *aObj, InfallibleTArray<CpowEntry
     if (!ids)
         return false;
 
+    RootedId id(cx);
+    RootedValue v(cx);
     for (size_t i = 0; i < ids.length(); i++) {
-        jsid id = ids[i];
+        id = ids[i];
 
         nsString str;
         if (!convertIdToGeckoString(cx, id, &str))
             return false;
 
-        jsval v;
-        if (!JS_GetPropertyById(cx, aObj, id, &v))
+        if (!JS_GetPropertyById(cx, aObj, id, v.address()))
             return false;
 
         JSVariant var;
@@ -465,3 +469,4 @@ JavaScriptShared::Wrap(JSContext *cx, JSObject *aObj, InfallibleTArray<CpowEntry
 
     return true;
 }
+

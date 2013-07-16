@@ -131,15 +131,15 @@ Invoke(JSContext *cx, CallArgs args, MaybeConstruct construct = NO_CONSTRUCT);
  */
 extern bool
 Invoke(JSContext *cx, const Value &thisv, const Value &fval, unsigned argc, Value *argv,
-       Value *rval);
+       MutableHandleValue rval);
 
 /*
  * This helper takes care of the infinite-recursion check necessary for
  * getter/setter calls.
  */
 extern bool
-InvokeGetterOrSetter(JSContext *cx, JSObject *obj, const Value &fval, unsigned argc, Value *argv,
-                     Value *rval);
+InvokeGetterOrSetter(JSContext *cx, JSObject *obj, Value fval, unsigned argc, Value *argv,
+                     MutableHandleValue rval);
 
 /*
  * InvokeConstructor implement a function call from a constructor context
@@ -150,7 +150,7 @@ InvokeConstructor(JSContext *cx, CallArgs args);
 
 /* See the fval overload of Invoke. */
 extern bool
-InvokeConstructor(JSContext *cx, const Value &fval, unsigned argc, Value *argv, Value *rval);
+InvokeConstructor(JSContext *cx, Value fval, unsigned argc, Value *argv, Value *rval);
 
 /*
  * Executes a script with the given scopeChain/this. The 'type' indicates
@@ -350,8 +350,11 @@ class InterpreterFrames {
     ~InterpreterFrames();
 
     /* If this js::Interpret frame is running |script|, enable interrupts. */
-    inline void enableInterruptsIfRunning(JSScript *script);
-    inline void enableInterruptsUnconditionally() { enabler.enable(); }
+    void enableInterruptsIfRunning(JSScript *script) {
+        if (regs->fp()->script() == script)
+            enabler.enable();
+    }
+    void enableInterruptsUnconditionally() { enabler.enable(); }
 
     InterpreterFrames *older;
 
@@ -411,9 +414,6 @@ Lambda(JSContext *cx, HandleFunction fun, HandleObject parent);
 
 bool
 GetElement(JSContext *cx, MutableHandleValue lref, HandleValue rref, MutableHandleValue res);
-
-bool
-GetElementMonitored(JSContext *cx, MutableHandleValue lref, HandleValue rref, MutableHandleValue res);
 
 bool
 CallElement(JSContext *cx, MutableHandleValue lref, HandleValue rref, MutableHandleValue res);
@@ -508,6 +508,14 @@ InitGetterSetterOperation(JSContext *cx, jsbytecode *pc, HandleObject obj, Handl
 bool
 InitGetterSetterOperation(JSContext *cx, jsbytecode *pc, HandleObject obj, HandleValue idval,
                           HandleValue val);
+
+inline bool
+SetConstOperation(JSContext *cx, HandleObject varobj, HandlePropertyName name, HandleValue rval)
+{
+    return JSObject::defineProperty(cx, varobj, name, rval,
+                                    JS_PropertyStub, JS_StrictPropertyStub,
+                                    JSPROP_ENUMERATE | JSPROP_PERMANENT | JSPROP_READONLY);
+}
 
 }  /* namespace js */
 

@@ -9,10 +9,11 @@
 #include "jscompartment.h"
 #include "jsiter.h"
 
-#include "GlobalObject.h"
-#include "ScopeObject.h"
-#include "Shape.h"
-#include "Xdr.h"
+#include "vm/GlobalObject.h"
+#include "vm/ProxyObject.h"
+#include "vm/ScopeObject.h"
+#include "vm/Shape.h"
+#include "vm/Xdr.h"
 
 #include "jsatominlines.h"
 #include "jsobjinlines.h"
@@ -30,7 +31,7 @@ typedef Rooted<ArgumentsObject *> RootedArgumentsObject;
 
 /*****************************************************************************/
 
-StaticScopeIter::StaticScopeIter(JSContext *cx, JSObject *objArg)
+StaticScopeIter::StaticScopeIter(ExclusiveContext *cx, JSObject *objArg)
   : obj(cx, objArg), onNamedLambda(false)
 {
     JS_ASSERT_IF(obj, obj->is<StaticBlockObject>() || obj->is<JSFunction>());
@@ -200,7 +201,7 @@ CallObject::createTemplateObject(JSContext *cx, HandleScript script, gc::Initial
     RootedShape shape(cx, script->bindings.callObjShape());
     JS_ASSERT(shape->getObjectClass() == &class_);
 
-    RootedTypeObject type(cx, cx->compartment()->getNewType(cx, &class_, NULL));
+    RootedTypeObject type(cx, cx->getNewType(&class_, NULL));
     if (!type)
         return NULL;
 
@@ -330,7 +331,7 @@ Class DeclEnvObject::class_ = {
 DeclEnvObject *
 DeclEnvObject::createTemplateObject(JSContext *cx, HandleFunction fun, gc::InitialHeap heap)
 {
-    RootedTypeObject type(cx, cx->compartment()->getNewType(cx, &class_, NULL));
+    RootedTypeObject type(cx, cx->getNewType(&class_, NULL));
     if (!type)
         return NULL;
 
@@ -374,7 +375,7 @@ DeclEnvObject::create(JSContext *cx, HandleObject enclosing, HandleFunction call
 WithObject *
 WithObject::create(JSContext *cx, HandleObject proto, HandleObject enclosing, uint32_t depth)
 {
-    RootedTypeObject type(cx, proto->getNewType(cx, &class_));
+    RootedTypeObject type(cx, cx->getNewType(&class_, proto.get()));
     if (!type)
         return NULL;
 
@@ -653,7 +654,7 @@ ClonedBlockObject::create(JSContext *cx, Handle<StaticBlockObject *> block, Abst
     assertSameCompartment(cx, frame);
     JS_ASSERT(block->getClass() == &BlockObject::class_);
 
-    RootedTypeObject type(cx, block->getNewType(cx, &BlockObject::class_));
+    RootedTypeObject type(cx, cx->getNewType(&BlockObject::class_, block.get()));
     if (!type)
         return NULL;
 
@@ -705,9 +706,9 @@ ClonedBlockObject::copyUnaliasedValues(AbstractFramePtr frame)
 }
 
 StaticBlockObject *
-StaticBlockObject::create(JSContext *cx)
+StaticBlockObject::create(ExclusiveContext *cx)
 {
-    RootedTypeObject type(cx, cx->compartment()->getNewType(cx, &BlockObject::class_, NULL));
+    RootedTypeObject type(cx, cx->getNewType(&BlockObject::class_, NULL));
     if (!type)
         return NULL;
 
@@ -725,7 +726,7 @@ StaticBlockObject::create(JSContext *cx)
 }
 
 /* static */ Shape *
-StaticBlockObject::addVar(JSContext *cx, Handle<StaticBlockObject*> block, HandleId id,
+StaticBlockObject::addVar(ExclusiveContext *cx, Handle<StaticBlockObject*> block, HandleId id,
                           int index, bool *redeclared)
 {
     JS_ASSERT(JSID_IS_ATOM(id) || (JSID_IS_INT(id) && JSID_TO_INT(id) == index));
@@ -1358,10 +1359,11 @@ class DebugScopeProxy : public BaseProxyHandler
 
     DebugScopeProxy() : BaseProxyHandler(&family) {}
 
-    bool isExtensible(JSObject *proxy) MOZ_OVERRIDE
+    bool isExtensible(JSContext *cx, HandleObject proxy, bool *extensible) MOZ_OVERRIDE
     {
         // always [[Extensible]], can't be made non-[[Extensible]], like most
         // proxies
+        *extensible = true;
         return true;
     }
 
@@ -1547,36 +1549,38 @@ DebugScopeObject::create(JSContext *cx, ScopeObject &scope, HandleObject enclosi
         return NULL;
 
     JS_ASSERT(!enclosing->is<ScopeObject>());
-    SetProxyExtra(obj, ENCLOSING_EXTRA, ObjectValue(*enclosing));
-    SetProxyExtra(obj, SNAPSHOT_EXTRA, NullValue());
 
-    return &obj->as<DebugScopeObject>();
+    DebugScopeObject *debugScope = &obj->as<DebugScopeObject>();
+    debugScope->setExtra(ENCLOSING_EXTRA, ObjectValue(*enclosing));
+    debugScope->setExtra(SNAPSHOT_EXTRA, NullValue());
+
+    return debugScope;
 }
 
 ScopeObject &
 DebugScopeObject::scope() const
 {
-    return GetProxyTargetObject(const_cast<DebugScopeObject*>(this))->as<ScopeObject>();
+    return target()->as<ScopeObject>();
 }
 
 JSObject &
 DebugScopeObject::enclosingScope() const
 {
-    return GetProxyExtra(const_cast<DebugScopeObject*>(this), ENCLOSING_EXTRA).toObject();
+    return extra(ENCLOSING_EXTRA).toObject();
 }
 
 JSObject *
 DebugScopeObject::maybeSnapshot() const
 {
     JS_ASSERT(!scope().as<CallObject>().isForEval());
-    return GetProxyExtra(const_cast<DebugScopeObject*>(this), SNAPSHOT_EXTRA).toObjectOrNull();
+    return extra(SNAPSHOT_EXTRA).toObjectOrNull();
 }
 
 void
 DebugScopeObject::initSnapshot(JSObject &o)
 {
     JS_ASSERT(maybeSnapshot() == NULL);
-    SetProxyExtra(this, SNAPSHOT_EXTRA, ObjectValue(o));
+    setExtra(SNAPSHOT_EXTRA, ObjectValue(o));
 }
 
 bool
@@ -1587,18 +1591,18 @@ DebugScopeObject::isForDeclarative() const
 }
 
 bool
-js_IsDebugScopeSlow(JSObject *obj)
+js_IsDebugScopeSlow(ObjectProxyObject *proxy)
 {
-    return obj->getClass() == &ObjectProxyClass &&
-           GetProxyHandler(obj) == &DebugScopeProxy::singleton;
+    JS_ASSERT(proxy->hasClass(&ObjectProxyObject::class_));
+    return proxy->handler() == &DebugScopeProxy::singleton;
 }
 
 /*****************************************************************************/
 
 DebugScopes::DebugScopes(JSContext *cx)
  : proxiedScopes(cx),
-   missingScopes(cx),
-   liveScopes(cx)
+   missingScopes(cx->runtime()),
+   liveScopes(cx->runtime())
 {}
 
 DebugScopes::~DebugScopes()
@@ -2114,7 +2118,7 @@ GetDebugScopeForMissing(JSContext *cx, const ScopeIter &si)
       }
       case ScopeIter::With:
       case ScopeIter::StrictEvalScope:
-        JS_NOT_REACHED("should already have a scope");
+        MOZ_ASSUME_UNREACHABLE("should already have a scope");
     }
     if (!debugScope)
         return NULL;

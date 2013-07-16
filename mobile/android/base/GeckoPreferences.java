@@ -75,6 +75,8 @@ public class GeckoPreferences
     private static String PREFS_GEO_REPORTING = "app.geo.reportdata";
     private static String PREFS_HEALTHREPORT_LINK = NON_PREF_PREFIX + "healthreport.link";
 
+    public static String PREFS_RESTORE_SESSION = NON_PREF_PREFIX + "restoreSession";
+
     // These values are chosen to be distinct from other Activity constants.
     private static int REQUEST_CODE_PREF_SCREEN = 5;
     private static int RESULT_CODE_EXIT_SETTINGS = 6;
@@ -92,13 +94,23 @@ public class GeckoPreferences
         // Use setResourceToOpen to specify these extras.
         Bundle intentExtras = getIntent().getExtras();
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.HONEYCOMB) {
+            int res = 0;
             if (intentExtras != null && intentExtras.containsKey(INTENT_EXTRA_RESOURCES)) {
+                // Fetch resource id from intent.
                 String resourceName = intentExtras.getString(INTENT_EXTRA_RESOURCES);
-                int resource = getResources().getIdentifier(resourceName, "xml", getPackageName());
-                addPreferencesFromResource(resource);
-            } else {
-                addPreferencesFromResource(R.xml.preferences);
+                if (resourceName != null) {
+                    res = getResources().getIdentifier(resourceName, "xml", getPackageName());
+                    if (res == 0) {
+                        Log.e(LOGTAG, "No resource found named " + resourceName);
+                    }
+                }
             }
+            if (res == 0) {
+                // No resource specified, or the resource was invalid; use the default preferences screen.
+                Log.e(LOGTAG, "Displaying default settings.");
+                res = R.xml.preferences;
+            }
+            addPreferencesFromResource(res);
         }
 
         registerEventListener("Sanitize:Finished");
@@ -123,8 +135,8 @@ public class GeckoPreferences
         Bundle fragmentArgs = new Bundle();
         // Add resource argument to fragment if it exists.
         if (intentExtras != null && intentExtras.containsKey(INTENT_EXTRA_RESOURCES)) {
-            String resource = intentExtras.getString(INTENT_EXTRA_RESOURCES);
-            fragmentArgs.putString(INTENT_EXTRA_RESOURCES, resource);
+            String resourceName = intentExtras.getString(INTENT_EXTRA_RESOURCES);
+            fragmentArgs.putString(INTENT_EXTRA_RESOURCES, resourceName);
         } else {
             // Use top-level settings screen.
             if (!onIsMultiPane()) {
@@ -445,6 +457,10 @@ public class GeckoPreferences
         } else if (PREFS_GEO_REPORTING.equals(prefName)) {
             // Translate boolean value to int for geo reporting pref.
             PrefsHelper.setPref(prefName, (Boolean) newValue ? 1 : 0);
+            return true;
+        } else if (PREFS_RESTORE_SESSION.equals(prefName)) {
+            // Do nothing else; the pref will be persisted in the shared prefs,
+            // and it will be read at startup in Java before a session restore.
             return true;
         }
 

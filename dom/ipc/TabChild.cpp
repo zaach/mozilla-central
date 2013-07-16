@@ -33,7 +33,6 @@
 #include "nsCxPusher.h"
 #include "nsEmbedCID.h"
 #include "nsEventListenerManager.h"
-#include "nsEventDispatcher.h"
 #include <algorithm>
 #ifdef MOZ_CRASHREPORTER
 #include "nsExceptionHandler.h"
@@ -73,6 +72,7 @@
 #include "nsPIDOMWindow.h"
 #include "nsPIWindowRoot.h"
 #include "nsGlobalWindow.h"
+#include "nsLayoutUtils.h"
 #include "nsPresContext.h"
 #include "nsPrintfCString.h"
 #include "nsScriptLoader.h"
@@ -85,7 +85,6 @@
 #include "xpcpublic.h"
 #include "nsViewportInfo.h"
 #include "JavaScriptChild.h"
-#include "nsDocShell.h"
 
 #define BROWSER_ELEMENT_CHILD_SCRIPT \
     NS_LITERAL_STRING("chrome://global/content/BrowserElementChild.js")
@@ -94,12 +93,12 @@ using namespace mozilla;
 using namespace mozilla::dom;
 using namespace mozilla::dom::ipc;
 using namespace mozilla::ipc;
-using namespace mozilla::jsipc;
 using namespace mozilla::layers;
 using namespace mozilla::layout;
 using namespace mozilla::docshell;
 using namespace mozilla::dom::indexedDB;
 using namespace mozilla::widget;
+using namespace mozilla::jsipc;
 
 NS_IMPL_ISUPPORTS1(ContentListener, nsIDOMEventListener)
 
@@ -226,7 +225,8 @@ TabChild::PreloadSlowThings()
 {
     MOZ_ASSERT(!sPreallocatedTab);
 
-    nsRefPtr<TabChild> tab(new TabChild(TabContext(), /* chromeFlags */ 0));
+    nsRefPtr<TabChild> tab(new TabChild(ContentChild::GetSingleton(),
+                                        TabContext(), /* chromeFlags */ 0));
     if (!NS_SUCCEEDED(tab->Init()) ||
         !tab->InitTabChildGlobal(DONT_LOAD_SCRIPTS)) {
         return;
@@ -254,7 +254,7 @@ TabChild::PreloadSlowThings()
 }
 
 /*static*/ already_AddRefed<TabChild>
-TabChild::Create(const TabContext &aContext, uint32_t aChromeFlags)
+TabChild::Create(ContentChild* aManager, const TabContext &aContext, uint32_t aChromeFlags)
 {
     if (sPreallocatedTab &&
         sPreallocatedTab->mChromeFlags == aChromeFlags &&
@@ -270,14 +270,16 @@ TabChild::Create(const TabContext &aContext, uint32_t aChromeFlags)
         return child.forget();
     }
 
-    nsRefPtr<TabChild> iframe = new TabChild(aContext, aChromeFlags);
+    nsRefPtr<TabChild> iframe = new TabChild(aManager,
+                                             aContext, aChromeFlags);
     return NS_SUCCEEDED(iframe->Init()) ? iframe.forget() : nullptr;
 }
 
 
-TabChild::TabChild(const TabContext& aContext, uint32_t aChromeFlags)
+TabChild::TabChild(ContentChild* aManager, const TabContext& aContext, uint32_t aChromeFlags)
   : TabContext(aContext)
   , mRemoteFrame(nullptr)
+  , mManager(aManager)
   , mTabChildGlobal(nullptr)
   , mChromeFlags(aChromeFlags)
   , mOuterRect(0, 0, 0, 0)
@@ -325,9 +327,9 @@ TabChild::Observe(nsISupports *aSubject,
     nsCOMPtr<nsIDocShell> docShell(do_QueryInterface(aSubject));
     nsCOMPtr<nsITabChild> tabChild(GetTabChildFrom(docShell));
     if (tabChild == this) {
-      gfxRect rect;
+      CSSRect rect;
       sscanf(NS_ConvertUTF16toUTF8(aData).get(),
-             "{\"x\":%lf,\"y\":%lf,\"w\":%lf,\"h\":%lf}",
+             "{\"x\":%f,\"y\":%f,\"w\":%f,\"h\":%f}",
              &rect.x, &rect.y, &rect.width, &rect.height);
       SendZoomToRect(rect);
     }
@@ -979,7 +981,8 @@ TabChild::BrowserFrameProvideWindow(nsIDOMWindow* aOpener,
   *aReturn = nullptr;
 
   nsRefPtr<TabChild> newChild =
-      new TabChild(/* TabContext */ *this, /* chromeFlags */ 0);
+      new TabChild(ContentChild::GetSingleton(),
+                   /* TabContext */ *this, /* chromeFlags */ 0);
   if (!NS_SUCCEEDED(newChild->Init())) {
       return NS_ERROR_ABORT;
   }
@@ -1149,10 +1152,8 @@ TabChild::~TabChild()
     if (webBrowser) {
       webBrowser->SetContainerWindow(nullptr);
     }
-    if (mCx) {
-      DestroyCx();
-    }
-    
+    mGlobal = nullptr;
+
     if (mTabChildGlobal) {
       nsEventListenerManager* elm = mTabChildGlobal->GetListenerManager(false);
       if (elm) {
@@ -1449,7 +1450,7 @@ TabChild::DispatchMessageManagerMessage(const nsAString& aMessageName,
         cloneData.mDataLength = buffer.nbytes();
     }
 
-    nsFrameScriptCx frameScriptCx(static_cast<nsIWebBrowserChrome*>(this), this);
+    nsCOMPtr<nsIXPConnectJSObjectHolder> kungFuDeathGrip(GetGlobal());
     // Let the BrowserElementScrolling helper (if it exists) for this
     // content manipulate the frame state.
     nsRefPtr<nsFrameMessageManager> mm =
@@ -1489,7 +1490,7 @@ TabChild::RecvUpdateFrame(const FrameMetrics& aFrameMetrics)
 bool
 TabChild::ProcessUpdateFrame(const FrameMetrics& aFrameMetrics)
   {
-    if (!mCx || !mTabChildGlobal) {
+    if (!mGlobal || !mTabChildGlobal) {
         return true;
     }
 
@@ -1535,31 +1536,52 @@ TabChild::ProcessUpdateFrame(const FrameMetrics& aFrameMetrics)
     utils->SetScrollPositionClampingScrollPortSize(
       cssCompositedRect.width, cssCompositedRect.height);
     ScrollWindowTo(window, aFrameMetrics.mScrollOffset);
-    CSSToScreenScale resolution = aFrameMetrics.CalculateResolution();
+    LayoutDeviceToLayerScale resolution =
+      aFrameMetrics.CalculateResolution()
+      / aFrameMetrics.mDevPixelsPerCSSPixel
+      * ScreenToLayerScale(1);
     utils->SetResolution(resolution.scale, resolution.scale);
 
-    nsCOMPtr<nsIDOMDocument> domDoc;
-    nsCOMPtr<nsIDOMElement> docElement;
-    mWebNav->GetDocument(getter_AddRefs(domDoc));
-    if (domDoc) {
-      domDoc->GetDocumentElement(getter_AddRefs(docElement));
-      if (docElement) {
-        utils->SetDisplayPortForElement(
-          aFrameMetrics.mDisplayPort.x, aFrameMetrics.mDisplayPort.y,
-          aFrameMetrics.mDisplayPort.width, aFrameMetrics.mDisplayPort.height,
-          docElement);
-      }
-    }
+    SetDisplayPort(aFrameMetrics);
 
     mLastMetrics = aFrameMetrics;
 
     return true;
 }
 
+void
+TabChild::SetDisplayPort(const FrameMetrics& aFrameMetrics)
+{
+  nsCOMPtr<nsIDOMDocument> domDoc;
+  mWebNav->GetDocument(getter_AddRefs(domDoc));
+  if (!domDoc) {
+    return;
+  }
+
+  // nsLayoutUtils::FindContentFor() doesn't provide a look-up for the root
+  // scroll idea. This is because the root scroll ID could refer to a different
+  // element in the DOM when navigating to a new document.
+  nsCOMPtr<nsIDOMElement> element;
+  if (aFrameMetrics.mScrollId == FrameMetrics::ROOT_SCROLL_ID) {
+    domDoc->GetDocumentElement(getter_AddRefs(element));
+  } else {
+    element = do_QueryInterface(nsLayoutUtils::FindContentFor(
+      aFrameMetrics.mScrollId));
+  }
+
+  if (element) {
+    nsCOMPtr<nsIDOMWindowUtils> utils(GetDOMWindowUtils());
+    utils->SetDisplayPortForElement(
+      aFrameMetrics.mDisplayPort.x, aFrameMetrics.mDisplayPort.y,
+      aFrameMetrics.mDisplayPort.width, aFrameMetrics.mDisplayPort.height,
+      element);
+  }
+}
+
 bool
 TabChild::RecvHandleDoubleTap(const CSSIntPoint& aPoint)
 {
-    if (!mCx || !mTabChildGlobal) {
+    if (!mGlobal || !mTabChildGlobal) {
         return true;
     }
 
@@ -1576,7 +1598,7 @@ TabChild::RecvHandleDoubleTap(const CSSIntPoint& aPoint)
 bool
 TabChild::RecvHandleSingleTap(const CSSIntPoint& aPoint)
 {
-  if (!mCx || !mTabChildGlobal) {
+  if (!mGlobal || !mTabChildGlobal) {
     return true;
   }
 
@@ -1590,7 +1612,7 @@ TabChild::RecvHandleSingleTap(const CSSIntPoint& aPoint)
 bool
 TabChild::RecvHandleLongTap(const CSSIntPoint& aPoint)
 {
-  if (!mCx || !mTabChildGlobal) {
+  if (!mGlobal || !mTabChildGlobal) {
     return true;
   }
 
@@ -1880,18 +1902,18 @@ TabChild::DispatchWidgetEvent(nsGUIEvent& event)
 }
 
 PDocumentRendererChild*
-TabChild::AllocPDocumentRenderer(const nsRect& documentRect,
-                                 const gfxMatrix& transform,
-                                 const nsString& bgcolor,
-                                 const uint32_t& renderFlags,
-                                 const bool& flushLayout,
-                                 const nsIntSize& renderSize)
+TabChild::AllocPDocumentRendererChild(const nsRect& documentRect,
+                                      const gfxMatrix& transform,
+                                      const nsString& bgcolor,
+                                      const uint32_t& renderFlags,
+                                      const bool& flushLayout,
+                                      const nsIntSize& renderSize)
 {
     return new DocumentRendererChild();
 }
 
 bool
-TabChild::DeallocPDocumentRenderer(PDocumentRendererChild* actor)
+TabChild::DeallocPDocumentRendererChild(PDocumentRendererChild* actor)
 {
     delete actor;
     return true;
@@ -1931,31 +1953,31 @@ TabChild::RecvPDocumentRendererConstructor(PDocumentRendererChild* actor,
 }
 
 PContentDialogChild*
-TabChild::AllocPContentDialog(const uint32_t&,
-                              const nsCString&,
-                              const nsCString&,
-                              const InfallibleTArray<int>&,
-                              const InfallibleTArray<nsString>&)
+TabChild::AllocPContentDialogChild(const uint32_t&,
+                                   const nsCString&,
+                                   const nsCString&,
+                                   const InfallibleTArray<int>&,
+                                   const InfallibleTArray<nsString>&)
 {
   return new ContentDialogChild();
 }
 
 bool
-TabChild::DeallocPContentDialog(PContentDialogChild* aDialog)
+TabChild::DeallocPContentDialogChild(PContentDialogChild* aDialog)
 {
   delete aDialog;
   return true;
 }
 
 PContentPermissionRequestChild*
-TabChild::AllocPContentPermissionRequest(const nsCString& aType, const nsCString& aAccess, const IPC::Principal&)
+TabChild::AllocPContentPermissionRequestChild(const nsCString& aType, const nsCString& aAccess, const IPC::Principal&)
 {
   NS_RUNTIMEABORT("unused");
   return nullptr;
 }
 
 bool
-TabChild::DeallocPContentPermissionRequest(PContentPermissionRequestChild* actor)
+TabChild::DeallocPContentPermissionRequestChild(PContentPermissionRequestChild* actor)
 {
     PCOMContentPermissionRequestChild* child =
         static_cast<PCOMContentPermissionRequestChild*>(actor);
@@ -1980,16 +2002,16 @@ TabChild::RecvActivateFrameEvent(const nsString& aType, const bool& capture)
 }
 
 POfflineCacheUpdateChild*
-TabChild::AllocPOfflineCacheUpdate(const URIParams& manifestURI,
-                                   const URIParams& documentURI,
-                                   const bool& stickDocument)
+TabChild::AllocPOfflineCacheUpdateChild(const URIParams& manifestURI,
+                                        const URIParams& documentURI,
+                                        const bool& stickDocument)
 {
   NS_RUNTIMEABORT("unused");
   return nullptr;
 }
 
 bool
-TabChild::DeallocPOfflineCacheUpdate(POfflineCacheUpdateChild* actor)
+TabChild::DeallocPOfflineCacheUpdateChild(POfflineCacheUpdateChild* actor)
 {
   OfflineCacheUpdateChild* offlineCacheUpdate = static_cast<OfflineCacheUpdateChild*>(actor);
   delete offlineCacheUpdate;
@@ -1999,7 +2021,7 @@ TabChild::DeallocPOfflineCacheUpdate(POfflineCacheUpdateChild* actor)
 bool
 TabChild::RecvLoadRemoteScript(const nsString& aURL)
 {
-  if (!mCx && !InitTabChildGlobal())
+  if (!mGlobal && !InitTabChildGlobal())
     // This can happen if we're half-destroyed.  It's not a fatal
     // error.
     return true;
@@ -2014,7 +2036,7 @@ TabChild::RecvAsyncMessage(const nsString& aMessage,
                            const InfallibleTArray<CpowEntry>& aCpows)
 {
   if (mTabChildGlobal) {
-    nsFrameScriptCx cx(static_cast<nsIWebBrowserChrome*>(this), this);
+    nsCOMPtr<nsIXPConnectJSObjectHolder> kungFuDeathGrip(GetGlobal());
     StructuredCloneData cloneData = UnpackClonedMessageDataForChild(aData);
     nsRefPtr<nsFrameMessageManager> mm =
       static_cast<nsFrameMessageManager*>(mTabChildGlobal->mMessageManager.get());
@@ -2082,7 +2104,7 @@ TabChild::RecvDestroy()
 }
 
 PRenderFrameChild*
-TabChild::AllocPRenderFrame(ScrollingBehavior* aScrolling,
+TabChild::AllocPRenderFrameChild(ScrollingBehavior* aScrolling,
                             TextureFactoryIdentifier* aTextureFactoryIdentifier,
                             uint64_t* aLayersId)
 {
@@ -2090,7 +2112,7 @@ TabChild::AllocPRenderFrame(ScrollingBehavior* aScrolling,
 }
 
 bool
-TabChild::DeallocPRenderFrame(PRenderFrameChild* aFrame)
+TabChild::DeallocPRenderFrameChild(PRenderFrameChild* aFrame)
 {
     delete aFrame;
     return true;
@@ -2099,7 +2121,7 @@ TabChild::DeallocPRenderFrame(PRenderFrameChild* aFrame)
 bool
 TabChild::InitTabChildGlobal(FrameScriptLoading aScriptLoading)
 {
-  if (!mCx && !mTabChildGlobal) {
+  if (!mGlobal && !mTabChildGlobal) {
     nsCOMPtr<nsPIDOMWindow> window = do_GetInterface(mWebNav);
     NS_ENSURE_TRUE(window, false);
     nsCOMPtr<EventTarget> chromeHandler =
@@ -2300,14 +2322,14 @@ TabChild::GetMessageManager(nsIContentFrameMessageManager** aResult)
 }
 
 PIndexedDBChild*
-TabChild::AllocPIndexedDB(const nsCString& aASCIIOrigin, bool* /* aAllowed */)
+TabChild::AllocPIndexedDBChild(const nsCString& aASCIIOrigin, bool* /* aAllowed */)
 {
   NS_NOTREACHED("Should never get here!");
   return NULL;
 }
 
 bool
-TabChild::DeallocPIndexedDB(PIndexedDBChild* aActor)
+TabChild::DeallocPIndexedDBChild(PIndexedDBChild* aActor)
 {
   delete aActor;
   return true;
@@ -2317,10 +2339,10 @@ bool
 TabChild::DoSendSyncMessage(JSContext* aCx,
                             const nsAString& aMessage,
                             const StructuredCloneData& aData,
-                            JSObject *aCpows,
+                            JS::Handle<JSObject *> aCpows,
                             InfallibleTArray<nsString>* aJSONRetVal)
 {
-  ContentChild* cc = static_cast<ContentChild*>(Manager());
+  ContentChild* cc = Manager();
   ClonedMessageData data;
   if (!BuildClonedMessageDataForChild(cc, aData, data)) {
     return false;
@@ -2336,9 +2358,9 @@ bool
 TabChild::DoSendAsyncMessage(JSContext* aCx,
                              const nsAString& aMessage,
                              const StructuredCloneData& aData,
-                             JSObject *aCpows)
+                             JS::Handle<JSObject *> aCpows)
 {
-  ContentChild* cc = static_cast<ContentChild*>(Manager());
+  ContentChild* cc = Manager();
   ClonedMessageData data;
   if (!BuildClonedMessageDataForChild(cc, aData, data)) {
     return false;
@@ -2362,7 +2384,6 @@ TabChildGlobal::Init()
   NS_ASSERTION(!mMessageManager, "Re-initializing?!?");
   mMessageManager = new nsFrameMessageManager(mTabChild,
                                               nullptr,
-                                              mTabChild->GetJSContext(),
                                               MM_CHILD);
 }
 
@@ -2436,9 +2457,7 @@ TabChildGlobal::Atob(const nsAString& aAsciiString,
 JSContext*
 TabChildGlobal::GetJSContextForEventHandlers()
 {
-  if (!mTabChild)
-    return nullptr;
-  return mTabChild->GetJSContext();
+  return nsContentUtils::GetSafeJSContext();
 }
 
 nsIPrincipal* 
@@ -2447,14 +2466,4 @@ TabChildGlobal::GetPrincipal()
   if (!mTabChild)
     return nullptr;
   return mTabChild->GetPrincipal();
-}
-
-nsresult
-TabChildGlobal::PreHandleEvent(nsEventChainPreVisitor& aVisitor)
-{
-   // FIXME! This is a hack to make middle mouse paste working also in Editor.
-   // Bug 329119
-  aVisitor.mForceContentDispatch = true;
-
-  return nsDOMEventTargetHelper::PreHandleEvent(aVisitor);
 }

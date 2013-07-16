@@ -88,16 +88,16 @@ class JavaScriptShared
     static const uint32_t OBJECT_EXTRA_BITS  = 1;
     static const uint32_t OBJECT_IS_CALLABLE = (1 << 0);
 
-    bool Wrap(JSContext* cx, JSObject *obj, InfallibleTArray<CpowEntry> *outCpows);
-    bool Unwrap(JSContext* cx, const InfallibleTArray<CpowEntry>& cpows, JSObject **objp);
+    bool Unwrap(JSContext *cx, const InfallibleTArray<CpowEntry> &aCpows, JSObject **objp);
+    bool Wrap(JSContext *cx, JS::HandleObject aObj, InfallibleTArray<CpowEntry> *outCpows);
 
   protected:
     bool toVariant(JSContext *cx, jsval from, JSVariant *to);
     bool toValue(JSContext *cx, const JSVariant &from, JS::MutableHandleValue to);
     bool fromDescriptor(JSContext *cx, const JSPropertyDescriptor &desc, PPropertyDescriptor *out);
     bool toDescriptor(JSContext *cx, const PPropertyDescriptor &in, JSPropertyDescriptor *out);
-    bool convertIdToGeckoString(JSContext *cx, jsid id, nsString *to);
-    bool convertGeckoStringToId(JSContext *cx, const nsString &from, jsid *to);
+    bool convertIdToGeckoString(JSContext *cx, JS::HandleId id, nsString *to);
+    bool convertGeckoStringToId(JSContext *cx, const nsString &from, JS::MutableHandleId id);
 
     bool toValue(JSContext *cx, const JSVariant &from, jsval *to) {
         JS::RootedValue v(cx);

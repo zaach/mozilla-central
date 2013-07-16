@@ -69,9 +69,8 @@ UnwrapNativeCPOW(nsISupports* wrapper)
     nsCOMPtr<nsIXPConnectWrappedJS> underware = do_QueryInterface(wrapper);
     if (underware) {
         JSObject* mainObj = underware->GetJSObject();
-        if (mainObj && mozilla::jsipc::JavaScriptParent::IsCPOW(mainObj)) {
+        if (mainObj && mozilla::jsipc::JavaScriptParent::IsCPOW(mainObj))
             return mainObj;
-        }
     }
     return nullptr;
 }
@@ -851,17 +850,18 @@ XPCConvert::NativeInterface2JSObject(jsval* d,
     } else {
         flat = nullptr;
     }
-		
+
     // Don't double wrap CPOWs. This is a temporary measure for compatibility
     // with objects that don't provide necessary QIs (such as objects under
     // the new DOM bindings). We expect the other side of the CPOW to have
     // the appropriate wrappers in place.
-    if (JSObject *cpow = UnwrapNativeCPOW(aHelper.GetCanonical())) {
+    if (JSObject *cpow = UnwrapNativeCPOW(aHelper.Object())) {
         if (!JS_WrapObject(cx, &cpow))
             return false;
         *d = OBJECT_TO_JSVAL(cpow);
         return true;
     }
+
     // We can't simply construct a slim wrapper. Go ahead and create an
     // XPCWrappedNative for this object. At this point, |flat| could be
     // non-null, meaning that either we already have a wrapped native from

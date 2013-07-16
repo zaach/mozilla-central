@@ -569,7 +569,8 @@ public:
   virtual void finalize(JSFreeOp *fop, JSObject *proxy) MOZ_OVERRIDE;
 
   // Fundamental traps
-  virtual bool isExtensible(JSObject *proxy) MOZ_OVERRIDE;
+  virtual bool isExtensible(JSContext *cx, JS::Handle<JSObject*> proxy, bool *extensible)
+                           MOZ_OVERRIDE;
   virtual bool preventExtensions(JSContext *cx,
                                  JS::Handle<JSObject*> proxy) MOZ_OVERRIDE;
   virtual bool getPropertyDescriptor(JSContext* cx,
@@ -641,11 +642,13 @@ protected:
 };
 
 bool
-nsOuterWindowProxy::isExtensible(JSObject *proxy)
+nsOuterWindowProxy::isExtensible(JSContext *cx, JS::Handle<JSObject*> proxy,
+                                 bool *extensible)
 {
   // If [[Extensible]] could be false, then navigating a window could navigate
   // to a window that's [[Extensible]] after being at one that wasn't: an
   // invariant violation.  So always report true for this.
+  *extensible = true;
   return true;
 }
 
@@ -1364,7 +1367,11 @@ nsGlobalWindow::CleanUp(bool aIgnoreModalDialog)
     NS_RELEASE(mObserver);
   }
 
-  mNavigator = nullptr;
+  if (mNavigator) {
+    mNavigator->Invalidate();
+    mNavigator = nullptr;
+  }
+
   mScreen = nullptr;
   mMenubar = nullptr;
   mToolbar = nullptr;
@@ -1644,6 +1651,7 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INTERNAL(nsGlobalWindow)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mControllers)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mArguments)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mDialogArguments)
+  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mNavigator)
 
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mPerformance)
 
@@ -1698,6 +1706,7 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(nsGlobalWindow)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mControllers)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mArguments)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mDialogArguments)
+  NS_IMPL_CYCLE_COLLECTION_UNLINK(mNavigator)
 
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mPerformance)
 
@@ -2121,10 +2130,10 @@ CreateNativeGlobalForInner(JSContext* aCx,
   if (aNewInner->GetOuterWindow()) {
     top = aNewInner->GetTop();
   }
-  JS::ZoneSpecifier zoneSpec = JS::FreshZone;
+  JS::CompartmentOptions options;
   if (top) {
     if (top->GetGlobalJSObject()) {
-      zoneSpec = JS::SameZoneAs(top->GetGlobalJSObject());
+      options.zoneSpec = JS::SameZoneAs(top->GetGlobalJSObject());
     }
   }
 
@@ -2140,7 +2149,7 @@ CreateNativeGlobalForInner(JSContext* aCx,
   nsRefPtr<nsIXPConnectJSObjectHolder> jsholder;
   nsresult rv = xpc->InitClassesWithNewWrappedGlobal(
     aCx, ToSupports(aNewInner),
-    aPrincipal, flags, zoneSpec, getter_AddRefs(jsholder));
+    aPrincipal, flags, options, getter_AddRefs(jsholder));
   NS_ENSURE_SUCCESS(rv, rv);
 
   MOZ_ASSERT(jsholder);
@@ -3273,6 +3282,27 @@ void
 nsPIDOMWindow::AddAudioContext(AudioContext* aAudioContext)
 {
   mAudioContexts.AppendElement(aAudioContext);
+
+  nsIDocShell* docShell = GetDocShell();
+  if (docShell && !docShell->GetAllowMedia()) {
+    aAudioContext->Mute();
+  }
+}
+
+void
+nsPIDOMWindow::MuteAudioContexts()
+{
+  for (uint32_t i = 0; i < mAudioContexts.Length(); ++i) {
+    mAudioContexts[i]->Mute();
+  }
+}
+
+void
+nsPIDOMWindow::UnmuteAudioContexts()
+{
+  for (uint32_t i = 0; i < mAudioContexts.Length(); ++i) {
+    mAudioContexts[i]->Unmute();
+  }
 }
 
 NS_IMETHODIMP
@@ -4076,11 +4106,10 @@ nsGlobalWindow::CSSToDevIntPixels(nsIntSize px)
     presContext->CSSPixelsToDevPixels(px.height));
 }
 
-
-NS_IMETHODIMP
-nsGlobalWindow::GetInnerWidth(int32_t* aInnerWidth)
+nsresult
+nsGlobalWindow::GetInnerSize(CSSIntSize& aSize)
 {
-  FORWARD_TO_OUTER(GetInnerWidth, (aInnerWidth), NS_ERROR_NOT_INITIALIZED);
+  MOZ_ASSERT(IsOuterWindow());
 
   EnsureSizeUpToDate();
 
@@ -4090,17 +4119,29 @@ nsGlobalWindow::GetInnerWidth(int32_t* aInnerWidth)
   mDocShell->GetPresContext(getter_AddRefs(presContext));
   nsRefPtr<nsIPresShell> presShell = mDocShell->GetPresShell();
 
-  if (presContext && presShell) {
-    nsRefPtr<nsViewManager> viewManager = presShell->GetViewManager();
-    if (viewManager) {
-      viewManager->FlushDelayedResize(false);
-    }
-    nsRect shellArea = presContext->GetVisibleArea();
-    *aInnerWidth = nsPresContext::AppUnitsToIntCSSPixels(shellArea.width);
-  } else {
-    *aInnerWidth = 0;
+  if (!presContext || !presShell) {
+    aSize = CSSIntSize(0, 0);
+    return NS_OK;
   }
 
+  nsRefPtr<nsViewManager> viewManager = presShell->GetViewManager();
+  if (viewManager) {
+    viewManager->FlushDelayedResize(false);
+  }
+  aSize = CSSIntRect::FromAppUnitsRounded(presContext->GetVisibleArea().Size());
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsGlobalWindow::GetInnerWidth(int32_t* aInnerWidth)
+{
+  FORWARD_TO_OUTER(GetInnerWidth, (aInnerWidth), NS_ERROR_NOT_INITIALIZED);
+
+  CSSIntSize size;
+  nsresult rv = GetInnerSize(size);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  *aInnerWidth = size.width;
   return NS_OK;
 }
 
@@ -4155,24 +4196,11 @@ nsGlobalWindow::GetInnerHeight(int32_t* aInnerHeight)
 {
   FORWARD_TO_OUTER(GetInnerHeight, (aInnerHeight), NS_ERROR_NOT_INITIALIZED);
 
-  EnsureSizeUpToDate();
+  CSSIntSize size;
+  nsresult rv = GetInnerSize(size);
+  NS_ENSURE_SUCCESS(rv, rv);
 
-  NS_ENSURE_STATE(mDocShell);
-
-  nsRefPtr<nsPresContext> presContext;
-  mDocShell->GetPresContext(getter_AddRefs(presContext));
-  nsRefPtr<nsIPresShell> presShell = mDocShell->GetPresShell();
-
-  if (presContext && presShell) {
-    nsRefPtr<nsViewManager> viewManager = presShell->GetViewManager();
-    if (viewManager) {
-      viewManager->FlushDelayedResize(false);
-    }
-    nsRect shellArea = presContext->GetVisibleArea();
-    *aInnerHeight = nsPresContext::AppUnitsToIntCSSPixels(shellArea.height);
-  } else {
-    *aInnerHeight = 0;
-  }
+  *aInnerHeight = size.height;
   return NS_OK;
 }
 
@@ -4843,7 +4871,7 @@ nsGlobalWindow::GetScrollXY(int32_t* aScrollX, int32_t* aScrollY,
     return GetScrollXY(aScrollX, aScrollY, true);
   }
 
-  nsIntPoint scrollPosCSSPixels = sf->GetScrollPositionCSSPixels();
+  CSSIntPoint scrollPosCSSPixels = sf->GetScrollPositionCSSPixels();
   if (aScrollX) {
     *aScrollX = scrollPosCSSPixels.x;
   }
@@ -6051,11 +6079,19 @@ nsGlobalWindow::GetTopWindowRoot()
 NS_IMETHODIMP
 nsGlobalWindow::Scroll(int32_t aXScroll, int32_t aYScroll)
 {
-  return ScrollTo(aXScroll, aYScroll);
+  ScrollTo(CSSIntPoint(aXScroll, aYScroll));
+  return NS_OK;
 }
 
 NS_IMETHODIMP
 nsGlobalWindow::ScrollTo(int32_t aXScroll, int32_t aYScroll)
+{
+  ScrollTo(CSSIntPoint(aXScroll, aYScroll));
+  return NS_OK;
+}
+
+void
+nsGlobalWindow::ScrollTo(const CSSIntPoint& aScroll)
 {
   FlushPendingNotifications(Flush_Layout);
   nsIScrollableFrame *sf = GetScrollFrame();
@@ -6063,22 +6099,21 @@ nsGlobalWindow::ScrollTo(int32_t aXScroll, int32_t aYScroll)
   if (sf) {
     // Here we calculate what the max pixel value is that we can
     // scroll to, we do this by dividing maxint with the pixel to
-    // twips conversion factor, and substracting 4, the 4 comes from
+    // twips conversion factor, and subtracting 4, the 4 comes from
     // experimenting with this value, anything less makes the view
     // code not scroll correctly, I have no idea why. -- jst
     const int32_t maxpx = nsPresContext::AppUnitsToIntCSSPixels(0x7fffffff) - 4;
 
-    if (aXScroll > maxpx) {
-      aXScroll = maxpx;
+    CSSIntPoint scroll(aScroll);
+    if (scroll.x > maxpx) {
+      scroll.x = maxpx;
     }
 
-    if (aYScroll > maxpx) {
-      aYScroll = maxpx;
+    if (scroll.y > maxpx) {
+      scroll.y = maxpx;
     }
-    sf->ScrollToCSSPixels(nsIntPoint(aXScroll, aYScroll));
+    sf->ScrollToCSSPixels(scroll);
   }
-
-  return NS_OK;
 }
 
 NS_IMETHODIMP
@@ -6088,12 +6123,12 @@ nsGlobalWindow::ScrollBy(int32_t aXScrollDif, int32_t aYScrollDif)
   nsIScrollableFrame *sf = GetScrollFrame();
 
   if (sf) {
-    nsPoint scrollPos = sf->GetScrollPosition();
+    CSSIntPoint scrollPos =
+      sf->GetScrollPositionCSSPixels() + CSSIntPoint(aXScrollDif, aYScrollDif);
     // It seems like it would make more sense for ScrollBy to use
     // SMOOTH mode, but tests seem to depend on the synchronous behaviour.
     // Perhaps Web content does too.
-    return ScrollTo(nsPresContext::AppUnitsToIntCSSPixels(scrollPos.x) + aXScrollDif,
-                    nsPresContext::AppUnitsToIntCSSPixels(scrollPos.y) + aYScrollDif);
+    ScrollTo(scrollPos);
   }
 
   return NS_OK;
@@ -10870,6 +10905,8 @@ nsGlobalWindow::FlushPendingNotifications(mozFlushType aType)
 void
 nsGlobalWindow::EnsureSizeUpToDate()
 {
+  MOZ_ASSERT(IsOuterWindow());
+
   // If we're a subframe, make sure our size is up to date.  It's OK that this
   // crosses the content/chrome boundary, since chrome can have pending reflows
   // too.
@@ -11640,7 +11677,6 @@ nsGlobalChromeWindow::GetMessageManager(nsIMessageBroadcaster** aManager)
     mMessageManager =
       new nsFrameMessageManager(nullptr,
                                 static_cast<nsFrameMessageManager*>(globalMM.get()),
-                                cx,
                                 MM_CHROME | MM_BROADCASTER);
     NS_ENSURE_TRUE(mMessageManager, NS_ERROR_OUT_OF_MEMORY);
   }

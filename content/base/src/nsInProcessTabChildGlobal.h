@@ -41,7 +41,7 @@ public:
   NS_FORWARD_SAFE_NSIMESSAGESENDER(mMessageManager)
   NS_IMETHOD SendSyncMessage(const nsAString& aMessageName,
                              const JS::Value& aObject,
-                             const jsval& aRemote,
+                             const JS::Value& aRemote,
                              JSContext* aCx,
                              uint8_t aArgc,
                              JS::Value* aRetval)
@@ -70,12 +70,12 @@ public:
   virtual bool DoSendSyncMessage(JSContext* aCx,
                                  const nsAString& aMessage,
                                  const mozilla::dom::StructuredCloneData& aData,
-                                 JSObject* aCpows,
-                                 InfallibleTArray<nsString>* aJSONRetVal);
+                                 JS::Handle<JSObject *> aCpows,
+                                 InfallibleTArray<nsString>* aJSONRetVal) MOZ_OVERRIDE;
   virtual bool DoSendAsyncMessage(JSContext* aCx,
                                   const nsAString& aMessage,
                                   const mozilla::dom::StructuredCloneData& aData,
-                                  JSObject* aCpows);
+                                  JS::Handle<JSObject *> aCpows);
 
   virtual nsresult PreHandleEvent(nsEventChainPreVisitor& aVisitor) MOZ_OVERRIDE;
   NS_IMETHOD AddEventListener(const nsAString& aType,
@@ -98,7 +98,7 @@ public:
   }
   using nsDOMEventTargetHelper::AddEventListener;
 
-  virtual JSContext* GetJSContextForEventHandlers() MOZ_OVERRIDE { return mCx; }
+  virtual JSContext* GetJSContextForEventHandlers() MOZ_OVERRIDE { return nsContentUtils::GetSafeJSContext(); }
   virtual nsIPrincipal* GetPrincipal() MOZ_OVERRIDE { return mPrincipal; }
   void LoadFrameScript(const nsAString& aURL);
   void Disconnect();

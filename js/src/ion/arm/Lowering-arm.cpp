@@ -6,7 +6,7 @@
 
 #include "ion/MIR.h"
 #include "ion/Lowering.h"
-#include "Assembler-arm.h"
+#include "ion/arm/Assembler-arm.h"
 #include "ion/shared/Lowering-shared-inl.h"
 
 using namespace js;
@@ -228,6 +228,9 @@ LIRGeneratorARM::lowerForShift(LInstructionHelper<1, 2, 0> *ins, MDefinition *mi
 bool
 LIRGeneratorARM::lowerDivI(MDiv *div)
 {
+    if (div->isUnsigned())
+        return lowerUDiv(div);
+
     // Division instructions are slow. Division by constant denominators can be
     // rewritten to use other instructions.
     if (div->rhs()->isConstant()) {
@@ -247,11 +250,18 @@ LIRGeneratorARM::lowerDivI(MDiv *div)
         }
     }
 
-    LDivI *lir = new LDivI(useFixed(div->lhs(), r0), use(div->rhs(), r1),
-                           tempFixed(r2), tempFixed(r3));
-    if (div->fallible() && !assignSnapshot(lir))
-        return false;
-    return defineFixed(lir, div, LAllocation(AnyRegister(r0)));
+    if (hasIDIV()) {
+        LDivI *lir = new LDivI(useRegister(div->lhs()), useRegister(div->rhs()), temp());
+        if (div->fallible() && !assignSnapshot(lir))
+            return false;
+        return define(lir, div);
+    } else {
+        LSoftDivI *lir = new LSoftDivI(useFixed(div->lhs(), r0), use(div->rhs(), r1),
+                                       tempFixed(r2), tempFixed(r3));
+        if (div->fallible() && !assignSnapshot(lir))
+            return false;
+        return defineFixed(lir, div, LAllocation(AnyRegister(r0)));
+    }
 }
 
 bool
@@ -266,6 +276,9 @@ LIRGeneratorARM::lowerMulI(MMul *mul, MDefinition *lhs, MDefinition *rhs)
 bool
 LIRGeneratorARM::lowerModI(MMod *mod)
 {
+    if (mod->isUnsigned())
+        return lowerUMod(mod);
+
     if (mod->rhs()->isConstant()) {
         int32_t rhs = mod->rhs()->toConstant()->value().toInt32();
         int32_t shift;
@@ -316,6 +329,14 @@ LGetPropertyCacheT *
 LIRGeneratorARM::newLGetPropertyCacheT(MGetPropertyCache *ins)
 {
     return new LGetPropertyCacheT(useRegister(ins->object()), LDefinition::BogusTemp());
+}
+
+LGetElementCacheT *
+LIRGeneratorARM::newLGetElementCacheT(MGetElementCache *ins)
+{
+    return new LGetElementCacheT(useRegister(ins->object()),
+                                 useRegister(ins->index()),
+                                 LDefinition::BogusTemp());
 }
 
 bool
@@ -415,22 +436,35 @@ LIRGeneratorARM::visitAsmJSNeg(MAsmJSNeg *ins)
     JS_ASSERT(ins->type() == MIRType_Double);
     return define(new LNegD(useRegisterAtStart(ins->input())), ins);
 }
+
+bool
+LIRGeneratorARM::lowerUDiv(MInstruction *div)
+{
+    LUDivOrMod *lir = new LUDivOrMod(useFixed(div->getOperand(0), r0),
+                                     useFixed(div->getOperand(1), r1),
+                                     tempFixed(r2), tempFixed(r3));
+    return defineFixed(lir, div, LAllocation(AnyRegister(r0)));
+}
+
 bool
 LIRGeneratorARM::visitAsmJSUDiv(MAsmJSUDiv *div)
 {
-    LAsmJSDivOrMod *lir = new LAsmJSDivOrMod(useFixed(div->lhs(), r0),
-                                         useFixed(div->rhs(), r1),
-                                         tempFixed(r2), tempFixed(r3));
-    return defineFixed(lir, div, LAllocation(AnyRegister(r0)));
+    return lowerUDiv(div);
+}
+
+bool
+LIRGeneratorARM::lowerUMod(MInstruction *mod)
+{
+    LUDivOrMod *lir = new LUDivOrMod(useFixed(mod->getOperand(0), r0),
+                                     useFixed(mod->getOperand(1), r1),
+                                     tempFixed(r2), tempFixed(r3));
+    return defineFixed(lir, mod, LAllocation(AnyRegister(r1)));
 }
 
 bool
 LIRGeneratorARM::visitAsmJSUMod(MAsmJSUMod *mod)
 {
-    LAsmJSDivOrMod *lir = new LAsmJSDivOrMod(useFixed(mod->lhs(), r0),
-                                         useFixed(mod->rhs(), r1),
-                                         tempFixed(r2), tempFixed(r3));
-    return defineFixed(lir, mod, LAllocation(AnyRegister(r1)));
+    return lowerUMod(mod);
 }
 
 bool
@@ -457,7 +491,7 @@ LIRGeneratorARM::visitAsmJSStoreHeap(MAsmJSStoreHeap *ins)
         lir = new LAsmJSStoreHeap(useRegisterAtStart(ins->ptr()),
                                   useRegisterAtStart(ins->value()));
         break;
-      default: JS_NOT_REACHED("unexpected array type");
+      default: MOZ_ASSUME_UNREACHABLE("unexpected array type");
     }
 
     return add(lir, ins);
@@ -481,8 +515,7 @@ LIRGeneratorARM::lowerTruncateDToInt32(MTruncateToInt32 *ins)
 bool
 LIRGeneratorARM::visitStoreTypedArrayElementStatic(MStoreTypedArrayElementStatic *ins)
 {
-    JS_NOT_REACHED("NYI");
-    return true;
+    MOZ_ASSUME_UNREACHABLE("NYI");
 }
 
 //__aeabi_uidiv

@@ -299,9 +299,6 @@ LoadJSContextOptions(const char* aPrefName, void* /* aClosure */)
 
   // Content options.
   uint32_t contentOptions = commonOptions;
-  if (GetWorkerPref<bool>(NS_LITERAL_CSTRING("pccounts.content"))) {
-    contentOptions |= JSOPTION_PCCOUNT;
-  }
   if (GetWorkerPref<bool>(NS_LITERAL_CSTRING("baselinejit.content"))) {
     contentOptions |= JSOPTION_BASELINE;
   }
@@ -311,9 +308,6 @@ LoadJSContextOptions(const char* aPrefName, void* /* aClosure */)
 
   // Chrome options.
   uint32_t chromeOptions = commonOptions;
-  if (GetWorkerPref<bool>(NS_LITERAL_CSTRING("pccounts.chrome"))) {
-    chromeOptions |= JSOPTION_PCCOUNT;
-  }
   if (GetWorkerPref<bool>(NS_LITERAL_CSTRING("baselinejit.chrome"))) {
     chromeOptions |= JSOPTION_BASELINE;
   }
@@ -749,7 +743,7 @@ CTypesActivityCallback(JSContext* aCx,
       break;
 
     default:
-      MOZ_NOT_REACHED("Unknown type flag!");
+      MOZ_CRASH("Unknown type flag!");
   }
 }
 
@@ -828,10 +822,6 @@ CreateJSContextForWorker(WorkerPrivate* aWorkerPrivate)
 #ifdef JS_GC_ZEAL
   JS_SetGCZeal(workerCx, settings.gcZeal, settings.gcZealFrequency);
 #endif
-
-  if (aWorkerPrivate->IsChromeWorker()) {
-    JS_SetVersion(workerCx, JSVERSION_LATEST);
-  }
 
   return workerCx;
 }

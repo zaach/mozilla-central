@@ -17,8 +17,8 @@
 }
 
 .text-link {
+  color: @metro_orange@;
   text-decoration: none;
-  color: #1167bd;
 }
 
 textbox,
@@ -118,11 +118,6 @@ textbox[isempty="true"] {
   color: @field_mid_foreground_color@;
 }
 
-.link {
-  color: blue;
-  text-decoration: underline;
-}
-
 spinbuttons {
   border: none;
 }
@@ -190,6 +185,7 @@ menulist {
 
 .menu-popup > richlistbox > scrollbox {
   width: 100%;
+  overflow-x: hidden !important;
 }
 
 .menu-popup richlistitem {
@@ -216,6 +212,61 @@ menulist {
 
 .menu-popup > richlistbox[left-hand="false"] > richlistitem {
   padding-right: 50px;
+}
+
+/* form select popup */
+
+#select-container {
+  padding: 0;
+  position: absolute;
+  background-color: transparent;
+}
+
+#select-commands {
+  -moz-appearance: none;
+  background-color: white;
+  border: #000 solid @metro_border_thick@;
+  display: -moz-box;
+  -moz-user-focus: ignore;
+  -moz-box-align: stretch;
+  width: 100%;
+}
+
+/* listcell element doesn't have flex="1" so we need to force it */
+#select-commands .option-command > listcell {
+  -moz-box-flex: 1 !important;
+}
+
+.option-command {
+  min-height: @touch_button_small@;
+  min-width: @touch_action_minwidth@; /* keep the button from being too narrow */
+  border: 0 none;
+}
+
+.option-command.selected {
+  background-color: @selected_color@ !important;
+  color: black;
+}
+
+.option-command.optgroup {
+  font-weight: bold;
+  font-style: italic;
+  pointer-events: none;
+}
+
+.option-command:not([disabled]):hover {
+  background-color: #dedad0;
+  color: black;
+}
+
+.option-command:not([disabled]):active {
+  background-color: @selected_color@ !important;
+  color: black;
+}
+
+.select-popup > richlistbox > scrollbox {
+  width: 100%;
+  overflow-x: hidden !important;
 }
 
 /* Toolbar Button --------------------------------------------------------- */
@@ -497,6 +548,7 @@ dialog > .prompt-inner {
 }
 
 .prompt-message {
+  padding-top: @metro_spacing_normal@;
   text-align: start;
   font-size: @metro_font_normal@;
 }
@@ -511,6 +563,42 @@ dialog > .prompt-inner {
   margin: @margin_xnormal@;
   font-size: @font_normal@;
   text-align: start;
+}
+
+/* additional styles for crash prompt dialog */
+
+/* specific height and wider for the long privacy statement */
+.prompt-inner-statement {
+  margin-top: @metro_spacing_xnormal@;
+  margin-bottom: @metro_spacing_xnormal@;
+  height: 450px;
+  width: 800px;
+}
+
+.crash-message {
+  text-align: justify;
+  margin-top: 5px;
+  margin-bottom: @metro_spacing_small@;
+  font-size: @metro_font_normal@;
+}
+
+.crash-link {
+  margin-top: @metro_spacing_small@;
+}
+
+/* temp - bug 887176 */
+.crash-privacy-back-button {
+  width: 26px;
+  margin-top: 22px; /* align with title text */
+  -moz-margin-end: 15px;
+  background-image: url(chrome://browser/skin/images/appbar-stop.png);
+  background-origin: border-box;
+  background-position: right 0 top 0;
+  background-repeat: no-repeat;
+}
+
+.crash-privacy-statement-scroller {
+  overflow: auto;
 }
 
 /* Arrowbox ---------------------------------------------------------------- */
@@ -573,4 +661,99 @@ arrowbox {
 .meta-section-title {
   font-size: @metro_font_large@;
   font-weight: 100;
+}
+
+/* Find bar ------------------------------------------------------------- */
+
+#findbar {
+  background-color: @metro_orange@;
+  padding: 0;
+  pointer-events: none;
+}
+
+#findbar > toolbar {
+  min-height: @findbar_height@ !important;
+}
+
+#findbar > .previous-button,
+#findbar > .next-button,
+#findbar > .close-button {
+  list-style-image: url(chrome://browser/skin/images/appbar-icons.png);
+  min-width: @touch_button_small@ !important; /* button size */
+  min-height: @touch_button_small@ !important; /* button size */
+  border: none !important;
+  background-image: none !important;
+  background-color: inherit !important;
+  pointer-events: auto;
+  -moz-user-focus: ignore !important;
+  margin: 0 @margin_normal@ !important;
+}
+
+#findbar > .close-button {
+  -moz-margin-start: 0;
+  -moz-image-region: rect(0px, 480px, 40px, 440px);
+}
+
+#findbar > .close-button:hover {
+  -moz-image-region: rect(40px, 480px, 80px, 440px);
+}
+
+#findbar > .close-button:active {
+  -moz-image-region: rect(80px, 480px, 120px, 440px);
+}
+
+#findbar > .previous-button {
+  -moz-margin-end: 0;
+  -moz-image-region: rect(0px, 400px, 40px, 360px);
+}
+
+#findbar > .previous-button:hover {
+  -moz-image-region: rect(40px, 400px, 80px, 360px);
+}
+
+#findbar > .previous-button:active{
+  -moz-image-region: rect(80px, 400px, 120px, 360px);
+}
+
+#findbar > .next-button {
+  -moz-margin-start: 0;
+  -moz-image-region: rect(0px, 440px, 40px, 400px);
+}
+
+#findbar > .next-button:hover {
+  -moz-image-region: rect(40px, 440px, 80px, 400px);
+}
+
+#findbar > .next-button:active {
+  -moz-image-region: rect(80px, 440px, 120px, 400px);
+}
+
+#findbar-textbox {
+  pointer-events: auto;
+  -moz-margin-end: 0;
+  border: none !important;
+  width: 20em;
+}
+
+.textbox-search-icon {
+  list-style-image: url("chrome://browser/skin/images/search-glass-30.png");
+  -moz-image-region: auto;
+}
+
+/* Override the default box ordering and make the find textbox appear to the
+   right of the icon */
+#findbar-textbox input {
+  -moz-box-ordinal-group: 2
+}
+
+#findbar-textbox deck {
+  margin-right: @margin_normal@;
+}
+
+#findbar-textbox[status="1"] { /* Ci.nsITypeAheadFind.FIND_NOTFOUND */
+  background: rgb(255,200,200);
+}
+
+#findbar-textbox:hover:active {
+  background: #8db8d8;
 }

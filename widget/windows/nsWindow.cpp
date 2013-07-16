@@ -597,6 +597,13 @@ nsWindow::Create(nsIWidget *aParent,
       Preferences::GetBool("intl.keyboard.per_window_layout", false);
   }
 
+  // Query for command button metric data for rendering the titlebar. We
+  // only do this once on the first window.
+  if (mWindowType == eWindowType_toplevel &&
+      (!nsUXThemeData::sTitlebarInfoPopulatedThemed ||
+       !nsUXThemeData::sTitlebarInfoPopulatedAero)) {
+    nsUXThemeData::UpdateTitlebarInfo(mWnd);
+  }
   return NS_OK;
 }
 
@@ -1240,9 +1247,11 @@ void nsWindow::SetThemeRegion()
  **************************************************************/
 
 NS_METHOD nsWindow::RegisterTouchWindow() {
-  mTouchWindow = true;
-  mGesture.RegisterTouchWindow(mWnd);
-  ::EnumChildWindows(mWnd, nsWindow::RegisterTouchForDescendants, 0);
+  if (Preferences::GetInt("dom.w3c_touch_events.enabled", 0)) {
+    mTouchWindow = true;
+    mGesture.RegisterTouchWindow(mWnd);
+    ::EnumChildWindows(mWnd, nsWindow::RegisterTouchForDescendants, 0);
+  }
   return NS_OK;
 }
 
@@ -3739,7 +3748,7 @@ bool nsWindow::DispatchPluginEvent(UINT aMessage,
 {
   bool ret = nsWindowBase::DispatchPluginEvent(
                WinUtils::InitMSG(aMessage, aWParam, aLParam, mWnd));
-  if (aDispatchPendingEvents) {
+  if (aDispatchPendingEvents && !Destroyed()) {
     DispatchPendingEvents();
   }
   return ret;

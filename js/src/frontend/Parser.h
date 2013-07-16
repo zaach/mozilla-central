@@ -29,7 +29,7 @@ struct StmtInfoPC : public StmtInfoBase {
 
     uint32_t        blockid;        /* for simplified dominance computation */
 
-    StmtInfoPC(JSContext *cx) : StmtInfoBase(cx) {}
+    StmtInfoPC(ExclusiveContext *cx) : StmtInfoBase(cx) {}
 };
 
 typedef HashSet<JSAtom *> FuncStmtSet;
@@ -64,8 +64,19 @@ struct GenericParseContext
     // chain (which stops at the top-level or an eval()
     bool parsingWith:1;
 
-    inline GenericParseContext(GenericParseContext *parent, SharedContext *sc);
+    GenericParseContext(GenericParseContext *parent, SharedContext *sc)
+      : parent(parent),
+        sc(sc),
+        funHasReturnExpr(false),
+        funHasReturnVoid(false),
+        parsingForInit(false),
+        parsingWith(parent ? parent->parsingWith : false)
+    {}
 };
+
+template <typename ParseHandler>
+bool
+GenerateBlockId(ParseContext<ParseHandler> *pc, uint32_t &blockid);
 
 /*
  * The struct ParseContext stores information about the current parsing context,
@@ -144,7 +155,7 @@ struct ParseContext : public GenericParseContext
      *    'pn' if they are in the scope of 'pn'.
      *  + Pre-existing placeholders in the scope of 'pn' have been removed.
      */
-    bool define(JSContext *cx, HandlePropertyName name, Node pn, Definition::Kind);
+    bool define(TokenStream &ts, PropertyName *name, Node pn, Definition::Kind);
 
     /*
      * Let definitions may shadow same-named definitions in enclosing scopes.
@@ -176,7 +187,8 @@ struct ParseContext : public GenericParseContext
      *  - Sometimes a script's bindings are accessed at runtime to retrieve the
      *    contents of the lexical scope (e.g., from the debugger).
      */
-    bool generateFunctionBindings(JSContext *cx, InternalHandle<Bindings*> bindings) const;
+    bool generateFunctionBindings(ExclusiveContext *cx, LifoAlloc &alloc,
+                                  InternalHandle<Bindings*> bindings) const;
 
   public:
     uint32_t         yieldOffset;   /* offset of a yield expression that might
@@ -217,14 +229,51 @@ struct ParseContext : public GenericParseContext
     // strict before.
     bool            funBecameStrict:1;
 
-    inline ParseContext(Parser<ParseHandler> *prs, GenericParseContext *parent,
-                        SharedContext *sc, unsigned staticLevel, uint32_t bodyid);
-    inline ~ParseContext();
+    ParseContext(Parser<ParseHandler> *prs, GenericParseContext *parent,
+                 SharedContext *sc, unsigned staticLevel, uint32_t bodyid)
+      : GenericParseContext(parent, sc),
+        bodyid(0),           // initialized in init()
+        blockidGen(bodyid),  // used to set |bodyid| and subsequently incremented in init()
+        topStmt(NULL),
+        topScopeStmt(NULL),
+        blockChain(prs->context),
+        staticLevel(staticLevel),
+        parenDepth(0),
+        yieldCount(0),
+        blockNode(ParseHandler::null()),
+        decls_(prs->context, prs->alloc),
+        args_(prs->context),
+        vars_(prs->context),
+        yieldOffset(0),
+        parserPC(&prs->pc),
+        oldpc(prs->pc),
+        lexdeps(prs->context),
+        funcStmts(NULL),
+        innerFunctions(prs->context),
+        inDeclDestructuring(false),
+        funBecameStrict(false)
+    {
+        prs->pc = this;
+    }
 
-    inline bool init();
+    ~ParseContext() {
+        // |*parserPC| pointed to this object.  Now that this object is about to
+        // die, make |*parserPC| point to this object's parent.
+        JS_ASSERT(*parserPC == this);
+        *parserPC = this->oldpc;
+        js_delete(funcStmts);
+    }
+
+    inline bool init()
+{
+    if (!frontend::GenerateBlockId(this, this->bodyid))
+        return false;
+
+    return decls_.init() && lexdeps.ensureMap(sc->context);
+}
 
     InBlockBool inBlock() const { return InBlockBool(!topStmt || topStmt->type == STMT_BLOCK); }
-    unsigned blockid();
+    unsigned blockid() { return topStmt ? topStmt->blockid : bodyid; }
 
     // True if we are at the topmost level of a entire script or function body.
     // For example, while parsing this code we would encounter f1 and f2 at
@@ -233,16 +282,12 @@ struct ParseContext : public GenericParseContext
     //   function f1() { function f2() { } }
     //   if (cond) { function f3() { if (cond) { function f4() { } } } }
     //
-    bool atBodyLevel();
+    bool atBodyLevel() { return !topStmt; }
 
     inline bool useAsmOrInsideUseAsm() const {
         return sc->isFunctionBox() && sc->asFunctionBox()->useAsmOrInsideUseAsm();
     }
 };
-
-template <typename ParseHandler>
-bool
-GenerateBlockId(ParseContext<ParseHandler> *pc, uint32_t &blockid);
 
 template <typename ParseHandler>
 struct BindData;
@@ -260,7 +305,9 @@ template <typename ParseHandler>
 class Parser : private AutoGCRooter, public StrictModeGetter
 {
   public:
-    JSContext           *const context; /* FIXME Bug 551291: use AutoGCRooter::context? */
+    ExclusiveContext *const context;
+    LifoAlloc &alloc;
+
     TokenStream         tokenStream;
     LifoAlloc::Mark     tempPoolMark;
 
@@ -279,25 +326,6 @@ class Parser : private AutoGCRooter, public StrictModeGetter
     const bool          foldConstants:1;
 
   private:
-    /* Script can optimize name references based on scope chain. */
-    const bool          compileAndGo:1;
-
-    /*
-     * In self-hosting mode, scripts emit JSOP_CALLINTRINSIC instead of
-     * JSOP_NAME or JSOP_GNAME to access unbound variables. JSOP_CALLINTRINSIC
-     * does a name lookup in a special object that contains properties
-     * installed during global initialization and that properties from
-     * self-hosted scripts get copied into lazily upon first access in a
-     * global.
-     * As that object is inaccessible to client code, the lookups are
-     * guaranteed to return the original objects, ensuring safe implementation
-     * of self-hosted builtins.
-     * Additionally, the special syntax _CallFunction(receiver, ...args, fun)
-     * is supported, for which bytecode is emitted that invokes |fun| with
-     * |receiver| as the this-object and ...args as the arguments..
-     */
-    const bool          selfHostingMode:1;
-
     /*
      * Not all language constructs can be handled during syntax parsing. If it
      * is not known whether the parse succeeds or fails, this bit is set and
@@ -320,7 +348,7 @@ class Parser : private AutoGCRooter, public StrictModeGetter
     bool reportWithOffset(ParseReportKind kind, bool strict, uint32_t offset, unsigned errorNumber,
                           ...);
 
-    Parser(JSContext *cx, const CompileOptions &options,
+    Parser(ExclusiveContext *cx, LifoAlloc *alloc, const CompileOptions &options,
            const jschar *chars, size_t length, bool foldConstants,
            Parser<SyntaxParseHandler> *syntaxParser,
            LazyScript *lazyOuterFunction);
@@ -374,9 +402,8 @@ class Parser : private AutoGCRooter, public StrictModeGetter
     bool maybeParseDirective(Node pn, bool *cont);
 
     // Parse a function, given only its body. Used for the Function constructor.
-    Node standaloneFunctionBody(HandleFunction fun, const AutoNameVector &formals, HandleScript script,
-                                Node fn, FunctionBox **funbox, bool strict,
-                                bool *becameStrict = NULL);
+    Node standaloneFunctionBody(HandleFunction fun, const AutoNameVector &formals,
+                                bool strict, bool *becameStrict);
 
     // Parse a function, given only its arguments and body. Used for lazily
     // parsed functions.
@@ -394,6 +421,10 @@ class Parser : private AutoGCRooter, public StrictModeGetter
                                     FunctionSyntaxKind kind, bool strict, bool *becameStrict);
 
     virtual bool strictMode() { return pc->sc->strict; }
+
+    const CompileOptions &options() const {
+        return tokenStream.options();
+    }
 
   private:
     /*
@@ -483,7 +514,7 @@ class Parser : private AutoGCRooter, public StrictModeGetter
 #endif
     }
 
-    bool setAssignmentLhsOps(Node pn, JSOp op);
+    bool setAssignmentLhsOps(Node pn, bool isPlainAssignment);
     bool matchInOrOf(bool *isForOfp);
 
     bool checkFunctionArguments();
@@ -519,15 +550,15 @@ class Parser : private AutoGCRooter, public StrictModeGetter
     }
 
     static bool
-    bindDestructuringArg(JSContext *cx, BindData<ParseHandler> *data,
+    bindDestructuringArg(BindData<ParseHandler> *data,
                          HandlePropertyName name, Parser<ParseHandler> *parser);
 
     static bool
-    bindLet(JSContext *cx, BindData<ParseHandler> *data,
+    bindLet(BindData<ParseHandler> *data,
             HandlePropertyName name, Parser<ParseHandler> *parser);
 
     static bool
-    bindVarOrConst(JSContext *cx, BindData<ParseHandler> *data,
+    bindVarOrConst(BindData<ParseHandler> *data,
                    HandlePropertyName name, Parser<ParseHandler> *parser);
 
     static Node null() { return ParseHandler::null(); }
@@ -551,20 +582,12 @@ class Parser : private AutoGCRooter, public StrictModeGetter
 /* Declare some required template specializations. */
 
 template <>
-ParseNode *
-Parser<FullParseHandler>::expr();
-
-template <>
-SyntaxParseHandler::Node
-Parser<SyntaxParseHandler>::expr();
+bool
+Parser<FullParseHandler>::setAssignmentLhsOps(ParseNode *pn, bool isPlainAssignment);
 
 template <>
 bool
-Parser<FullParseHandler>::setAssignmentLhsOps(ParseNode *pn, JSOp op);
-
-template <>
-bool
-Parser<SyntaxParseHandler>::setAssignmentLhsOps(Node pn, JSOp op);
+Parser<SyntaxParseHandler>::setAssignmentLhsOps(Node pn, bool isPlainAssignment);
 
 } /* namespace frontend */
 } /* namespace js */

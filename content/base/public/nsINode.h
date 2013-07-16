@@ -114,8 +114,6 @@ enum {
   // node in fact has a class, but may be set even if it doesn't.
   NODE_MAY_HAVE_CLASS =                   NODE_FLAG_BIT(8),
 
-  NODE_IS_INSERTION_PARENT =              NODE_FLAG_BIT(9),
-
   // Node has an :empty or :-moz-only-whitespace selector
   NODE_HAS_EMPTY_SELECTOR =               NODE_FLAG_BIT(10),
 
@@ -324,6 +322,7 @@ public:
     mSubtreeRoot(this),
     mSlots(nullptr)
   {
+    SetIsDOMBinding();
   }
 
 #ifdef _MSC_VER
@@ -1086,6 +1085,9 @@ public:
   already_AddRefed<nsINodeList> QuerySelectorAll(const nsAString& aSelector,
                                                  mozilla::ErrorResult& aResult);
 
+  nsresult QuerySelector(const nsAString& aSelector, nsIDOMElement **aReturn);
+  nsresult QuerySelectorAll(const nsAString& aSelector, nsIDOMNodeList **aReturn);
+
   /**
    * Associate an object aData to aKey on this node. If aData is null any
    * previously registered object and UserDataHandler associated to aKey on
@@ -1312,7 +1314,7 @@ private:
     // Set if a node in the node's parent chain has dir=auto.
     NodeAncestorHasDirAuto,
     // Set if the element is in the scope of a scoped style sheet; this flag is
-    // only accurate for elements bounds to a document
+    // only accurate for elements bound to a document
     ElementIsInStyleScope,
     // Set if the element is a scoped style sheet root
     ElementIsScopedStyleRoot,

@@ -8,6 +8,12 @@ const Cu = Components.utils;
 const Cc = Components.classes;
 const Ci = Components.interfaces;
 
+const EVENT_STATE_CHANGE = Ci.nsIAccessibleEvent.EVENT_STATE_CHANGE;
+
+const ROLE_CELL = Ci.nsIAccessibleRole.ROLE_CELL;
+const ROLE_COLUMNHEADER = Ci.nsIAccessibleRole.ROLE_COLUMNHEADER;
+const ROLE_ROWHEADER = Ci.nsIAccessibleRole.ROLE_ROWHEADER;
+
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, 'Services',
   'resource://gre/modules/Services.jsm');
@@ -218,6 +224,64 @@ this.Utils = {
   getPixelsPerCSSPixel: function getPixelsPerCSSPixel(aWindow) {
     return aWindow.QueryInterface(Ci.nsIInterfaceRequestor)
       .getInterface(Ci.nsIDOMWindowUtils).screenPixelsPerCSSPixel;
+  },
+
+  getBounds: function getBounds(aAccessible) {
+      let objX = {}, objY = {}, objW = {}, objH = {};
+      aAccessible.getBounds(objX, objY, objW, objH);
+      return new Rect(objX.value, objY.value, objW.value, objH.value);
+  },
+
+  inHiddenSubtree: function inHiddenSubtree(aAccessible) {
+    for (let acc=aAccessible; acc; acc=acc.parent) {
+      if (JSON.parse(Utils.getAttributes(acc).hidden)) {
+        return true;
+      }
+    }
+    return false;
+  },
+
+  isAliveAndVisible: function isAliveAndVisible(aAccessible) {
+    if (!aAccessible) {
+      return false;
+    }
+
+    try {
+      let extstate = {};
+      let state = {};
+      aAccessible.getState(state, extstate);
+      if (extstate.value & Ci.nsIAccessibleStates.EXT_STATE_DEFUNCT ||
+          state.value & Ci.nsIAccessibleStates.STATE_INVISIBLE ||
+          Utils.inHiddenSubtree(aAccessible)) {
+        return false;
+      }
+    } catch (x) {
+      return false;
+    }
+
+    return true;
+  },
+
+  getLandmarkName: function getLandmarkName(aAccessible) {
+    const landmarks = [
+      'banner',
+      'complementary',
+      'contentinfo',
+      'main',
+      'navigation',
+      'search'
+    ];
+    let roles = this.getAttributes(aAccessible)['xml-roles'];
+    if (!roles) {
+      return;
+    }
+
+    // Looking up a role that would match a landmark.
+    for (let landmark of landmarks) {
+      if (roles.indexOf(landmark) > -1) {
+        return landmark;
+      }
+    }
   }
 };
 
@@ -310,7 +374,7 @@ this.Logger = {
 
   eventToString: function eventToString(aEvent) {
     let str = Utils.AccRetrieval.getStringEventType(aEvent.eventType);
-    if (aEvent.eventType == Ci.nsIAccessibleEvent.EVENT_STATE_CHANGE) {
+    if (aEvent.eventType == EVENT_STATE_CHANGE) {
       let event = aEvent.QueryInterface(Ci.nsIAccessibleStateChangeEvent);
       let stateStrings = event.isExtraState ?
         Utils.AccRetrieval.getStringStates(0, event.state) :
@@ -476,11 +540,9 @@ PivotContext.prototype = {
       if (!aAccessible) {
         return null;
       }
-      if ([Ci.nsIAccessibleRole.ROLE_CELL,
-           Ci.nsIAccessibleRole.ROLE_COLUMNHEADER,
-           Ci.nsIAccessibleRole.ROLE_ROWHEADER].indexOf(
-             aAccessible.role) < 0) {
-        return null;
+      if ([ROLE_CELL, ROLE_COLUMNHEADER, ROLE_ROWHEADER].indexOf(
+        aAccessible.role) < 0) {
+          return null;
       }
       try {
         return aAccessible.QueryInterface(Ci.nsIAccessibleTableCell);
@@ -539,13 +601,12 @@ PivotContext.prototype = {
 
     cellInfo.columnHeaders = [];
     if (cellInfo.columnChanged && cellInfo.current.role !==
-      Ci.nsIAccessibleRole.ROLE_COLUMNHEADER) {
+      ROLE_COLUMNHEADER) {
       cellInfo.columnHeaders = [headers for (headers of getHeaders(
         cellInfo.current.columnHeaderCells))];
     }
     cellInfo.rowHeaders = [];
-    if (cellInfo.rowChanged && cellInfo.current.role ===
-      Ci.nsIAccessibleRole.ROLE_CELL) {
+    if (cellInfo.rowChanged && cellInfo.current.role === ROLE_CELL) {
       cellInfo.rowHeaders = [headers for (headers of getHeaders(
         cellInfo.current.rowHeaderCells))];
     }
@@ -556,11 +617,7 @@ PivotContext.prototype = {
 
   get bounds() {
     if (!this._bounds) {
-      let objX = {}, objY = {}, objW = {}, objH = {};
-
-      this._accessible.getBounds(objX, objY, objW, objH);
-
-      this._bounds = new Rect(objX.value, objY.value, objW.value, objH.value);
+      this._bounds = Utils.getBounds(this._accessible);
     }
 
     return this._bounds.clone();
@@ -570,7 +627,7 @@ PivotContext.prototype = {
     try {
       let extstate = {};
       aAccessible.getState({}, extstate);
-      return !!(aAccessible.value & Ci.nsIAccessibleStates.EXT_STATE_DEFUNCT);
+      return !!(extstate.value & Ci.nsIAccessibleStates.EXT_STATE_DEFUNCT);
     } catch (x) {
       return true;
     }

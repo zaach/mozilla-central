@@ -414,10 +414,16 @@ WebGLContext::BufferData(WebGLenum target, WebGLsizeiptr size,
     if (!boundBuffer)
         return ErrorInvalidOperation("bufferData: no buffer bound!");
 
+    void* zeroBuffer = calloc(size, 1);
+    if (!zeroBuffer)
+        return ErrorOutOfMemory("bufferData: out of memory");
+
     MakeContextCurrent();
     InvalidateCachedMinInUseAttribArrayLength();
 
-    GLenum error = CheckedBufferData(target, size, 0, usage);
+    GLenum error = CheckedBufferData(target, size, zeroBuffer, usage);
+    free(zeroBuffer);
+
     if (error) {
         GenerateWarning("bufferData generated error %s", ErrorName(error));
         return;
@@ -1568,9 +1574,9 @@ WebGLContext::DrawArrays(GLenum mode, WebGLint first, WebGLsizei count)
             return ErrorInvalidFramebufferOperation("drawArrays: incomplete framebuffer");
     }
 
-    BindFakeBlackTextures();
     if (!DoFakeVertexAttrib0(checked_firstPlusCount.value()))
         return;
+    BindFakeBlackTextures();
 
     SetupContextLossTimer();
     gl->fDrawArrays(mode, first, count);
@@ -1678,9 +1684,9 @@ WebGLContext::DrawElements(WebGLenum mode, WebGLsizei count, WebGLenum type,
             return ErrorInvalidFramebufferOperation("drawElements: incomplete framebuffer");
     }
 
-    BindFakeBlackTextures();
     if (!DoFakeVertexAttrib0(maxAllowedCount))
         return;
+    BindFakeBlackTextures();
 
     SetupContextLossTimer();
     gl->fDrawElements(mode, count, type, reinterpret_cast<GLvoid*>(byteOffset));
@@ -5509,17 +5515,14 @@ WebGLTexelFormat mozilla::GetWebGLTexelFormat(GLenum format, GLenum type)
             case LOCAL_GL_UNSIGNED_INT:
                 return WebGLTexelConversions::D32;
             default:
-                MOZ_NOT_REACHED("Invalid WebGL texture format/type?");
-                return WebGLTexelConversions::BadFormat;
+                MOZ_CRASH("Invalid WebGL texture format/type?");
         }
     } else if (format == LOCAL_GL_DEPTH_STENCIL) {
         switch (type) {
             case LOCAL_GL_UNSIGNED_INT_24_8_EXT:
                 return WebGLTexelConversions::D24S8;
             default:
-                MOZ_NOT_REACHED("Invalid WebGL texture format/type?");
-                NS_ABORT_IF_FALSE(false, "Coding mistake?! Should never reach this point.");
-                return WebGLTexelConversions::BadFormat;
+                MOZ_CRASH("Invalid WebGL texture format/type?");
         }
     }
 

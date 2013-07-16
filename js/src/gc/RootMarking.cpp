@@ -66,7 +66,7 @@ MarkExactStackRoot(JSTracer *trc, Rooted<void*> *rooter, ThingRootKind kind)
       case THING_ROOT_PROPERTY_ID: MarkIdRoot(trc, &((js::PropertyId *)addr)->asId(), "exact-propertyid"); break;
       case THING_ROOT_BINDINGS:    ((Bindings *)addr)->trace(trc); break;
       case THING_ROOT_PROPERTY_DESCRIPTOR: ((JSPropertyDescriptor *)addr)->trace(trc); break;
-      default: JS_NOT_REACHED("Invalid THING_ROOT kind"); break;
+      default: MOZ_ASSUME_UNREACHABLE("Invalid THING_ROOT kind"); break;
     }
 }
 
@@ -572,16 +572,20 @@ AutoGCRooter::trace(JSTracer *trc)
 /* static */ void
 AutoGCRooter::traceAll(JSTracer *trc)
 {
-    for (js::AutoGCRooter *gcr = trc->runtime->autoGCRooters; gcr; gcr = gcr->down)
-        gcr->trace(trc);
+    for (ContextIter cx(trc->runtime); !cx.done(); cx.next()) {
+        for (js::AutoGCRooter *gcr = cx->autoGCRooters; gcr; gcr = gcr->down)
+            gcr->trace(trc);
+    }
 }
 
 /* static */ void
 AutoGCRooter::traceAllWrappers(JSTracer *trc)
 {
-    for (js::AutoGCRooter *gcr = trc->runtime->autoGCRooters; gcr; gcr = gcr->down) {
-        if (gcr->tag_ == WRAPVECTOR || gcr->tag_ == WRAPPER)
-            gcr->trace(trc);
+    for (ContextIter cx(trc->runtime); !cx.done(); cx.next()) {
+        for (js::AutoGCRooter *gcr = cx->autoGCRooters; gcr; gcr = gcr->down) {
+            if (gcr->tag_ == WRAPVECTOR || gcr->tag_ == WRAPPER)
+                gcr->trace(trc);
+        }
     }
 }
 
@@ -713,7 +717,7 @@ js::gc::MarkRuntime(JSTracer *trc, bool useSavedRoots)
         }
 
         /* Do not discard scripts with counts while profiling. */
-        if (rt->profilingScripts) {
+        if (rt->profilingScripts && !rt->isHeapMinorCollecting()) {
             for (CellIterUnderGC i(zone, FINALIZE_SCRIPT); !i.done(); i.next()) {
                 JSScript *script = i.get<JSScript>();
                 if (script->hasScriptCounts) {

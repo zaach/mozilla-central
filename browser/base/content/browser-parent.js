@@ -26,7 +26,7 @@ let AddonParent = {
       break;
 
     case "Addon:ShouldLoad":
-      return this.shouldLoad(message.target, message.json, message.remote);
+      return this.shouldLoad(message.target, message.json, message.objects);
       break;
     }
   },
