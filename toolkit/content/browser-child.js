@@ -285,57 +285,6 @@ let AddonListeners = {
 AddonListeners.init();
 
 
-let FinderListener = {
-  init: function init() {
-    let Finder = Components.utils.import("resource://gre/modules/Finder.jsm", {}).Finder;
-    this.finder = new Finder(docShell);
-    this.finder.addResultListener(this);
-
-    addMessageListener("Finder:CaseSensitive", this);
-    addMessageListener("Finder:FastFind", this);
-    addMessageListener("Finder:FindAgain", this);
-    addMessageListener("Finder:Highlight", this);
-    addMessageListener("Finder:RemoveSelection", this);
-    addMessageListener("Finder:FocusContent", this);
-    addMessageListener("Finder:KeyPress", this);
-  },
-
-  onFindResult: function (aResult, aFindBackwards) {
-    sendSyncMessage("Finder:Result", {result: aResult, findBackwards: aFindBackwards,
-      searchString: this.finder.searchString});
-  },
-
-  receiveMessage: function(aMessage) {
-    let json = aMessage.json;
-    dump("receiveMessage: " + aMessage.name + "\n");
-    switch (aMessage.name) {
-    case "Finder:CaseSensitive":
-      this.finder.caseSensitive = json.caseSensitive;
-      break;
-    case "Finder:FastFind":
-      this.finder.fastFind(json.searchString, json.linksOnly);
-      break;
-    case "Finder:FindAgain":
-      this.finder.findAgain(json.findBackwards, json.linksOnly);
-      break;
-    case "Finder:Highlight":
-      this.finder.highlight(json.highlight, json.word);
-      break;
-    case "Finder:RemoveSelection":
-      this.finder.removeSelection();
-      break;
-    case "Finder:FocusContent":
-      this.finder.focusContent();
-      break;
-    case "Finder:KeyPress":
-      this.finder.keyPress(json);
-      break;
-    }
-  }
-}
-
-FinderListener.init();
-
 addEventListener("DOMTitleChanged", function (aEvent) {
   let document = content.document;
   switch (aEvent.type) {
