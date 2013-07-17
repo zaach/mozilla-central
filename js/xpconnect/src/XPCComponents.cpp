@@ -4978,8 +4978,10 @@ NS_IMETHODIMP
 nsXPCComponents_Utils::IsWrappedJS(nsISupports *aObj, bool *aRetval)
 {
   nsCOMPtr<nsIXPConnectWrappedNative> wn(do_QueryInterface(aObj));
-  if (!wn)
+  if (!wn) {
       *aRetval = false;
+      return NS_OK;
+  }
   nsCOMPtr<nsIXPConnectWrappedJS> wrappedJS(do_QueryInterface(aObj));
   *aRetval = !!wrappedJS;
   return NS_OK;
