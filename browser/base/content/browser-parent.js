@@ -46,21 +46,16 @@ let AddonParent = {
       if (!(service in Cc))
         continue;
       var policy = Cc[service].getService(Ci.nsIContentPolicy);
-      var r = Ci.nsIContentPolicy.ACCEPT;
-      try {
-        r = policy.shouldLoad(contentType,
-                              contentLocation,
-                              requestOrigin,
-                              node,
-                              mimeTypeGuess,
-                              null);
-      } catch (e) {
-        if (e.name != 'NS_ERROR_XPC_CANT_PASS_CPOW_TO_NATIVE')
-          throw e;
-      }
-      if (r != Ci.nsIContentPolicy.ACCEPT && r != 0) {
+      if (!Cu.isWrappedJS(policy))
+        continue;
+      var r = policy.shouldLoad(contentType,
+                                contentLocation,
+                                requestOrigin,
+                                node,
+                                mimeTypeGuess,
+                                null);
+      if (r != Ci.nsIContentPolicy.ACCEPT && r != 0)
         return r;
-      }
     }
 
     return Ci.nsIContentPolicy.ACCEPT;

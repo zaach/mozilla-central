@@ -119,7 +119,7 @@ interface ScheduledGCCallback : nsISupports
 /**
 * interface of Components.utils
 */
-[scriptable, uuid(fdd32d38-9341-4067-9000-d781075a60c9)]
+[scriptable, uuid(19682543-2475-45a2-a4c7-781efe490e6c)]
 interface nsIXPCComponents_Utils : nsISupports
 {
 
@@ -426,6 +426,11 @@ interface nsIXPCComponents_Utils : nsISupports
      * names are supported.
      */
     nsIClassInfo getDOMClassInfo(in AString aClassName);
+
+    /**
+     * Returns whether an nsISupports is a wrapped JS object.
+     */
+    boolean isWrappedJS(in nsISupports aObj);
 };
 
 /**

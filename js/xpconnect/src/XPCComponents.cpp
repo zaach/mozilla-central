@@ -4973,3 +4973,14 @@ nsXPCComponents::PreCreate(nsISupports *nativeObj, JSContext *cx, JSObject *glob
   *parentObj = mScope->GetGlobalJSObject();
   return NS_OK;
 }
+
+NS_IMETHODIMP
+nsXPCComponents_Utils::IsWrappedJS(nsISupports *aObj, bool *aRetval)
+{
+  nsCOMPtr<nsIXPConnectWrappedNative> wn(do_QueryInterface(aObj));
+  if (!wn)
+      *aRetval = false;
+  nsCOMPtr<nsIXPConnectWrappedJS> wrappedJS(do_QueryInterface(aObj));
+  *aRetval = !!wrappedJS;
+  return NS_OK;
+}
