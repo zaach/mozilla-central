@@ -194,16 +194,17 @@ menulist {
   min-width: @touch_action_minwidth@; /* keep the button from being too narrow */
   border: 0 none;
   -moz-box-align: center;
+  font-weight: 600;
 }
 
 .menu-popup richlistitem:not([disabled]):hover {
-  background-color: #dedad0;
+  background-color: #ccc;
   color: black;
 }
 
 .menu-popup richlistitem:not([disabled]):active {
-  background-color: @selected_color@ !important;
-  color: black;
+  background-color: black;
+  color: white;
 }
 
 .menu-popup > richlistbox[left-hand="true"] > richlistitem {
@@ -214,7 +215,7 @@ menulist {
   padding-right: 50px;
 }
 
-/* form select popup */
+/* Additional styles applied to popups for form <select> elements. */
 
 #select-container {
   padding: 0;
@@ -233,7 +234,7 @@ menulist {
 }
 
 /* listcell element doesn't have flex="1" so we need to force it */
-#select-commands .option-command > listcell {
+.option-command > listcell {
   -moz-box-flex: 1 !important;
 }
 
@@ -244,8 +245,8 @@ menulist {
 }
 
 .option-command.selected {
-  background-color: @selected_color@ !important;
-  color: black;
+  background-color: #ff8000;
+  color: white;
 }
 
 .option-command.optgroup {
@@ -255,12 +256,12 @@ menulist {
 }
 
 .option-command:not([disabled]):hover {
-  background-color: #dedad0;
+  background-color: #f0f0f0;
   color: black;
 }
 
 .option-command:not([disabled]):active {
-  background-color: @selected_color@ !important;
+  background-color: #d3d3d3;
   color: black;
 }
 
@@ -497,7 +498,6 @@ notification {
   -moz-box-flex: 9999;
 }
 
-
 /* Dialogs ----------------------------------------------------------------- */
 
 .modal-block,
@@ -661,6 +661,125 @@ arrowbox {
 .meta-section-title {
   font-size: @metro_font_large@;
   font-weight: 100;
+}
+
+/* App bars ----------------------------------------------------------------- */
+
+appbar {
+  display: block;
+  position: fixed;
+  bottom: 0;
+  width: 100%;
+  transform: translateY(100%);
+  transition: transform @metro_animation_duration@ @metro_animation_easing@;
+  font-size: 0;
+}
+
+appbar toolbar {
+  -moz-appearance: none;
+  -moz-box-align: center;
+  border: 0;
+  width: 100%;
+  min-height: @toolbar_height@;
+  font-size: 1rem;
+}
+
+appbar[visible] {
+  transform: none;
+}
+
+#stack[keyboardVisible] > appbar {
+  /* Slow the bottom up transition since it's impossible to match the system's
+     soft keyboard movement. */
+  transition: transform @metro_animation_duration@ @metro_animation_easing@,
+              bottom @appbar_keyboard_slideup_duration@ @metro_animation_easing@;
+}
+
+appbar toolbar > toolbarbutton {
+  border: 0;
+  margin: 0 @toolbar_horizontal_spacing@;
+  padding: 0;
+  /* Don't inherit background-color from toolbarbutton[checked="true"] */
+  background-color: transparent;
+}
+
+appbar toolbar > toolbarbutton[disabled] {
+  visibility: collapse;
+}
+
+appbar toolbar[labelled] {
+  min-height: @labelled_toolbar_height@;
+}
+
+appbar toolbar[labelled] > toolbarbutton {
+  -moz-box-orient: vertical;
+}
+
+appbar toolbar[labelled] > toolbarbutton > .toolbarbutton-text {
+  display: block;
+  padding-top: @metro_spacing_small@;
+  font-size: 0.75rem;
+}
+
+/* Sprites */
+
+.appbar-primary > .toolbarbutton-icon,
+.appbar-secondary > .toolbarbutton-icon {
+  width: 40px;
+  height: 40px;
+}
+
+/* Primary sprite format: one button per sprite.
+
+   States from left to right:
+   normal, hover, active/toggled, toggled+hover, toggled+active. */
+
+.appbar-primary {
+  -moz-image-region: rect(0 40px 40px 0);
+}
+
+.appbar-primary:not([checked]):hover:not(:active) {
+  -moz-image-region: rect(0 80px 40px 40px);
+}
+
+.appbar-primary[checked] {
+  -moz-image-region: rect(0 120px 40px 80px);
+}
+
+.appbar-primary[checked]:hover:not(:active) {
+  -moz-image-region: rect(0 160px 40px 120px);
+}
+
+.appbar-primary:active {
+  -moz-image-region: rect(0 120px 40px 80px);
+}
+
+@media (min-resolution: 130dpi) {
+  .appbar-primary {
+    -moz-image-region: rect(0 56px 56px 0);
+  }
+
+  .appbar-primary:not([checked]):hover:not(:active) {
+    -moz-image-region: rect(0 112px 56px 56px);
+  }
+
+  .appbar-primary[checked] {
+    -moz-image-region: rect(0 224px 56px 168px);
+  }
+
+  .appbar-primary[checked]:hover:not(:active) {
+    -moz-image-region: rect(0 224px 56px 168px);
+  }
+
+  .appbar-primary:active {
+    -moz-image-region: rect(0 168px 56px 112px);
+  }
+}
+
+/* Secondary sprite format: one sprite for everything */
+
+.appbar-secondary {
+  list-style-image: url(chrome://browser/skin/images/appbar-icons.png);
 }
 
 /* Find bar ------------------------------------------------------------- */
