@@ -11995,6 +11995,12 @@ nsDocShell::DoCommand(const char * inCommand)
   return rv;
 }
 
+NS_IMETHODIMP
+nsDocShell::DoCommand(const nsACString &aCommand)
+{
+  return DoCommand(aCommand.BeginReading());
+}
+
 nsresult
 nsDocShell::EnsureCommandHandler()
 {

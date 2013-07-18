@@ -85,6 +85,55 @@ function goUpdateCommand(aCommand)
 
 function goDoCommand(aCommand)
 {
+  var remote = [
+    "cmd_selectAll",
+    "cmd_selectNone",
+    "cmd_copyImageLocation",
+    "cmd_copyImageContents",
+    "cmd_copyImage",
+    "cmd_scrollTop",
+    "cmd_scrollBottom",
+    "cmd_scrollPageUp",
+    "cmd_scrollPageDown",
+    "cmd_scrollLineUp",
+    "cmd_scrollLineDown",
+    "cmd_scrollLeft",
+    "cmd_scrollRight",
+    "cmd_moveTop",
+    "cmd_moveBottom",
+    "cmd_movePageUp",
+    "cmd_movePageDown",
+    "cmd_linePrevious",
+    "cmd_lineNext",
+    "cmd_charPrevious",
+    "cmd_charNext",
+    "cmd_selectCharPrevious",
+    "cmd_selectCharNext",
+    "cmd_wordPrevious",
+    "cmd_wordNext",
+    "cmd_selectWordPrevious",
+    "cmd_selectWordNext",
+    "cmd_beginLine",
+    "cmd_endLine",
+    "cmd_selectBeginLine",
+    "cmd_selectEndLine",
+    "cmd_selectLinePrevious",
+    "cmd_selectLineNext",
+    "cmd_selectPageUp",
+    "cmd_selectPageDown",
+    "cmd_selectTop",
+    "cmd_selectBottom"
+  ]
+
+  try {
+    var focused = top.document.commandDispatcher.focusedElement;
+    if (focused.getAttribute("remote") && remote.indexOf(aCommand) != -1) {
+      focused.messageManager.sendAsyncMessage("Content:DoCommand",
+                                              {command: aCommand});
+    }
+  }
+  catch (e) {}
+
   try {
     var controller = top.document.commandDispatcher
                         .getControllerForCommand(aCommand);
