@@ -35,8 +35,10 @@
                 onget="return this._remoteWebNavigation;"
                 readonly="true"/>
 
-      <property name="currentURI"
-                onget="return this.webNavigation.currentURI;"
+      <field name="_documentURI">null</field>
+
+      <property name="documentURI"
+                onget="return this._documentURI;"
                 readonly="true"/>
 
       <field name="_remoteWebProgress">null</field>
