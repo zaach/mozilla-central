@@ -86,6 +86,16 @@ function goUpdateCommand(aCommand)
 function goDoCommand(aCommand)
 {
   try {
+    var focused = top.document.commandDispatcher.focusedElement;
+    if (focused.getAttribute("remote")) {
+      focused.messageManager.sendAsyncMessage("Content:DoCommand",
+                                              {command: aCommand});
+      return;
+    }
+  }
+  catch (e) {}
+
+  try {
     var controller = top.document.commandDispatcher
                         .getControllerForCommand(aCommand);
     if (controller && controller.isCommandEnabled(aCommand))

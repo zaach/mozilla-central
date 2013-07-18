@@ -42,7 +42,7 @@ interface nsIVariant;
 interface nsIPrivacyTransitionObserver;
 interface nsIReflowObserver;
 
-[scriptable, builtinclass, uuid(cdeb1ed0-7794-4e5f-964e-bb9d753d1686)]
+[scriptable, builtinclass, uuid(e484013d-e264-4d39-8343-ef7acd32fd10)]
 interface nsIDocShell : nsIDocShellTreeItem
 {
   /**
@@ -873,4 +873,6 @@ interface nsIDocShell : nsIDocShellTreeItem
    * Returns false for mLSHE, true for mOSHE
    */
   boolean getCurrentSHEntry(out nsISHEntry aEntry);
+
+  void doCommand(in ACString aCommand);
 };
