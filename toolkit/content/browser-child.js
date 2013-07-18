@@ -188,7 +188,6 @@ let Content = {
 
     addEventListener("click", this.contentAreaClick, false);
     addMessageListener("StyleSheet:Load", this);
-    addMessageListener("Content:DoCommand", this);
   },
 
   receiveMessage: function(aMessage) {
@@ -199,17 +198,6 @@ let Content = {
       let styleSheets = Cc["@mozilla.org/content/style-sheet-service;1"].getService(Ci.nsIStyleSheetService);
       if (!styleSheets.sheetRegistered(uri, Ci.nsIStyleSheetService.USER_SHEET))
 	      styleSheets.loadAndRegisterSheet(uri, Ci.nsIStyleSheetService.USER_SHEET);
-      break;
-    case "Content:DoCommand":
-      let command = json.command;
-      try {
-        docShell.doCommand(command);
-      }
-      catch (e) {
-        Components.utils.reportError("An error occurred executing the " +
-                                     command + " command: " + e);
-        Components.utils.reportError((new Error).stack);
-      }
       break;
     }
   },
