@@ -28,26 +28,27 @@ let WebProgressListener = {
       DOMWindowID: aWebProgress.DOMWindowID,
       isLoadingDocument: aWebProgress.isLoadingDocument,
       requestURI: this._requestSpec(aRequest),
-      loadType: aWebProgress.loadType
     };
   },
 
-  _setupRemote: function setupRemote(aWebProgress) {
+  _setupObjects: function setupObjects(aWebProgress) {
     let win = docShell.QueryInterface(Ci.nsIInterfaceRequestor)
                       .getInterface(Ci.nsIDOMWindow);
     return {
       contentWindow: win,
-      DOMWindow: aWebProgress.DOMWindow // DOMWindow is not necessarily the content window
+      // DOMWindow is not necessarily the content-window with subframes.
+      DOMWindow: aWebProgress.DOMWindow
     };
   },
 
   onStateChange: function onStateChange(aWebProgress, aRequest, aStateFlags, aStatus) {
     let json = this._setupJSON(aWebProgress, aRequest);
-    let remote = this._setupRemote(aWebProgress);
+    let objects = this._setupObjects(aWebProgress);
+
     json.stateFlags = aStateFlags;
     json.status = aStatus;
 
-    sendAsyncMessage("Content:StateChange", json, remote);
+    sendAsyncMessage("Content:StateChange", json, objects);
   },
 
   onProgressChange: function onProgressChange(aWebProgress, aRequest, aCurSelf, aMaxSelf, aCurTotal, aMaxTotal) {
@@ -58,32 +59,35 @@ let WebProgressListener = {
     let charset = content.document.characterSet;
 
     let json = this._setupJSON(aWebProgress, aRequest);
-    let remote = this._setupRemote(aWebProgress);
+    let objects = this._setupObjects(aWebProgress);
+
     json.documentURI = aWebProgress.DOMWindow.document.documentURIObject.spec;
     json.location = spec;
     json.canGoBack = docShell.canGoBack;
     json.canGoForward = docShell.canGoForward;
     json.charset = charset.toString();
 
-    sendAsyncMessage("Content:LocationChange", json, remote);
+    sendAsyncMessage("Content:LocationChange", json, objects);
   },
 
   onStatusChange: function onStatusChange(aWebProgress, aRequest, aStatus, aMessage) {
     let json = this._setupJSON(aWebProgress, aRequest);
-    let remote = this._setupRemote(aWebProgress);
+    let objects = this._setupObjects(aWebProgress);
+
     json.status = aStatus;
     json.message = aMessage;
 
-    sendAsyncMessage("Content:StatusChange", json, remote);
+    sendAsyncMessage("Content:StatusChange", json, objects);
   },
 
   onSecurityChange: function onSecurityChange(aWebProgress, aRequest, aState) {
     let json = this._setupJSON(aWebProgress, aRequest);
-    let remote = this._setupRemote(aWebProgress);
+    let objects = this._setupObjects(aWebProgress);
+
     json.state = aState;
     json.status = SecurityUI.getSSLStatusAsString();
 
-    sendAsyncMessage("Content:SecurityChange", json, remote);
+    sendAsyncMessage("Content:SecurityChange", json, objects);
   },
 
   QueryInterface: function QueryInterface(aIID) {
