@@ -46,10 +46,6 @@ var FullZoom = {
   // Initialization & Destruction
 
   init: function FullZoom_init() {
-    // Bug 691614 - zooming support for electrolysis
-    if (gMultiProcessBrowser)
-      return;
-
     // Listen for scrollwheel events so we can save scrollwheel-based changes.
     window.addEventListener("DOMMouseScroll", this, false);
 
@@ -70,10 +66,6 @@ var FullZoom = {
   },
 
   destroy: function FullZoom_destroy() {
-    // Bug 691614 - zooming support for electrolysis
-    if (gMultiProcessBrowser)
-      return;
-
     gPrefService.removeObserver("browser.zoom.", this);
     this._cps2.removeObserverForName(this.name, this);
     window.removeEventListener("DOMMouseScroll", this, false);
@@ -239,10 +231,6 @@ var FullZoom = {
     let browser = aBrowser || gBrowser.selectedBrowser;
     this._ignorePendingZoomAccesses(browser);
 
-    // Bug 691614 - zooming support for electrolysis
-    if (gMultiProcessBrowser)
-      return;
-
     if (!aURI || (aIsTabSwitch && !this.siteSpecific)) {
       this._notifyOnLocationChange();
       return;
@@ -262,6 +250,8 @@ var FullZoom = {
       this._notifyOnLocationChange();
       return;
     }
+
+    return;
 
     // See if the zoom pref is cached.
     let ctxt = this._loadContextFromWindow(browser.contentWindow);
@@ -324,7 +314,8 @@ var FullZoom = {
    * level.
    */
   reset: function FullZoom_reset() {
-    let browser = gBrowser.selectedBrowser;
+    ZoomManager.reset();
+    /*let browser = gBrowser.selectedBrowser;
     let token = this._getBrowserToken(browser);
     this._getGlobalValue(browser.contentWindow, function (value) {
       if (token.isCurrent) {
@@ -332,7 +323,7 @@ var FullZoom = {
         this._ignorePendingZoomAccesses(browser);
       }
     });
-    this._removePref(browser);
+    this._removePref(browser);*/
   },
 
   /**
@@ -402,6 +393,9 @@ var FullZoom = {
         browser.contentDocument.mozSyntheticDocument)
       return;
 
+    if (gMultiProcessBrowser)
+      return;
+
     this._cps2.set(browser.currentURI.spec, this.name,
                    ZoomManager.getZoomForBrowser(browser),
                    this._loadContextFromWindow(browser.contentWindow), {
@@ -419,6 +413,10 @@ var FullZoom = {
   _removePref: function FullZoom__removePref(browser) {
     if (browser.contentDocument.mozSyntheticDocument)
       return;
+
+    if (gMultiProcessBrowser)
+      return;
+
     let ctxt = this._loadContextFromWindow(browser.contentWindow);
     this._cps2.removeByDomainAndName(browser.currentURI.spec, this.name, ctxt, {
       handleCompletion: function () {
@@ -506,6 +504,9 @@ var FullZoom = {
    *                    callback(prefValue)
    */
   _getGlobalValue: function FullZoom__getGlobalValue(window, callback) {
+    if (gMultiProcessBrowser)
+      return;
+
     // * !("_globalValue" in this) => global value not yet cached.
     // * this._globalValue === undefined => global value known not to exist.
     // * Otherwise, this._globalValue is a number, the global value.

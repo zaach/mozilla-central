@@ -56,6 +56,21 @@
       	</getter>
       </property>
 
+      <field name="_remoteMarkupDocumentViewer">null</field>
+
+      <property name="markupDocumentViewer" readonly="true">
+        <getter>
+          <![CDATA[
+            if (!this._remoteMarkupDocumentViewer) {
+              let jsm = "resource://gre/modules/RemoteMarkupDocumentViewer.jsm";
+              let RemoteMarkupDocumentViewer = Components.utils.import(jsm, {}).RemoteMarkupDocumentViewer;
+              this._remoteMarkupDocumentViewer = new RemoteMarkupDocumentViewer(this);
+            }
+            return this._remoteMarkupDocumentViewer;
+          ]]>
+        </getter>
+      </property>
+
       <field name="_contentTitle">null</field>
 
       <property name="contentTitle"

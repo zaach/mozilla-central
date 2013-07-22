@@ -193,6 +193,8 @@ let Content = {
     addEventListener("click", this.contentAreaClick, false);
     addMessageListener("StyleSheet:Load", this);
     addMessageListener("Content:DoCommand", this);
+    addMessageListener("Content:FullZoom", this);
+    addMessageListener("Content:TextZoom", this);
   },
 
   receiveMessage: function(aMessage) {
@@ -215,6 +217,15 @@ let Content = {
         Components.utils.reportError((new Error).stack);
       }
       break;
+    case "Content:FullZoom": {
+      let viewer = docShell.contentViewer.QueryInterface(Components.interfaces.nsIMarkupDocumentViewer);
+      viewer.fullZoom = json.value;
+     } break;
+    case "Content:TextZoom": {
+      let viewer = docShell.contentViewer.QueryInterface(Components.interfaces.nsIMarkupDocumentViewer);
+      viewer.textZoom = json.value;
+     } break;
+
     }
   },
 
