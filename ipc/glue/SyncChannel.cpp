@@ -90,17 +90,13 @@ SyncChannel::ProcessUrgentMessages()
             ReportConnectionError("SyncChannel");
             return false;
         }
-
-        // We should not have received another synchronous reply,
-        // because we cannot send synchronous messages in this state.
-        MOZ_ASSERT(mRecvd.type() == 0);
     }
 
     return true;
 }
 
 bool
-SyncChannel::Send(Message* _msg, Message* reply)
+SyncChannel::Send(Message* _msg, Message* aReply)
 {
     MOZ_ASSERT(!mPendingReply);
 
@@ -161,29 +157,29 @@ SyncChannel::Send(Message* _msg, Message* reply)
             return false;
         }
 
+        *aReply = TakeReply();
+
         // Process all urgent messages. We forbid nesting synchronous sends,
         // so mPendingReply etc will still be valid.
         if (!ProcessUrgentMessages())
             return false;
 
-        if (mRecvd.is_reply_error() || mRecvd.type() != 0) {
+        if (aReply->is_reply_error() || aReply->type() != 0) {
             // we just received a synchronous message from the other side.
             // If it's not the reply we were awaiting, there's a serious
             // error: either a mistimed/malformed message or a sync in-message
             // that raced with our sync out-message.
             // (NB: IPDL prevents the latter from occuring in actor code)
             // FIXME/cjones: real error handling
-            NS_ABORT_IF_FALSE(mRecvd.is_sync() && mRecvd.is_reply() &&
-                              (mRecvd.is_reply_error() ||
-                               (mPendingReply == mRecvd.type() &&
-                                msgSeqno == mRecvd.seqno())),
+            NS_ABORT_IF_FALSE(aReply->is_sync() && aReply->is_reply() &&
+                              (aReply->is_reply_error() ||
+                               (mPendingReply == aReply->type() &&
+                                msgSeqno == aReply->seqno())),
                               "unexpected sync message");
 
             mPendingReply = 0;
-            if (mRecvd.is_reply_error())
+            if (aReply->is_reply_error())
                 return false;
-
-            *reply = TakeReply();
 
             MOZ_ASSERT(mUrgent.empty());
             return true;
