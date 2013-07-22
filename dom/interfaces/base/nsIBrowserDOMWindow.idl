@@ -84,7 +84,8 @@ interface nsIBrowserDOMWindow : nsISupports
    // See bug 537428
    */
   nsIFrameLoaderOwner openURIInFrame(in nsIURI aURI, in nsIDOMWindow aOpener,
-                                     in short aWhere, in short aContext);
+                                     in short aWhere, in short aContext,
+                                     in long aProcessNumber);
 
   /**
    * @param  aWindow the window to test.
@@ -93,11 +94,6 @@ interface nsIBrowserDOMWindow : nsISupports
    */
   boolean      isTabContentWindow(in nsIDOMWindow aWindow);
 
-  /**
-  * The contentWindow property of the currently selected browser.
-  * This is used to implement .content in remote-Firefox.
-  */
-
-  readonly attribute jsval contentWindow;
+  jsval getContentWindow();
 };
 
