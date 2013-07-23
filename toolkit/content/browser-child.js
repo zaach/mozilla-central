@@ -9,6 +9,8 @@ let Cu = Components.utils;
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import('resource://gre/modules/XPCOMUtils.jsm');
 
+let global = this;
+
 let WebProgressListener = {
   init: function() {
     let webProgress = docShell.QueryInterface(Ci.nsIInterfaceRequestor)
@@ -190,7 +192,10 @@ let Content = {
   init: function init() {
     docShell.useGlobalHistory = true;
 
-    addEventListener("click", this.contentAreaClick, false);
+    Cc["@mozilla.org/eventlistenerservice;1"]
+      .getService(Ci.nsIEventListenerService)
+      .addSystemEventListener(global, "click", this.contentAreaClick, false);
+
     addMessageListener("StyleSheet:Load", this);
     addMessageListener("Content:DoCommand", this);
     addMessageListener("Content:FullZoom", this);
@@ -230,7 +235,7 @@ let Content = {
   },
 
   contentAreaClick: function(event) {
-    if (event.button != 1)
+    if (!event.isTrusted || event.defaultPrevented || event.button == 2)
       return;
 
     function isHTMLLink(aNode)
@@ -245,10 +250,14 @@ let Content = {
       node = node.parentNode;
     }
 
-    if (!node)
-      return;
-
-    sendAsyncMessage("Content:Click", { href: node.href });
+    if (node)
+      sendAsyncMessage("Content:Click", { href: node.href, button: event.button,
+                                          shiftKey: event.shiftKey, ctrlKey: event.ctrlKey,
+                                          metaKey: event.metaKey, altKey: event.altKey });
+    else if (event.button == 1) // This might be middle mouse navigation.
+      sendAsyncMessage("Content:Click", { href: null, button: event.button,
+                                          shiftKey: event.shiftKey, ctrlKey: event.ctrlKey,
+                                          metaKey: event.metaKey, altKey: event.altKey });
   }
 };
 

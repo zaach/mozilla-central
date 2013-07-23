@@ -71,9 +71,41 @@ let BrowserParent = {
   receiveMessage: function (message) {
     switch (message.name) {
     case "Content:Click":
-      openLinkIn(message.json.href, "tab", {});
+      this.remoteContentAreaClick(message.json, message.target)
       break;
     }
+  },
+
+  remoteContentAreaClick: function (json, browser) {
+    // This is heavily based on contentAreaClick from browser.js
+
+    if (!json.href) {
+      // Might be middle mouse navigation.
+      if (gPrefService.getBoolPref("middlemouse.contentLoadURL") &&
+          !gPrefService.getBoolPref("general.autoScroll")) {
+        middleMousePaste(json);
+      }
+      return;
+    }
+
+    var where = whereToOpenLink(json);
+    if (where == "current")
+      return false;
+
+    // Todo: the sidebar business
+    // Todo: code for where == save
+
+    openLinkIn(json.href, where, { referrerURI: browser.documentURI,
+                                   charset: browser.characterSet });
+
+    // Mark the page as a user followed link.  This is done so that history can
+    // distinguish automatic embed visits from user activated ones.  For example
+    // pages loaded in frames are embed visits and lost with the session, while
+    // visits across frames should be preserved.
+    try {
+      if (!PrivateBrowsingUtils.isWindowPrivate(window))
+        PlacesUIUtils.markPageAsFollowedLink(href);
+    } catch (ex) { /* Skip invalid URIs. */ }
   }
 };
 

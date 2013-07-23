@@ -746,9 +746,12 @@ var gBrowserInit = {
 
     var mustLoadSidebar = false;
 
-    Cc["@mozilla.org/eventlistenerservice;1"]
-      .getService(Ci.nsIEventListenerService)
-      .addSystemEventListener(gBrowser, "click", contentAreaClick, true);
+    if (!gMultiProcessBrowser) {
+      // There is an Content:Click message manually sent from content.
+      Cc["@mozilla.org/eventlistenerservice;1"]
+        .getService(Ci.nsIEventListenerService)
+        .addSystemEventListener(gBrowser, "click", contentAreaClick, true);
+    }
 
     gBrowser.addEventListener("DOMUpdatePageReport", gPopupBlockerObserver, false);
 
@@ -5144,6 +5147,7 @@ function contentAreaClick(event, isPanelClick)
           href.startsWith("javascript:") ||
           href.startsWith("data:"))
         return;
+
 
       try {
         urlSecurityCheck(href, linkNode.ownerDocument.nodePrincipal);
