@@ -105,16 +105,12 @@
           this.messageManager.addMessageListener("ImageDocumentLoaded", this);
           this.messageManager.loadFrameScript("chrome://global/content/browser-child.js", true);
           this.webProgress._init();
-          this.finder._init();
         ]]>
       </constructor>
 
       <destructor>
         <![CDATA[
-          this.messageManager.removeMessageListener("DOMTitleChanged", this);
-          this.messageManager.removeMessageListener("ImageDocumentLoaded", this);
           this.webProgress._destroy();
-          this.finder._destroy();
         ]]>
       </destructor>
 
