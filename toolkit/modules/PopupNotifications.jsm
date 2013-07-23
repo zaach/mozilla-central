@@ -265,8 +265,9 @@ PopupNotifications.prototype = {
     let notifications = this._getNotificationsForBrowser(browser);
     notifications.push(notification);
 
+    let isActive = browser.docShell ? browser.docShell.isActive : true;
     let fm = Cc["@mozilla.org/focus-manager;1"].getService(Ci.nsIFocusManager);
-    if (browser.docShell.isActive && fm.activeWindow == this.window) {
+    if (isActive && fm.activeWindow == this.window) {
       // show panel now
       this._update(notifications, notification.anchorElement, true);
     } else {
@@ -280,7 +281,7 @@ PopupNotifications.prototype = {
       // this browser is a tab (thus showing the anchor icon). For
       // non-tabbrowser browsers, we need to make the icon visible now or the
       // user will not be able to open the panel.
-      if (!notification.dismissed && browser.docShell.isActive) {
+      if (!notification.dismissed && isActive) {
         this.window.getAttention();
         if (notification.anchorElement.parentNode != this.iconBox) {
           notification.anchorElement.setAttribute(ICON_ATTRIBUTE_SHOWING, "true");
@@ -408,7 +409,9 @@ PopupNotifications.prototype = {
     if (index == -1)
       return;
 
-    if (notification.browser.docShell.isActive)
+    // This seems kinda wrong, not sure what this does?
+    // Maybe this removes the icon.
+    if (notification.browser.getAttribute("remote") || notification.browser.docShell.isActive)
       notification.anchorElement.removeAttribute(ICON_ATTRIBUTE_SHOWING);
 
     // remove the notification

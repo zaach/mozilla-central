@@ -23,6 +23,12 @@ AssertAppProcess(PBrowserParent* aActor,
                  AssertAppProcessType aType,
                  const char* aCapability)
 {
+#ifndef MOZ_WIDGET_GONK
+// We currently don't want to check permissions of
+// content processes on Desktop.
+  return true;
+#endif
+
   if (!aActor) {
     NS_WARNING("Testing process capability for null actor");
     return false;
