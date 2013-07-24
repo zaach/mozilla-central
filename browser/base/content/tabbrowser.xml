@@ -688,6 +688,7 @@
 
                 if (this.mTabBrowser.isFindBarInitialized(this.mTab)) {
                   let findBar = this.mTabBrowser.getFindBar(this.mTab);
+                  findBar.browser = this.mCurrentBrowser;
 
                   // Close the Find toolbar if we're in old-style TAF mode
                   if (findBar.findMode != findBar.FIND_NORMAL)
@@ -1014,6 +1015,12 @@
                   oldFindBar.findMode == oldFindBar.FIND_NORMAL &&
                   !oldFindBar.hidden)
                 this._lastFindValue = oldFindBar._findField.value;
+
+              if (gFindBarInitialized) {
+                this.finder.addResultListener(gFindBar);
+                this.finder.browser = newBrowser;
+                oldBrowser.finder.removeResultListener(gFindBar);
+              }
 
               this.updateTitlebar();
 
@@ -2685,6 +2692,10 @@
 
       <property name="currentURI"
                 onget="return this.mCurrentBrowser.currentURI;"
+                readonly="true"/>
+
+      <property name="finder"
+                onget="return this.mCurrentBrowser.finder"
                 readonly="true"/>
 
       <property name="docShell"

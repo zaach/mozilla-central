@@ -44,13 +44,8 @@
             }
 
             this.findbar.onFindAgainCommand(aEvent.shiftKey);
-          }
-          else {
-            // We need to keep a reference to _foundLink because
-            // _finishFAYT resets it to null.
-            var tmpLink = this._findbar._foundLink;
-            if (tmpLink && this.findbar._finishFAYT(aEvent))
-              this.findbar._dispatchKeypressEvent(tmpLink, aEvent);
+          } else if (this.findbar._findMode == this.findbar.FIND_LINKS) {
+            this.findbar._finishFAYT(aEvent);
           }
         ]]></body>
       </method>
@@ -61,12 +56,9 @@
           var shouldHandle = !aEvent.altKey && !aEvent.ctrlKey &&
                              !aEvent.metaKey;
           if (shouldHandle &&
-              this.findbar._findMode != this.findbar.FIND_NORMAL &&
-              this.findbar._finishFAYT(aEvent)) {
-            if (aEvent.shiftKey)
-              document.commandDispatcher.rewindFocus();
-            else
-              document.commandDispatcher.advanceFocus();
+              this.findbar._findMode != this.findbar.FIND_NORMAL) {
+
+            this.findbar._finishFAYT(aEvent);
           }
         ]]></body>
       </method>
@@ -86,10 +78,6 @@
       ]]></handler>
 
       <handler event="keypress"><![CDATA[
-        var win = this.findbar._currentWindow ||
-                  this.findbar.browser.contentWindow;
-        var controller = this.findbar._getSelectionController(win);
-
         var shouldHandle = !event.altKey && !event.ctrlKey &&
                            !event.metaKey && !event.shiftKey;
 
@@ -101,23 +89,15 @@
             this._handleTab(event);
             break;
           case KeyEvent.DOM_VK_PAGE_UP:
-            if (shouldHandle) {
-              controller.scrollPage(false);
-              event.preventDefault();
-            }
-            break;
           case KeyEvent.DOM_VK_PAGE_DOWN:
             if (shouldHandle) {
-              controller.scrollPage(true);
+              this.findbar.browser.finder.keyPress(event);
               event.preventDefault();
             }
             break;
           case KeyEvent.DOM_VK_UP:
-            controller.scrollLine(false);
-            event.preventDefault();
-            break;
           case KeyEvent.DOM_VK_DOWN:
-            controller.scrollLine(true);
+            this.findbar.browser.finder.keyPress(event);
             event.preventDefault();
             break;
         }
@@ -125,15 +105,10 @@
 
       <handler event="blur"><![CDATA[
         var findbar = this.findbar;
-        var fastFind = findbar.browser.fastFind;
-        if (findbar._foundEditable)
-          fastFind.collapseSelection();
-        else {
-          fastFind.setSelectionModeAndRepaint
-            (findbar.nsISelectionController.SELECTION_ON);
-        }
+
+        findbar.browser.finder.focusContent();
+
         findbar._setFoundLink(null);
-        findbar._foundEditable = null;
         findbar._currentWindow = null;
       ]]></handler>
 
@@ -244,9 +219,6 @@
       <property name="_foundLink"
                 onget="return this._foundLinkRef.get();"
                 onset="this._foundLinkRef = Components.utils.getWeakReference(val); return val;"/>
-      <property name="_foundEditable"
-                onget="return this._foundEditableRef.get();"
-                onset="this._foundEditableRef = Components.utils.getWeakReference(val); return val;"/>
       <property name="_currentWindow"
                 onget="return this._currentWindowRef.get();"
                 onset="this._currentWindowRef = Components.utils.getWeakReference(val); return val;"/>
@@ -297,15 +269,13 @@
             this._browser.removeEventListener("keypress", this, false);
             this._browser.removeEventListener("mouseup", this, false);
             this._foundLink = null;
-            this._foundEditable = null;
-            this._currentWindow = null;
           }
 
           this._browser = val;
           if (this._browser) {
             this._browser.addEventListener("keypress", this, false);
             this._browser.addEventListener("mouseup", this, false);
-            this._findField.value = this._browser.fastFind.searchString;
+            this._findField.value = this._browser.finder.searchString;
           }
           return val;
         ]]></setter>
@@ -356,8 +326,6 @@
         this._findStatusDesc = this.getElement("find-status");
 
         this._foundLink = null;
-        this._foundEditable = null;
-        this._currentWindow = null;
 
         var prefsvc =
           Components.classes["@mozilla.org/preferences-service;1"]
@@ -447,29 +415,6 @@
                          if (aSelf._findMode != aSelf.FIND_NORMAL)
                            aSelf.close();
                        }, this._quickFindTimeoutLength, this);
-        ]]></body>
-      </method>
-
-      <!--
-        - Gets the selection controller for the current browser
-        -->
-      <method name="_getSelectionController">
-        <parameter name="aWindow"/>
-        <body><![CDATA[
-          // display: none iframes don't have a selection controller, see bug 493658
-          if (!aWindow.innerWidth || !aWindow.innerHeight)
-            return null;
-
-          // Yuck. See bug 138068.
-          var Ci = Components.interfaces;
-          var docShell = aWindow.QueryInterface(Ci.nsIInterfaceRequestor)
-                                .getInterface(Ci.nsIWebNavigation)
-                                .QueryInterface(Ci.nsIDocShell);
-
-          var controller = docShell.QueryInterface(Ci.nsIInterfaceRequestor)
-                                   .getInterface(Ci.nsISelectionDisplay)
-                                   .QueryInterface(Ci.nsISelectionController);
-          return controller;
         ]]></body>
       </method>
 
@@ -902,143 +847,7 @@
           if (aHighlight && !word)
             return;
 
-          // We have to update the status because we might still have the status
-          // of another tab
-          if (this._highlightDoc(aHighlight, word))
-            this._updateStatusUI(this.nsITypeAheadFind.FIND_FOUND);
-          else
-            this._updateStatusUI(this.nsITypeAheadFind.FIND_NOTFOUND);
-        ]]></body>
-      </method>
-
-      <!--
-        - (Un)highlights each instance of the searched word in the passed
-        - window's content.
-        - @param aHighlight (boolean)
-        -        Whether to turn on highlight
-        - @param aWord
-        -        the word to search for
-        - @param aWindow
-        -        the window to search in. Passing undefined will search the
-        -        current content window.
-        - @returns true if aWord was found
-        -->
-      <method name="_highlightDoc">
-        <parameter name="aHighlight"/>
-        <parameter name="aWord"/>
-        <parameter name="aWindow"/>
-        <body><![CDATA[
-          var win = aWindow || this.browser.contentWindow;
-
-          var textFound = false;
-
-          for (var i = 0; win.frames && i < win.frames.length; i++) {
-            if (this._highlightDoc(aHighlight, aWord, win.frames[i]))
-              textFound = true;
-          }
-
-          var controller = this._getSelectionController(win);
-          if (!controller) {
-            // Without the selection controller,
-            // we are unable to (un)highlight any matches
-            return textFound;
-          }
-
-          var doc = win.document;
-          if (!doc || !doc.documentElement)
-           return textFound;
-
-          var body = (doc instanceof HTMLDocument && doc.body) ?
-                     doc.body : doc.documentElement;
-
-          if (aHighlight) {
-            var searchRange = doc.createRange();
-             searchRange.selectNodeContents(body);
-
-            var startPt = searchRange.cloneRange();
-            startPt.collapse(true);
-
-            var endPt = searchRange.cloneRange();
-            endPt.collapse(false);
-
-            var retRange = null;
-            var finder = Components.classes["@mozilla.org/embedcomp/rangefind;1"]
-                                   .createInstance()
-                                   .QueryInterface(Components.interfaces.nsIFind);
-
-            finder.caseSensitive = this._shouldBeCaseSensitive(aWord);
-
-            while ((retRange = finder.Find(aWord, searchRange,
-                                           startPt, endPt))) {
-              this._highlight(retRange, controller);
-              startPt = retRange.cloneRange();
-              startPt.collapse(false);
-
-              textFound = true;
-            }
-          } else {
-            // First, attempt to remove highlighting from main document
-            var sel = controller.getSelection(this._findSelection);
-            sel.removeAllRanges();
-
-            // Next, check our editor cache, for editors belonging to this
-            // document
-            if (this._editors) {
-              for (var x = this._editors.length - 1; x >= 0; --x) {
-                if (this._editors[x].document == doc) {
-                  sel = this._editors[x].selectionController
-                                        .getSelection(this._findSelection);
-                  sel.removeAllRanges();
-                  // We don't need to listen to this editor any more
-                  this._unhookListenersAtIndex(x);
-                }
-              }
-            }
-            return true;
-          }
-
-          return textFound;
-        ]]></body>
-      </method>
-
-     <!--
-       - Highlights the word in the passed range.
-       -
-       - @param aRange
-       -        the range that contains the word to highlight
-       - @param aController
-       -        the current document's selection controller
-       -->
-      <method name="_highlight">
-        <parameter name="aRange"/>
-        <parameter name="aController"/>
-        <body><![CDATA[
-          var node = aRange.startContainer;
-          var controller = aController;
-          var editableNode = this._getEditableNode(node);
-          if (editableNode)
-            controller = editableNode.editor.selectionController;
-
-          var findSelection = controller.getSelection(this._findSelection);
-          findSelection.addRange(aRange);
-
-          if (editableNode) {
-            // Highlighting added, so cache this editor, and hook up listeners
-            // to ensure we deal properly with edits within the highlighting
-            if (!this._editors) {
-              this._editors = [];
-              this._stateListeners = [];
-            }
-
-            var existingIndex = this._editors.indexOf(editableNode.editor);
-            if (existingIndex == -1) {
-              var x = this._editors.length;
-              this._editors[x] = editableNode.editor;
-              this._stateListeners[x] = this._createStateListener();
-              this._editors[x].addEditActionListener(this);
-              this._editors[x].addDocumentStateListener(this._stateListeners[x]);
-            }
-          }
+          this.browser.finder.highlight(aHighlight, word);
         ]]></body>
       </method>
 
@@ -1070,8 +879,7 @@
           checkbox.hidden = hideCheckbox;
           statusLabel.hidden = !hideCheckbox;
 
-          var fastFind = this.browser.fastFind;
-          fastFind.caseSensitive = caseSensitive;
+          this.browser.finder.caseSensitive = caseSensitive;
         ]]></body>
       </method>
 
@@ -1130,6 +938,8 @@
               stringsBundle.GetStringFromName("CaseSensitive");
           }
 
+          this.browser.finder.addResultListener(this);
+
           this._findFailedString = null;
 
           this._updateFindUI();
@@ -1156,34 +966,13 @@
           if (this.hidden)
             return;
 
-          var fm =
-            Components.classes["@mozilla.org/focus-manager;1"]
-                      .getService(Components.interfaces.nsIFocusManager);
-          if (window == fm.focusedWindow) {
-            var focusedElement = fm.focusedElement;
-            if (focusedElement) {
-              var bindingParent = document.getBindingParent(focusedElement);
-              if (bindingParent == this || bindingParent == this._findField) {
-                // block scrolling on focus since find already scrolls, further
-                // scrolling is due to user action, so don't override this
-                var element = this._foundLink || this._foundEditable;
-                if (element)
-                  fm.setFocus(element, fm.FLAG_NOSCROLL);
-                else if (this._currentWindow)
-                    this._currentWindow.focus();
-                else
-                  this.browser.contentWindow.focus();
-              }
-            }
-          }
-
           this.hidden = true;
-          var fastFind = this.browser.fastFind;
-          fastFind.setSelectionModeAndRepaint
-            (this.nsISelectionController.SELECTION_ON);
+          this.browser.finder.focusContent();
+          this.browser.finder.removeSelection();
+
+          this._findField.blur();
+
           this._setFoundLink(null);
-          this._foundEditable = null;
-          this._currentWindow = null;
           if (this._quickFindTimeout) {
             clearTimeout(this._quickFindTimeout);
             this._quickFindTimeout = null;
@@ -1195,13 +984,12 @@
 
       <method name="clear">
         <body><![CDATA[
-          this.browser.fastFind.collapseSelection();
+          this.browser.finder.removeSelection();
           this._findField.reset();
           this.toggleHighlight(false);
           this._updateStatusUI();
           this._enableFindButtons(false);
           this._setFoundLink(null);
-          this._foundEditable = null;
           this._currentWindow = null;
         ]]></body>
       </method>
@@ -1305,25 +1093,12 @@
       <method name="_finishFAYT">
         <parameter name="aKeypressEvent"/>
         <body><![CDATA[
-          try {
-            if (this._foundLink)
-              this._foundLink.focus();
-            else if (this._foundEditable) {
-              this._foundEditable.focus();
-              var fastFind = this.browser.fastFind;
-              fastFind.collapseSelection();
-            }
-            else if (this._currentWindow)
-              this._currentWindow.focus();
-            else
-              return false;
-          }
-          catch(e) {
-            return false;
-          }
+          this.browser.finder.focusContent();
 
           if (aKeypressEvent)
             aKeypressEvent.preventDefault();
+
+          this.browser.finder.keyPress(aKeypressEvent);
 
           this.close();
           return true;
@@ -1361,6 +1136,7 @@
               aEvent.defaultPrevented)
             return false;
 
+          // This still uses CPOWs, but this is okay for now.
           var elt = document.commandDispatcher.focusedElement;
           if (elt) {
             if (elt instanceof HTMLInputElement && elt.mozIsTextField(false))
@@ -1524,36 +1300,18 @@
         ]]></body>
       </method>
 
-      <method name="_updateFoundLink">
-        <parameter name="res"/>
-        <body><![CDATA[
-          var val = this._findField.value;
-          if (res == this.nsITypeAheadFind.FIND_NOTFOUND || !val) {
-            this._setFoundLink(null);
-            this._foundEditable = null;
-            this._currentWindow = null;
-          }
-          else {
-            this._setFoundLink(this.browser.fastFind.foundLink);
-            this._foundEditable = this.browser.fastFind.foundEditable;
-            this._currentWindow = this.browser.fastFind.currentWindow;
-          }
-        ]]></body>
-      </method>
-
       <method name="_find">
         <parameter name="aValue"/>
         <body><![CDATA[
           if (!this._dispatchFindEvent(""))
-            return this.nsITypeAheadFind.FIND_PENDING;
+            return;
 
           var val = aValue || this._findField.value;
-          var res = this.nsITypeAheadFind.FIND_NOTFOUND;
 
           // Only search on input if we don't have a last-failed string,
           // or if the current search string doesn't start with it.
           if (this._findFailedString == null ||
-              val.indexOf(this._findFailedString) != 0)
+              !val.startsWith(this._findFailedString))
           {
             this._enableFindButtons(val);
             if (this.getElement("highlight").checked)
@@ -1561,16 +1319,7 @@
 
             this._updateCaseSensitivity(val);
 
-            var fastFind = this.browser.fastFind;
-            res = fastFind.find(val, this._findMode == this.FIND_LINKS);
-
-            this._updateFoundLink(res);
-            this._updateStatusUI(res, false);
-
-            if (res == this.nsITypeAheadFind.FIND_NOTFOUND)
-              this._findFailedString = val;
-            else
-              this._findFailedString = null;
+            this.browser.finder.fastFind(val, this._findMode == this.FIND_LINKS);
           }
 
           if (this._findMode != this.FIND_NORMAL)
@@ -1582,12 +1331,10 @@
           // allow a search to happen on input again after a second has
           // expired since the previous input, to allow for dynamic
           // content and/or page loading
-          this._findResetTimeout = setTimeout(function(self) {
-						  self._findFailedString = null;
-						  self._findResetTimeout = -1; },
-					      1000, this);
-
-          return res;
+          this._findResetTimeout = setTimeout(() => {
+            this._findFailedString = null;
+            this._findResetTimeout = -1;
+          }, 1000);
         ]]></body>
       </method>
 
@@ -1624,16 +1371,8 @@
       <method name="_findAgain">
         <parameter name="aFindPrevious"/>
         <body><![CDATA[
-          var fastFind = this.browser.fastFind;
-          var res = fastFind.findAgain(aFindPrevious,
-                                       this._findMode == this.FIND_LINKS);
-          this._updateFoundLink(res);
-          this._updateStatusUI(res, aFindPrevious);
-
-          if (this._findMode != this.FIND_NORMAL && !this.hidden)
-            this._setFindCloseTimeout();
-
-          return res;
+          this.browser.finder.findAgain(aFindPrevious,
+                                        this._findMode == this.FIND_LINKS);
         ]]></body>
       </method>
 
@@ -1676,7 +1415,6 @@
           this._enableFindButtons(aResult !== this.nsITypeAheadFind.FIND_NOTFOUND);
         ]]></body>
       </method>
-
 
       <method name="_getInitialSelection">
         <body><![CDATA[
@@ -1791,7 +1529,7 @@
       <method name="onFindAgainCommand">
         <parameter name="aFindPrevious"/>
         <body><![CDATA[
-          var findString = this._browser.fastFind.searchString || this._findField.value;
+          var findString = this._browser.finder.searchString || this._findField.value;
           if (!findString) {
             this.startFind();
             return;
@@ -1799,7 +1537,7 @@
 
           // We dispatch the findAgain event here instead of in _findAgain since
           // if there is a find event handler that prevents the default then
-          // fastFind.searchString will never get updated which in turn means
+          // finder.searchString will never get updated which in turn means
           // there would never be findAgain events because of the logic below.
           if (!this._dispatchFindEvent("again", aFindPrevious))
             return;
@@ -1807,24 +1545,40 @@
           // user explicitly requested another search, so do it even if we think it'll fail
           this._findFailedString = null;
 
-          var res;
           // Ensure the stored SearchString is in sync with what we want to find
-          if (this._findField.value != this._browser.fastFind.searchString)
-            res = this._find(this._findField.value);
+          if (this._findField.value != this._browser.finder.searchString)
+            this._find(this._findField.value);
           else
-            res = this._findAgain(aFindPrevious);
+            this._findAgain(aFindPrevious);
 
-          if (res == this.nsITypeAheadFind.FIND_NOTFOUND) {
-            if (this.open()) {
-              if (this._findMode != this.FIND_NORMAL)
-                this._setFindCloseTimeout();
-              this._findField.focus();
-              this._findField.focus();
-              this._updateStatusUI(res, aFindPrevious);
-            }
-          }
         ]]></body>
       </method>
+
+      <!--
+        - This handles all the result changes for both
+        - type-ahead-find and highlighting.
+        - @param aResult
+        -   One of the nsITypeAheadFind.FIND_* constants
+        -   indicating the result of a search operation.
+        -->
+      <method name="onFindResult">
+        <parameter name="aResult"/>
+        <parameter name="aFindBackwards"/>
+        <body><![CDATA[
+          dump("onFindResult");
+
+          this._updateStatusUI(aResult, aFindBackwards);
+
+          if (aResult == this.nsITypeAheadFind.FIND_NOTFOUND)
+            this._findFailedString = this.browser.finder.searchString;
+          else
+            this._findFailedString = null;
+
+          if (this._findMode != this.FIND_NORMAL && !this.hidden)
+            this._setFindCloseTimeout();
+        ]]></body>
+      </method>
+
     </implementation>
 
     <handlers>
