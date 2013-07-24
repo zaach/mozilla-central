@@ -5823,9 +5823,14 @@ MOZ_PULSEAUDIO=)
 
 if test -n "$MOZ_PULSEAUDIO"; then
     AC_DEFINE(MOZ_CUBEB)
-    PKG_CHECK_MODULES(MOZ_PULSEAUDIO, libpulse, ,
-         [echo "$MOZ_PULSEAUDIO_PKG_ERRORS"
-          AC_MSG_ERROR([pulseaudio audio backend requires libpulse package])])
+    if test -z "$gonkdir"; then
+        PKG_CHECK_MODULES(MOZ_PULSEAUDIO, libpulse, ,
+             [echo "$MOZ_PULSEAUDIO_PKG_ERRORS"
+              AC_MSG_ERROR([pulseaudio audio backend requires libpulse development package])])
+    else
+        MOZ_PULSEAUDIO_CFLAGS="-I$gonkdir/external/pulseaudio/pulseaudio/src"
+        MOZ_PULSEAUDIO_LIBS="-lpulse"
+    fi
 fi
 
 AC_SUBST(MOZ_PULSEAUDIO)
@@ -8598,12 +8603,6 @@ dnl Build Captive Portal Detector if required
 AC_SUBST(MOZ_CAPTIVEDETECT)
 if test -n "$MOZ_CAPTIVEDETECT"; then
   AC_DEFINE(MOZ_CAPTIVEDETECT)
-fi
-
-dnl Build WBMP decoder if required
-AC_SUBST(MOZ_WBMP)
-if test -n "$MOZ_WBMP"; then
-  AC_DEFINE(MOZ_WBMP)
 fi
 
 dnl ========================================================

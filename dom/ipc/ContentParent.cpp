@@ -480,7 +480,7 @@ PrivilegesForApp(mozIApplication* aApp)
 }
 
 /*static*/ ProcessPriority
-ContentParent::GetInitialProcessPriority(nsIDOMElement* aFrameElement)
+ContentParent::GetInitialProcessPriority(Element* aFrameElement)
 {
     // Frames with mozapptype == critical which are expecting a system message
     // get FOREGROUND_HIGH priority.  All other frames get FOREGROUND priority.
@@ -489,10 +489,8 @@ ContentParent::GetInitialProcessPriority(nsIDOMElement* aFrameElement)
         return PROCESS_PRIORITY_FOREGROUND;
     }
 
-    nsAutoString appType;
-    nsCOMPtr<Element> frameElement = do_QueryInterface(aFrameElement);
-    frameElement->GetAttr(kNameSpaceID_None, nsGkAtoms::mozapptype, appType);
-    if (appType != NS_LITERAL_STRING("critical")) {
+    if (!aFrameElement->AttrValueIs(kNameSpaceID_None, nsGkAtoms::mozapptype,
+                                    NS_LITERAL_STRING("critical"), eCaseMatters)) {
         return PROCESS_PRIORITY_FOREGROUND;
     }
 
@@ -509,7 +507,7 @@ ContentParent::GetInitialProcessPriority(nsIDOMElement* aFrameElement)
 
 /*static*/ TabParent*
 ContentParent::CreateBrowserOrApp(const TabContext& aContext,
-                                  nsIDOMElement* aFrameElement,
+                                  Element* aFrameElement,
                                   uint32_t aProcessNum)
 {
     if (!sCanLaunchSubprocesses) {
@@ -765,7 +763,7 @@ NS_IMPL_ISUPPORTS1(SystemMessageHandledListener,
 } // anonymous namespace
 
 void
-ContentParent::MaybeTakeCPUWakeLock(nsIDOMElement* aFrameElement)
+ContentParent::MaybeTakeCPUWakeLock(Element* aFrameElement)
 {
     // Take the CPU wake lock on behalf of this processs if it's expecting a
     // system message.  We'll release the CPU lock once the message is
@@ -1592,10 +1590,10 @@ ContentParent::RecvRecordingDeviceEvents(const nsString& aRecordingStatus)
     return true;
 }
 
-NS_IMPL_THREADSAFE_ISUPPORTS3(ContentParent,
-                              nsIObserver,
-                              nsIThreadObserver,
-                              nsIDOMGeoPositionCallback)
+NS_IMPL_ISUPPORTS3(ContentParent,
+                   nsIObserver,
+                   nsIThreadObserver,
+                   nsIDOMGeoPositionCallback)
 
 NS_IMETHODIMP
 ContentParent::Observe(nsISupports* aSubject,
