@@ -2592,7 +2592,7 @@
             if (aURI.startsWith("about:") && aURI.toLowerCase() != "about:home" && aURI.toLowerCase() != "about:blank") {
              return false;
             }
-            if (aURI.startsWith("chrome:") {
+            if (aURI.startsWith("chrome:")) {
               return false;
             }
             return true;
