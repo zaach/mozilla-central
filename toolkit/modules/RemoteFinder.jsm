@@ -23,7 +23,6 @@ RemoteFinder.prototype = {
   },
 
   _destroy: function () {
-    this._browser.messageManager.removeMessageListener("Finder:Result", this);
     this._browser = null;
   },
 
