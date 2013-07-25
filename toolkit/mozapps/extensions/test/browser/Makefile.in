@@ -119,8 +119,8 @@ MOCHITEST_BROWSER_FILES_PARTS = $(foreach s,MAIN SECONDARY RESOURCES,MOCHITEST_B
 
 include $(topsrcdir)/config/rules.mk
 
-libs:: $(MOCHITEST_BROWSER_MAIN)
-	$(INSTALL) $(foreach f,$^,"$f") $(DEPTH)/_tests/testing/mochitest/browser/$(relativesrcdir)-window
+#libs:: $(MOCHITEST_BROWSER_MAIN)
+#	$(INSTALL) $(foreach f,$^,"$f") $(DEPTH)/_tests/testing/mochitest/browser/$(relativesrcdir)-window
 
 libs::
 	rm -rf $(TESTXPI)

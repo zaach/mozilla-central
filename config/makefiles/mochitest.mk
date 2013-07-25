@@ -43,16 +43,22 @@ ifdef MOCHITEST_CHROME_FILES
 $(eval $(call mochitest-libs-rule-template,MOCHITEST_CHROME_FILES,chrome))
 endif
 
-ifdef MOCHITEST_BROWSER_FILES_PARTS
-ifdef MOCHITEST_BROWSER_FILES
-$(error You must define only one of MOCHITEST_BROWSER_FILES_PARTS or MOCHITEST_BROWSER_FILES)
-endif
-$(foreach part,$(MOCHITEST_BROWSER_FILES_PARTS),$(eval $(call mochitest-libs-rule-template,$(part),browser)))
+# For now we want to run a completely different set of browser-chrome tests.
+# Using a separate make var should reduce merge conflicts.
+ifdef MOCHITEST_REAL_BROWSER_FILES
+$(eval $(call mochitest-libs-rule-template,MOCHITEST_REAL_BROWSER_FILES,browser))
 endif
 
-ifdef MOCHITEST_BROWSER_FILES
-$(eval $(call mochitest-libs-rule-template,MOCHITEST_BROWSER_FILES,browser))
-endif
+#ifdef MOCHITEST_BROWSER_FILES_PARTS
+#ifdef MOCHITEST_BROWSER_FILES
+#$(error You must define only one of MOCHITEST_BROWSER_FILES_PARTS or MOCHITEST_BROWSER_FILES)
+#endif
+#$(foreach part,$(MOCHITEST_BROWSER_FILES_PARTS),$(eval $(call mochitest-libs-rule-template,$(part),browser)))
+#endif
+
+#ifdef MOCHITEST_BROWSER_FILES
+#$(eval $(call mochitest-libs-rule-template,MOCHITEST_BROWSER_FILES,browser))
+#endif
 
 ifdef MOCHITEST_A11Y_FILES
 $(eval $(call mochitest-libs-rule-template,MOCHITEST_A11Y_FILES,a11y))
