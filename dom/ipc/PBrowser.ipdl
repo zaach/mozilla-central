@@ -190,6 +190,8 @@ parent:
     SetCursor(uint32_t value);
     SetBackgroundColor(nscolor color);
 
+    SetStatus(uint32_t type, nsString status);
+
     /**
      * Initiates an asynchronous request for permission for the
      * provided principal.
