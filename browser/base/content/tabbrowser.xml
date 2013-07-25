@@ -1353,8 +1353,12 @@
             else
               t.setAttribute("label", aURI);
 
+            let remote = this.shouldBrowserBeRemote(aURI);
+
             t.setAttribute("crop", "end");
             t.setAttribute("onerror", "this.removeAttribute('image');");
+            if (remote)
+              t.setAttribute("remote", "true");
             t.className = "tabbrowser-tab";
 
             this.tabContainer._unlockTabSizing();
@@ -1390,8 +1394,7 @@
             b.setAttribute("contextmenu", this.getAttribute("contentcontextmenu"));
             b.setAttribute("tooltip", this.getAttribute("contenttooltip"));
 
-            if (Services.prefs.getPrefType("browser.tabs.remote") == Services.prefs.PREF_BOOL &&
-                Services.prefs.getBoolPref("browser.tabs.remote")) {
+            if (remote) {
               b.setAttribute("remote", "true");
               if (aProcessNumber != undefined)
                 b.setAttribute("processnumber", aProcessNumber);
@@ -2048,6 +2051,11 @@
 
             filter.addProgressListener(tabListener, Ci.nsIWebProgress.NOTIFY_ALL);
             aBrowser.webProgress.addProgressListener(filter, Ci.nsIWebProgress.NOTIFY_ALL);
+
+            if (aRemote)
+              tab.setAttribute("remote", "true");
+            else
+              tab.removeAttribute("remote");
           ]]>
         </body>
       </method>
@@ -2596,6 +2604,18 @@
         <parameter name="aURI"/>
         <body>
           <![CDATA[
+            if (!gMultiProcessBrowser) {
+              return false;
+            }
+
+            if (!aURI) {
+              return true;
+            }
+
+            if (aURI instanceof Ci.nsIURI) {
+              aURI = aURI.spec;
+            }
+
             if (aURI.startsWith("about:") && aURI.toLowerCase() != "about:home" && aURI.toLowerCase() != "about:blank") {
              return false;
             }
@@ -3173,6 +3193,8 @@
           tab.setAttribute("label",
                            this.tabbrowser.mStringBundle.getString("tabs.emptyTabTitle"));
           tab.setAttribute("crop", "end");
+          if (Services.prefs.getBoolPref("browser.tabs.remote"))
+            tab.setAttribute("remote", "true");
           tab.setAttribute("onerror", "this.removeAttribute('image');");
           this.adjustTabstrip();
 
@@ -4447,16 +4469,16 @@
 
     <content context="tabContextMenu" closetabtext="&closeTab.label;">
       <xul:stack class="tab-stack" flex="1">
-        <xul:hbox xbl:inherits="pinned,selected,titlechanged"
+        <xul:hbox xbl:inherits="pinned,selected,titlechanged,remote"
                   class="tab-background">
-          <xul:hbox xbl:inherits="pinned,selected,titlechanged"
+          <xul:hbox xbl:inherits="pinned,selected,titlechanged,remote"
                     class="tab-background-start"/>
-          <xul:hbox xbl:inherits="pinned,selected,titlechanged"
+          <xul:hbox xbl:inherits="pinned,selected,titlechanged,remote"
                     class="tab-background-middle"/>
-          <xul:hbox xbl:inherits="pinned,selected,titlechanged"
+          <xul:hbox xbl:inherits="pinned,selected,titlechanged,remote"
                     class="tab-background-end"/>
         </xul:hbox>
-        <xul:hbox xbl:inherits="pinned,selected,titlechanged"
+        <xul:hbox xbl:inherits="pinned,selected,titlechanged,remote"
                   class="tab-content" align="center">
           <xul:image xbl:inherits="fadein,pinned,busy,progress,selected"
                      class="tab-throbber"
