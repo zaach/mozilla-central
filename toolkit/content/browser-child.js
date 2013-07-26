@@ -30,6 +30,7 @@ let WebProgressListener = {
       DOMWindowID: aWebProgress.DOMWindowID,
       isLoadingDocument: aWebProgress.isLoadingDocument,
       requestURI: this._requestSpec(aRequest),
+      loadType: aWebProgress.loadType
     };
   },
 
