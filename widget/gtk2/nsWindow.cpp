@@ -95,7 +95,6 @@ using namespace mozilla::widget;
 #include "nsIInterfaceRequestorUtils.h"
 #include "nsAutoPtr.h"
 #include "BasicLayers.h"
-#include "ClientLayerManager.h"
 
 extern "C" {
 #define PIXMAN_DONT_DEFINE_STDINT
@@ -126,8 +125,6 @@ using namespace mozilla::widget;
 using namespace mozilla::layers;
 using mozilla::gl::GLContext;
 using mozilla::layers::LayerManagerOGL;
-using namespace mozilla::layers;
-using namespace mozilla::gl;
 
 // Don't put more than this many rects in the dirty region, just fluff
 // out to the bounding-box if there are more

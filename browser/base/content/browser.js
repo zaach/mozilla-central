@@ -5148,7 +5148,6 @@ function contentAreaClick(event, isPanelClick)
           href.startsWith("data:"))
         return;
 
-
       try {
         urlSecurityCheck(href, linkNode.ownerDocument.nodePrincipal);
       }

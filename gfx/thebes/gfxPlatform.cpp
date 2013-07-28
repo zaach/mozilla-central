@@ -1851,8 +1851,8 @@ void InitLayersAccelerationPrefs()
   {
     sPrefLayersOffMainThreadCompositionEnabled = Preferences::GetBool("layers.offmainthreadcomposition.enabled", false);
     sPrefLayersOffMainThreadCompositionTestingEnabled = Preferences::GetBool("layers.offmainthreadcomposition.testing.enabled", false);
-	sPrefLayersOffMainThreadCompositionForceEnabled = Preferences::GetBool("layers.offmainthreadcomposition.force-enabled", false) ||
-                                                      Preferences::GetBool("browser.tabs.remote", false);                                             
+    sPrefLayersOffMainThreadCompositionForceEnabled = Preferences::GetBool("layers.offmainthreadcomposition.force-enabled", false) ||
+                                                      Preferences::GetBool("browser.tabs.remote", false);
     sPrefLayersAccelerationForceEnabled = Preferences::GetBool("layers.acceleration.force-enabled", false) ||
                                           Preferences::GetBool("browser.tabs.remote", false);
     sPrefLayersAccelerationDisabled = Preferences::GetBool("layers.acceleration.disabled", false);
