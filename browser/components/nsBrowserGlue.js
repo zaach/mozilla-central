@@ -1748,10 +1748,14 @@ ContentPermissionPrompt.prototype = {
 
     var browserBundle = Services.strings.createBundle("chrome://browser/locale/browser.properties");
     var browser, chromeWin;
-    if (aRequest.element) {
+
+    try {
+      /* This is only supposed to work with remote tabs. */
       browser = aRequest.element;
       chromeWin = browser.ownerDocument.defaultView;
-    } else {
+    } catch (e) {}
+
+    if (!browser) {
       var requestingWindow = aRequest.window.top;
       chromeWin = this._getChromeWindow(requestingWindow).wrappedJSObject;
       browser = chromeWin.gBrowser.getBrowserForDocument(requestingWindow.document);
