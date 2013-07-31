@@ -195,7 +195,7 @@ let Content = {
 
     Cc["@mozilla.org/eventlistenerservice;1"]
       .getService(Ci.nsIEventListenerService)
-      .addSystemEventListener(global, "click", this.contentAreaClick, false);
+      .addSystemEventListener(global, "click", this.contentAreaClick.bind(this), true);
 
     addMessageListener("StyleSheet:Load", this);
     addMessageListener("Content:DoCommand", this);
@@ -239,6 +239,46 @@ let Content = {
     if (!event.isTrusted || event.defaultPrevented || event.button == 2)
       return;
 
+    let [href, node] = this._hrefAndLinkNodeForClickEvent(event);
+
+    let json = { button: event.button, shiftKey: event.shiftKey,
+                 ctrlKey: event.ctrlKey, metaKey: event.metaKey,
+                 altKey: event.altKey, href: null, title: null,
+                 bookmark: false };
+
+    if (href) {
+      json.href = href;
+      if (node) {
+        json.title = node.getAttribute("title");
+
+        if (event.button == 0 && !event.ctrlKey && !event.shiftKey &&
+            !event.altKey && !event.metaKey) {
+          json.bookmark = node.getAttribute("rel") == "sidebar";
+          if (json.bookmark)
+            event.preventDefault(); // Need to prevent the pageload.
+        }
+      }
+
+      sendAsyncMessage("Content:Click", json);
+      return;
+    }
+
+    // This might be middle mouse navigation.
+    if (event.button == 1)
+      sendAsyncMessage("Content:Click", json);
+  },
+
+/**
+ * Extracts linkNode and href for the current click target.
+ *
+ * @param event
+ *        The click event.
+ * @return [href, linkNode].
+ *
+ * @note linkNode will be null if the click wasn't on an anchor
+ *       element (or XLink).
+ */
+  _hrefAndLinkNodeForClickEvent: function(event) {
     function isHTMLLink(aNode)
     {
       // Be consistent with what nsContextMenu.js does.
@@ -246,19 +286,36 @@ let Content = {
               (aNode instanceof content.HTMLAreaElement && aNode.href) ||
               aNode instanceof content.HTMLLinkElement);
     }
+
+    function makeURLAbsolute(aBase, aUrl)
+    {
+      // Note:  makeURI() will throw if aUri is not a valid URI
+      return makeURI(aUrl, null, makeURI(aBase)).spec;
+    }
+
     let node = event.target;
     while (node && !isHTMLLink(node)) {
       node = node.parentNode;
     }
 
     if (node)
-      sendAsyncMessage("Content:Click", { href: node.href, button: event.button,
-                                          shiftKey: event.shiftKey, ctrlKey: event.ctrlKey,
-                                          metaKey: event.metaKey, altKey: event.altKey });
-    else if (event.button == 1) // This might be middle mouse navigation.
-      sendAsyncMessage("Content:Click", { href: null, button: event.button,
-                                          shiftKey: event.shiftKey, ctrlKey: event.ctrlKey,
-                                          metaKey: event.metaKey, altKey: event.altKey });
+      return [node.href, node];
+
+    // If there is no linkNode, try simple XLink.
+    let href, baseURI;
+    node = event.target;
+    while (node && !href) {
+      if (node.nodeType == content.Node.ELEMENT_NODE) {
+        href = node.getAttributeNS("http://www.w3.org/1999/xlink", "href");
+        if (href)
+          baseURI = node.baseURI;
+      }
+      node = node.parentNode;
+    }
+
+    // In case of XLink, we don't return the node we got href from since
+    // callers expect <a>-like elements.
+    return [href ? makeURLAbsolute(baseURI, href) : null, null];
   }
 };
 

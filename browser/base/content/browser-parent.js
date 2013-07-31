@@ -88,11 +88,29 @@ let BrowserParent = {
       return;
     }
 
+    if (json.bookmark) {
+      // This is the Opera convention for a special link that, when clicked,
+      // allows to add a sidebar panel.  The link's title attribute contains
+      // the title that should be used for the sidebar panel.
+      PlacesUIUtils.showBookmarkDialog({ action: "add"
+                                       , type: "bookmark"
+                                       , uri: makeURI(json.href)
+                                       , title: json.title
+                                       , loadBookmarkInSidebar: true
+                                       , hiddenRows: [ "description"
+                                                     , "location"
+                                                     , "keyword" ]
+                                       }, window);
+      return;
+    }
+
+    // Todo: maybe code for sidebars?
+
+    // This part is based on handleLinkClick.
     var where = whereToOpenLink(json);
     if (where == "current")
       return false;
 
-    // Todo: the sidebar business
     // Todo: code for where == save
 
     openLinkIn(json.href, where, { referrerURI: browser.documentURI,
@@ -107,6 +125,7 @@ let BrowserParent = {
         PlacesUIUtils.markPageAsFollowedLink(href);
     } catch (ex) { /* Skip invalid URIs. */ }
   }
+
 };
 
 function SSLStatusProvider(browser)
