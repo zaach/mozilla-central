@@ -6,12 +6,12 @@
 
 #include "jslibmath.h"
 #include "jsmath.h"
+
 #include "builtin/ParallelArray.h"
 #include "builtin/TestingFunctions.h"
-
+#include "ion/IonBuilder.h"
 #include "ion/MIR.h"
 #include "ion/MIRGraph.h"
-#include "ion/IonBuilder.h"
 
 #include "jsscriptinlines.h"
 
@@ -130,8 +130,6 @@ IonBuilder::inlineNativeCall(CallInfo &callInfo, JSNative native)
     // Parallel intrinsics.
     if (native == intrinsic_ShouldForceSequential)
         return inlineForceSequentialOrInParallelSection(callInfo);
-    if (native == testingFunc_inParallelSection)
-        return inlineForceSequentialOrInParallelSection(callInfo);
     if (native == intrinsic_NewParallelArray)
         return inlineNewParallelArray(callInfo);
     if (native == ParallelArrayObject::construct)
@@ -146,10 +144,12 @@ IonBuilder::inlineNativeCall(CallInfo &callInfo, JSNative native)
         return inlineHaveSameClass(callInfo);
     if (native == intrinsic_ToObject)
         return inlineToObject(callInfo);
-#ifdef DEBUG
-    if (native == intrinsic_Dump)
-        return inlineDump(callInfo);
-#endif
+
+    // Testing Functions
+    if (native == testingFunc_inParallelSection)
+        return inlineForceSequentialOrInParallelSection(callInfo);
+    if (native == testingFunc_bailout)
+        return inlineBailout(callInfo);
 
     return InliningStatus_NotInlined;
 }
@@ -1318,7 +1318,7 @@ IonBuilder::inlineNewDenseArrayForParallelExecution(CallInfo &callInfo)
 
     callInfo.unwrapArgs();
 
-    MParNewDenseArray *newObject = new MParNewDenseArray(graph().parSlice(),
+    MNewDenseArrayPar *newObject = new MNewDenseArrayPar(graph().forkJoinSlice(),
                                                          callInfo.getArg(0),
                                                          templateObject);
     current->add(newObject);
@@ -1503,31 +1503,14 @@ IonBuilder::inlineToObject(CallInfo &callInfo)
 }
 
 IonBuilder::InliningStatus
-IonBuilder::inlineDump(CallInfo &callInfo)
+IonBuilder::inlineBailout(CallInfo &callInfo)
 {
-    // In Parallel Execution, call ParDump.  We just need a debugging
-    // aid!
-
-    if (callInfo.constructing())
-        return InliningStatus_NotInlined;
-
-    ExecutionMode executionMode = info().executionMode();
-    switch (executionMode) {
-      case SequentialExecution:
-        return InliningStatus_NotInlined;
-      case ParallelExecution:
-        break;
-    }
-
     callInfo.unwrapArgs();
-    JS_ASSERT(1 == callInfo.argc());
-    MParDump *dump = new MParDump(callInfo.getArg(0));
-    current->add(dump);
 
-    MConstant *udef = MConstant::New(UndefinedValue());
-    current->add(udef);
-    current->push(udef);
+    current->add(MBail::New());
 
+    MConstant *undefined = MConstant::New(UndefinedValue());
+    current->push(undefined);
     return InliningStatus_Inlined;
 }
 

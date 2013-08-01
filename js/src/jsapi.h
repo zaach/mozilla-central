@@ -12,11 +12,11 @@
 #include "mozilla/FloatingPoint.h"
 #include "mozilla/MemoryReporting.h"
 #include "mozilla/RangedPtr.h"
-#include "mozilla/StandardInteger.h"
 #include "mozilla/ThreadLocal.h"
 
 #include <stdarg.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 
 #include "js-config.h"
@@ -1770,6 +1770,42 @@ typedef enum JSUseHelperThreads
     JS_USE_HELPER_THREADS
 } JSUseHelperThreads;
 
+/**
+ * Initialize SpiderMonkey, returning true only if initialization succeeded.
+ * Once this method has succeeded, it is safe to call JS_NewRuntime and other
+ * JSAPI methods.
+ *
+ * This method must be called before any other JSAPI method is used on any
+ * thread.  Once it has been used, it is safe to call any JSAPI method, and it
+ * remains safe to do so until JS_ShutDown is correctly called.
+ *
+ * It is currently not possible to initialize SpiderMonkey multiple times (that
+ * is, calling JS_Init/JSAPI methods/JS_ShutDown in that order, then doing so
+ * again).  This restriction may eventually be lifted.
+ */
+extern JS_PUBLIC_API(JSBool)
+JS_Init(void);
+
+/**
+ * Destroy free-standing resources allocated by SpiderMonkey, not associated
+ * with any runtime, context, or other structure.
+ *
+ * This method should be called after all other JSAPI data has been properly
+ * cleaned up: every new runtime must have been destroyed, every new context
+ * must have been destroyed, and so on.  Calling this method before all other
+ * resources have been destroyed has undefined behavior.
+ *
+ * Failure to call this method, at present, has no adverse effects other than
+ * leaking memory.  This may not always be the case; it's recommended that all
+ * embedders call this method when all other JSAPI operations have completed.
+ *
+ * It is currently not possible to initialize SpiderMonkey multiple times (that
+ * is, calling JS_Init/JSAPI methods/JS_ShutDown in that order, then doing so
+ * again).  This restriction may eventually be lifted.
+ */
+extern JS_PUBLIC_API(void)
+JS_ShutDown(void);
+
 extern JS_PUBLIC_API(JSRuntime *)
 JS_NewRuntime(uint32_t maxbytes, JSUseHelperThreads useHelperThreads);
 
@@ -1787,9 +1823,6 @@ typedef void (*JS_ICUFreeFn)(const void *, void *p);
 // Do not use it unless you know what you are doing!
 extern JS_PUBLIC_API(bool)
 JS_SetICUMemoryFunctions(JS_ICUAllocFn allocFn, JS_ICUReallocFn reallocFn, JS_ICUFreeFn freeFn);
-
-extern JS_PUBLIC_API(void)
-JS_ShutDown(void);
 
 JS_PUBLIC_API(void *)
 JS_GetRuntimePrivate(JSRuntime *rt);
@@ -2121,9 +2154,6 @@ extern JS_PUBLIC_API(void)
 JS_IterateCompartments(JSRuntime *rt, void *data,
                        JSIterateCompartmentCallback compartmentCallback);
 
-extern JS_PUBLIC_API(void)
-JS_SetGlobalObject(JSContext *cx, JSObject *obj);
-
 /*
  * Initialize standard JS class constructors, prototypes, and any top-level
  * functions and constants associated with the standard classes (e.g. isNaN
@@ -2197,8 +2227,12 @@ JS_IsGlobalObject(JSObject *obj);
 extern JS_PUBLIC_API(JSObject *)
 JS_GetGlobalForCompartmentOrNull(JSContext *cx, JSCompartment *c);
 
+namespace JS {
+
 extern JS_PUBLIC_API(JSObject *)
-JS_GetGlobalForScopeChain(JSContext *cx);
+CurrentGlobalOrNull(JSContext *cx);
+
+}
 
 /*
  * This method returns the global corresponding to the most recent scripted
@@ -2582,9 +2616,6 @@ JS_CallHeapStringTracer(JSTracer *trc, JS::Heap<JSString *> *strp, const char *n
 
 extern JS_PUBLIC_API(void)
 JS_CallHeapScriptTracer(JSTracer *trc, JS::Heap<JSScript *> *scriptp, const char *name);
-
-extern JS_PUBLIC_API(void)
-JS_CallGenericTracer(JSTracer *trc, void *gcthing, const char *name);
 
 template <typename HashSetEnum>
 inline void
@@ -3150,10 +3181,10 @@ JS_GetInstancePrivate(JSContext *cx, JSObject *obj, JSClass *clasp,
                       jsval *argv);
 
 extern JS_PUBLIC_API(JSBool)
-JS_GetPrototype(JSContext *cx, JSObject *obj, JSObject **protop);
+JS_GetPrototype(JSContext *cx, JS::Handle<JSObject*> obj, JS::MutableHandle<JSObject*> protop);
 
 extern JS_PUBLIC_API(JSBool)
-JS_SetPrototype(JSContext *cx, JSObject *obj, JSObject *proto);
+JS_SetPrototype(JSContext *cx, JS::Handle<JSObject*> obj, JS::Handle<JSObject*> proto);
 
 extern JS_PUBLIC_API(JSObject *)
 JS_GetParent(JSObject *obj);
@@ -3477,25 +3508,28 @@ extern JS_PUBLIC_API(JSBool)
 JS_GetOwnPropertyDescriptor(JSContext *cx, JSObject *obj, jsid id, jsval *vp);
 
 extern JS_PUBLIC_API(JSBool)
-JS_GetProperty(JSContext *cx, JSObject *obj, const char *name, jsval *vp);
+JS_GetProperty(JSContext *cx, JSObject *obj, const char *name, JS::MutableHandle<JS::Value> vp);
 
 extern JS_PUBLIC_API(JSBool)
-JS_GetPropertyDefault(JSContext *cx, JSObject *obj, const char *name, jsval def, jsval *vp);
+JS_GetPropertyDefault(JSContext *cx, JSObject *obj, const char *name, jsval def,
+                      JS::MutableHandle<JS::Value> vp);
 
 extern JS_PUBLIC_API(JSBool)
-JS_GetPropertyById(JSContext *cx, JSObject *obj, jsid id, jsval *vp);
+JS_GetPropertyById(JSContext *cx, JSObject *obj, jsid id, JS::MutableHandle<JS::Value> vp);
 
 extern JS_PUBLIC_API(JSBool)
-JS_GetPropertyByIdDefault(JSContext *cx, JSObject *obj, jsid id, jsval def, jsval *vp);
+JS_GetPropertyByIdDefault(JSContext *cx, JSObject *obj, jsid id, jsval def,
+                          JS::MutableHandle<JS::Value> vp);
 
 extern JS_PUBLIC_API(JSBool)
-JS_ForwardGetPropertyTo(JSContext *cx, JSObject *obj, jsid id, JSObject *onBehalfOf, jsval *vp);
+JS_ForwardGetPropertyTo(JSContext *cx, JSObject *obj, jsid id, JSObject *onBehalfOf,
+                        JS::MutableHandle<JS::Value> vp);
 
 extern JS_PUBLIC_API(JSBool)
-JS_SetProperty(JSContext *cx, JSObject *obj, const char *name, jsval *vp);
+JS_SetProperty(JSContext *cx, JSObject *obj, const char *name, JS::Handle<JS::Value> v);
 
 extern JS_PUBLIC_API(JSBool)
-JS_SetPropertyById(JSContext *cx, JSObject *obj, jsid id, jsval *vp);
+JS_SetPropertyById(JSContext *cx, JSObject *obj, jsid id, JS::Handle<JS::Value> v);
 
 extern JS_PUBLIC_API(JSBool)
 JS_DeleteProperty(JSContext *cx, JSObject *obj, const char *name);
@@ -3575,12 +3609,12 @@ JS_LookupUCProperty(JSContext *cx, JSObject *obj,
 extern JS_PUBLIC_API(JSBool)
 JS_GetUCProperty(JSContext *cx, JSObject *obj,
                  const jschar *name, size_t namelen,
-                 jsval *vp);
+                 JS::MutableHandle<JS::Value> vp);
 
 extern JS_PUBLIC_API(JSBool)
 JS_SetUCProperty(JSContext *cx, JSObject *obj,
                  const jschar *name, size_t namelen,
-                 jsval *vp);
+                 JS::Handle<JS::Value> v);
 
 extern JS_PUBLIC_API(JSBool)
 JS_DeleteUCProperty2(JSContext *cx, JSObject *obj,

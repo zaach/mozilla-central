@@ -87,6 +87,7 @@ function BookmarksView(aSet, aLimit, aRoot, aFilterUnpinned) {
   this._changes = new BookmarkChangeListener(this);
   this._pinHelper = new ItemPinHelper("metro.bookmarks.unpinned");
   this._bookmarkService.addObserver(this._changes, false);
+  Services.obs.addObserver(this, "metro_viewstate_changed", false);
   window.addEventListener('MozAppbarDismissing', this, false);
   window.addEventListener('BookmarksNeedsRefresh', this, false);
 
@@ -264,6 +265,7 @@ BookmarksView.prototype = Util.extend(Object.create(View.prototype), {
 
   destruct: function bv_destruct() {
     this._bookmarkService.removeObserver(this._changes);
+    Services.obs.removeObserver(this, "metro_viewstate_changed");
     window.removeEventListener('MozAppbarDismissing', this, false);
     window.removeEventListener('BookmarksNeedsRefresh', this, false);
   },
@@ -294,8 +296,6 @@ BookmarksView.prototype = Util.extend(Object.create(View.prototype), {
           let event = document.createEvent("Events");
           // we need the restore button to show (the tile node will go away though)
           event.actions = ["restore"];
-          event.noun = tileGroup.contextNoun;
-          event.qty = selectedTiles.length;
           event.initEvent("MozContextActionsChange", true, false);
           tileGroup.dispatchEvent(event);
         }, 0);
@@ -331,6 +331,15 @@ BookmarksView.prototype = Util.extend(Object.create(View.prototype), {
 
     // Send refresh event so all view are in sync.
     this._sendNeedsRefresh();
+  },
+
+  // nsIObservers
+  observe: function (aSubject, aTopic, aState) {
+    switch(aTopic) {
+      case "metro_viewstate_changed":
+        this.onViewStateChange(aState);
+        break;
+    }
   },
 
   handleEvent: function bv_handleEvent(aEvent) {

@@ -129,6 +129,7 @@ MOCHITEST_BROWSER_FILES = \
                  browser_bug556061.js \
                  browser_bug559991.js \
                  browser_bug561623.js \
+                 browser_bug561636.js \
                  browser_bug562649.js \
                  browser_bug563588.js \
                  browser_bug565575.js \
@@ -227,7 +228,6 @@ MOCHITEST_BROWSER_FILES = \
                  browser_pageInfo.js \
                  browser_pinnedTabs.js \
                  browser_plainTextLinks.js \
-                 browser_pluginCrashCommentAndURL.js \
                  browser_pluginnotification.js \
                  browser_pluginplaypreview.js \
                  browser_pluginplaypreview2.js \
@@ -326,7 +326,6 @@ MOCHITEST_BROWSER_FILES = \
                  plugin_two_types.html \
                  plugin_data_url.html \
                  plugin_unknown.html \
-                 pluginCrashCommentAndURL.html \
                  POSTSearchEngine.xml \
                  print_postdata.sjs \
                  redirect_bug623155.sjs \
@@ -358,16 +357,16 @@ MOCHITEST_BROWSER_FILES += \
 		$(NULL)
 endif
 
-ifneq (cocoa,$(MOZ_WIDGET_TOOLKIT))
-# Bug 766546.
-MOCHITEST_BROWSER_FILES += \
-  browser_bug561636.js \
-  $(NULL)
-endif
-
 ifdef MOZ_DATA_REPORTING
 MOCHITEST_BROWSER_FILES += \
   browser_datareporting_notification.js \
+  $(NULL)
+endif
+
+ifdef MOZ_CRASHREPORTER
+MOCHITEST_BROWSER_FILES += \
+  browser_pluginCrashCommentAndURL.js \
+  pluginCrashCommentAndURL.html \
   $(NULL)
 endif
 

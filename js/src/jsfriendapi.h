@@ -204,8 +204,6 @@ JS_SetSourceHook(JSRuntime *rt, JS_SourceHook hook);
 
 namespace js {
 
-extern mozilla::ThreadLocal<PerThreadData *> TlsPerThreadData;
-
 inline JSRuntime *
 GetRuntime(const JSContext *cx)
 {
@@ -442,7 +440,10 @@ GetGlobalForObjectCrossCompartment(JSObject *obj);
 
 // For legacy consumers only. This whole concept is going away soon.
 JS_FRIEND_API(JSObject *)
-GetDefaultGlobalForContext(JSContext *cx);
+DefaultObjectForContextOrNull(JSContext *cx);
+
+JS_FRIEND_API(void)
+SetDefaultObjectForContext(JSContext *cx, JSObject *obj);
 
 JS_FRIEND_API(void)
 NotifyAnimationActivity(JSObject *obj);
@@ -494,7 +495,7 @@ GetObjectProto(JSContext *cx, JS::Handle<JSObject*> obj, JS::MutableHandle<JSObj
         clasp == js::OuterWindowProxyClassPtr ||
         clasp == js::FunctionProxyClassPtr)
     {
-        return JS_GetPrototype(cx, obj, proto.address());
+        return JS_GetPrototype(cx, obj, proto);
     }
 
     proto.set(reinterpret_cast<const shadow::Object*>(obj.get())->type->proto);
@@ -1475,6 +1476,10 @@ class JSJitGetterCallArgs : protected JS::MutableHandleValue
       : JS::MutableHandleValue(args.rval())
     {}
 
+    explicit JSJitGetterCallArgs(JS::Rooted<JS::Value>* rooted)
+      : JS::MutableHandleValue(rooted)
+    {}
+
     JS::MutableHandleValue rval() {
         return *this;
     }
@@ -1488,10 +1493,10 @@ class JSJitSetterCallArgs : protected JS::MutableHandleValue
 {
   public:
     explicit JSJitSetterCallArgs(const JS::CallArgs& args)
-      : JS::MutableHandleValue(args.handleAt(0))
+      : JS::MutableHandleValue(args[0])
     {}
 
-    JS::MutableHandleValue handleAt(unsigned i) {
+    JS::MutableHandleValue operator[](unsigned i) {
         MOZ_ASSERT(i == 0);
         return *this;
     }
@@ -1525,8 +1530,8 @@ class JSJitMethodCallArgs : protected JS::detail::CallArgsBase<JS::detail::NoUse
 
     unsigned length() const { return Base::length(); }
 
-    JS::MutableHandleValue handleAt(unsigned i) const {
-        return Base::handleAt(i);
+    JS::MutableHandleValue operator[](unsigned i) const {
+        return Base::operator[](i);
     }
 
     bool hasDefined(unsigned i) const {

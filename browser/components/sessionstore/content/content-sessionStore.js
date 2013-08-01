@@ -23,7 +23,7 @@ const PRIVACY_FULL = 2;
 let EventListener = {
 
   DOM_EVENTS: [
-    "DOMContentLoaded", "pageshow", "change", "input", "load"
+    "DOMContentLoaded", "pageshow", "change", "input", "load", "MozStorageChanged"
   ],
 
   MESSAGES: [
@@ -51,6 +51,23 @@ let EventListener = {
       case "change":
         sendAsyncMessage("SessionStore:input");
         break;
+      case "MozStorageChanged": {
+        let isSessionStorage = true;
+        // We are only interested in sessionStorage events
+        try {
+          if (event.storageArea != content.sessionStorage) {
+            isSessionStorage = false;
+          }
+        } catch (ex) {
+          // This page does not even have sessionStorage
+          // (this is typically the case of about: pages)
+          isSessionStorage = false;
+        }
+        if (isSessionStorage) {
+          sendAsyncMessage("SessionStore:MozStorageChanged");
+        }
+        break;
+      }
       default:
         debug("received unknown event '" + event.type + "'");
         break;
@@ -69,8 +86,26 @@ let EventListener = {
     }
   }
 };
-
 EventListener.init();
+
+let ProgressListener = {
+  init: function() {
+    let webProgress = docShell.QueryInterface(Ci.nsIInterfaceRequestor)
+                              .getInterface(Ci.nsIWebProgress);
+    webProgress.addProgressListener(this, Ci.nsIWebProgress.NOTIFY_LOCATION);
+  },
+  onLocationChange: function(aWebProgress, aRequest, aLocation, aFlags) {
+    // We are changing page, so time to invalidate the state of the tab
+    sendAsyncMessage("SessionStore:loadStart");
+  },
+  onStateChange: function(aWebProgress, aRequest, aStateFlags, aStatus) {},
+  onProgressChange: function() {},
+  onStatusChange: function() {},
+  onSecurityChange: function() {},
+  QueryInterface: XPCOMUtils.generateQI([Ci.nsIWebProgressListener,
+                                         Ci.nsISupportsWeakReference])
+};
+ProgressListener.init();
 
 let SessionStore = {
   prefBranch: Services.prefs.getBranch("browser."),

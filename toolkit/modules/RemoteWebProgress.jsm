@@ -17,6 +17,11 @@ function newURI(spec)
                                                     .newURI(spec, null, null);
 }
 
+{
+    return Cc["@mozilla.org/network/io-service;1"].getService(Ci.nsIIOService)
+                                                    .newURI(spec, null, null);
+}
+
 function RemoteWebProgressRequest(spec)
 {
   this.uri = newURI(spec)
@@ -34,7 +39,7 @@ function RemoteWebProgress(browser)
   this._isLoadingDocument = false;
   this._DOMWindow = null;
   this._DOMWindowID = 0;
-  this._isTopLevel = true;
+  this._isTopLevel = null;
   this._loadType = 0;
   this._progressListeners = [];
 }
@@ -63,10 +68,18 @@ RemoteWebProgress.prototype = {
     this._browser = null;
   },
 
-  get isLoadingDocument() { return this._isLoadingDocument; },
+  get isLoadingDocument() { return this._isLoadingDocument },
   get DOMWindow() { return this._DOMWindow; },
   get DOMWindowID() { return this._DOMWindowID; },
-  get isTopLevel() { return this._isTopLevel; },
+  get isTopLevel() {
+    // When this object is accessed directly, it's usually obtained
+    // through browser.webProgress and thus represents the top-level
+    // document.
+    // However, during message handling it temporarily represents
+    // the webProgress that generated the notification, which may or
+    // may not be a toplevel frame.
+    return this._isTopLevel === null ? true : this._isTopLevel;
+  },
   get loadType() { return this._loadType; },
 
   addProgressListener: function WP_AddProgressListener (aListener) {
@@ -91,6 +104,7 @@ RemoteWebProgress.prototype = {
     this._DOMWindowID = aMessage.json.DOMWindowID;
     this._isTopLevel = aMessage.json.isTopLevel;
     this._loadType = aMessage.json.loadType;
+
     this._browser._contentWindow = aMessage.objects.contentWindow;
 
     let req = this._uriSpec(aMessage.json.requestURI);
@@ -136,9 +150,6 @@ RemoteWebProgress.prototype = {
       break;
     }
 
-    // This should default to true because chrome code occasionally initiates its own
-    // calls to nsIWebProgressListeners using the top-level browser element's
-    // nsIWebProgress object.
-    this._isTopLevel = true;
+    this._isTopLevel = null;
   }
 };

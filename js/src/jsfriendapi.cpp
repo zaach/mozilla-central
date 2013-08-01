@@ -7,7 +7,8 @@
 #include "jsfriendapi.h"
 
 #include "mozilla/PodOperations.h"
-#include "mozilla/StandardInteger.h"
+
+#include <stdint.h>
 
 #include "jscntxt.h"
 #include "jscompartment.h"
@@ -370,9 +371,15 @@ js::GetGlobalForObjectCrossCompartment(JSObject *obj)
 }
 
 JS_FRIEND_API(JSObject *)
-js::GetDefaultGlobalForContext(JSContext *cx)
+js::DefaultObjectForContextOrNull(JSContext *cx)
 {
     return cx->maybeDefaultCompartmentObject();
+}
+
+JS_FRIEND_API(void)
+js::SetDefaultObjectForContext(JSContext *cx, JSObject *obj)
+{
+    cx->setDefaultCompartmentObject(obj);
 }
 
 JS_FRIEND_API(void)
@@ -879,8 +886,19 @@ JS::DisableGenerationalGC(JSRuntime *rt)
 {
     rt->gcGenerationalEnabled = false;
 #ifdef JSGC_GENERATIONAL
+    MinorGC(rt, JS::gcreason::API);
     rt->gcNursery.disable();
     rt->gcStoreBuffer.disable();
+#endif
+}
+
+extern JS_FRIEND_API(void)
+JS::EnableGenerationalGC(JSRuntime *rt)
+{
+    rt->gcGenerationalEnabled = true;
+#ifdef JSGC_GENERATIONAL
+    rt->gcNursery.enable();
+    rt->gcStoreBuffer.enable();
 #endif
 }
 

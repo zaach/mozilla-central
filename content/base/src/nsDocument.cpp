@@ -208,6 +208,8 @@
 #include "nsIEditor.h"
 #include "nsIDOMCSSStyleRule.h"
 #include "mozilla/css/Rule.h"
+#include "nsIHttpChannelInternal.h"
+#include "nsISecurityConsoleMessage.h"
 
 using namespace mozilla;
 using namespace mozilla::dom;
@@ -1576,7 +1578,6 @@ NS_INTERFACE_TABLE_HEAD(nsDocument)
     NS_INTERFACE_TABLE_ENTRY(nsDocument, nsIRadioGroupContainer)
     NS_INTERFACE_TABLE_ENTRY(nsDocument, nsIMutationObserver)
     NS_INTERFACE_TABLE_ENTRY(nsDocument, nsIApplicationCacheContainer)
-    NS_INTERFACE_TABLE_ENTRY(nsDocument, nsIInlineEventHandlers)
     NS_INTERFACE_TABLE_ENTRY(nsDocument, nsIObserver)
   NS_INTERFACE_TABLE_END
   NS_INTERFACE_TABLE_TO_MAP_SEGUE_CYCLE_COLLECTION(nsDocument)
@@ -2468,6 +2469,23 @@ CSPErrorQueue::Flush(nsIDocument* aDocument)
   mErrors.Clear();
 }
 
+void
+nsDocument::SendToConsole(nsCOMArray<nsISecurityConsoleMessage>& aMessages)
+{
+  for (uint32_t i = 0; i < aMessages.Length(); ++i) {
+    nsAutoString messageTag;
+    aMessages[i]->GetTag(messageTag);
+
+    nsAutoString category;
+    aMessages[i]->GetCategory(category);
+
+    nsContentUtils::ReportToConsole(nsIScriptError::warningFlag,
+                                    NS_ConvertUTF16toUTF8(category).get(),
+                                    this, nsContentUtils::eSECURITY_PROPERTIES,
+                                    NS_ConvertUTF16toUTF8(messageTag).get());
+  }
+}
+
 nsresult
 nsDocument::InitCSP(nsIChannel* aChannel)
 {
@@ -3137,8 +3155,9 @@ nsDocument::ElementFromPointHelper(float aX, float aY,
     return nullptr; // return null to premature XUL callers as a reminder to wait
   }
 
-  nsIFrame *ptFrame = nsLayoutUtils::GetFrameForPoint(rootFrame, pt, true,
-                                                      aIgnoreRootScrollFrame);
+  nsIFrame *ptFrame = nsLayoutUtils::GetFrameForPoint(rootFrame, pt,
+    nsLayoutUtils::IGNORE_PAINT_SUPPRESSION |
+    (aIgnoreRootScrollFrame ? nsLayoutUtils::IGNORE_ROOT_SCROLL_FRAME : 0));
   if (!ptFrame) {
     return nullptr;
   }
@@ -3192,7 +3211,8 @@ nsDocument::NodesFromRectHelper(float aX, float aY,
 
   nsAutoTArray<nsIFrame*,8> outFrames;
   nsLayoutUtils::GetFramesForArea(rootFrame, rect, outFrames,
-                                  true, aIgnoreRootScrollFrame);
+    nsLayoutUtils::IGNORE_PAINT_SUPPRESSION |
+    (aIgnoreRootScrollFrame ? nsLayoutUtils::IGNORE_ROOT_SCROLL_FRAME : 0));
 
   // Used to filter out repeated elements in sequence.
   nsIContent* lastAdded = nullptr;
@@ -4286,8 +4306,16 @@ nsDocument::SetScriptGlobalObject(nsIScriptGlobalObject *aScriptGlobalObject)
   mWindow = window;
 
   // Now that we know what our window is, we can flush the CSP errors to the
-  // Web Console.
+  // Web Console. We are flushing all messages that occured and were stored
+  // in the queue prior to this point.
   FlushCSPWebConsoleErrorQueue();
+  nsCOMPtr<nsIHttpChannelInternal> internalChannel =
+    do_QueryInterface(GetChannel());
+  if (internalChannel) {
+    nsCOMArray<nsISecurityConsoleMessage> messages;
+    internalChannel->TakeAllSecurityMessages(messages);
+    SendToConsole(messages);
+  }
 
   // Set our visibility state, but do not fire the event.  This is correct
   // because either we're coming out of bfcache (in which case IsVisible() will
@@ -5214,7 +5242,7 @@ nsDocument::Register(JSContext* aCx, const nsAString& aName,
 
     // Check the proto chain for HTMLElement prototype.
     JS::Rooted<JSObject*> protoProto(aCx);
-    if (!JS_GetPrototype(aCx, protoObject, protoProto.address())) {
+    if (!JS_GetPrototype(aCx, protoObject, &protoProto)) {
       rv.Throw(NS_ERROR_UNEXPECTED);
       return nullptr;
     }
@@ -5222,7 +5250,7 @@ nsDocument::Register(JSContext* aCx, const nsAString& aName,
       if (protoProto == htmlProto) {
         break;
       }
-      if (!JS_GetPrototype(aCx, protoProto, protoProto.address())) {
+      if (!JS_GetPrototype(aCx, protoProto, &protoProto)) {
         rv.Throw(NS_ERROR_UNEXPECTED);
         return nullptr;
       }
@@ -9323,8 +9351,8 @@ nsIDocument::CaretPositionFromPoint(float aX, float aY)
     return nullptr;
   }
 
-  nsIFrame *ptFrame = nsLayoutUtils::GetFrameForPoint(rootFrame, pt, true,
-                                                      false);
+  nsIFrame *ptFrame = nsLayoutUtils::GetFrameForPoint(rootFrame, pt,
+      nsLayoutUtils::IGNORE_PAINT_SUPPRESSION);
   if (!ptFrame) {
     return nullptr;
   }
@@ -10996,18 +11024,6 @@ nsDocument::XPCOMShutdown()
 {
   gPendingPointerLockRequest = nullptr;
 }
-
-#define EVENT(name_, id_, type_, struct_)                                     \
-  NS_IMETHODIMP nsDocument::GetOn##name_(JSContext *cx, JS::Value *vp) {      \
-    return nsINode::GetOn##name_(cx, vp);                                     \
-  }                                                                           \
-  NS_IMETHODIMP nsDocument::SetOn##name_(JSContext *cx, const JS::Value &v) { \
-    return nsINode::SetOn##name_(cx, v);                                      \
-  }
-#define DOCUMENT_ONLY_EVENT EVENT
-#include "nsEventNameList.h"
-#undef DOCUMENT_ONLY_EVENT
-#undef EVENT
 
 void
 nsDocument::UpdateVisibilityState()

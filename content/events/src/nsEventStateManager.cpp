@@ -3073,7 +3073,9 @@ nsEventStateManager::PostHandleEvent(nsPresContext* aPresContext,
   NS_ENSURE_ARG(aPresContext);
   NS_ENSURE_ARG_POINTER(aStatus);
 
-  bool dispatched = HandleCrossProcessEvent(aEvent, aTargetFrame, aStatus);
+  bool dispatchedToContentProcess = HandleCrossProcessEvent(aEvent,
+                                                            aTargetFrame,
+                                                            aStatus);
 
   mCurrentTarget = aTargetFrame;
   mCurrentTargetContent = nullptr;
@@ -3520,6 +3522,13 @@ nsEventStateManager::PostHandleEvent(nsPresContext* aPresContext,
         switch(keyEvent->keyCode) {
           case NS_VK_TAB:
           case NS_VK_F6:
+            // Handling the tab event after it was sent to content is bad,
+            // because to the FocusManager the remote-browser looks like one
+            // element, so we would just move the focus to the next element
+            // in chrome, instead of handling it in content.
+            if (dispatchedToContentProcess)
+              break;
+
             EnsureDocument(mPresContext);
             nsIFocusManager* fm = nsFocusManager::GetFocusManager();
             if (fm && mDocument) {

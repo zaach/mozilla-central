@@ -111,6 +111,10 @@ public:
   bool RemoveTile(int x, int y, Tile& aRemovedTile);
 
   uint16_t GetTileLength() const { return TILEDLAYERBUFFER_TILE_SIZE; }
+
+#ifdef MOZ_WIDGET_ANDROID
+  MOZ_NEVER_INLINE // bug 881018 causes wrong results when GetScaledTileLength is inlined
+#endif
   uint32_t GetScaledTileLength() const { return TILEDLAYERBUFFER_TILE_SIZE / mResolution; }
 
   unsigned int GetTileCount() const { return mRetainedTiles.Length(); }
@@ -225,7 +229,6 @@ TiledLayerBuffer<Derived, Tile>::GetTile(const nsIntPoint& aTileOrigin) const
   // TODO Cache firstTileOriginX/firstTileOriginY
   // Find the tile x/y of the first tile and the target tile relative to the (0, 0)
   // origin, the difference is the tile x/y relative to the start of the tile buffer.
-  volatile float resolution = mResolution; // bug 881018 investigation
   int firstTileX = floor_div(mValidRegion.GetBounds().x, GetScaledTileLength());
   int firstTileY = floor_div(mValidRegion.GetBounds().y, GetScaledTileLength());
   return GetTile(floor_div(aTileOrigin.x, GetScaledTileLength()) - firstTileX,

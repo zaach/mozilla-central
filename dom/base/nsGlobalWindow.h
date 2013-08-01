@@ -631,8 +631,6 @@ public:
 
   virtual nsresult SetArguments(nsIArray *aArguments);
 
-  static bool DOMWindowDumpEnabled();
-
   void MaybeForgiveSpamCount();
   bool IsClosedOrClosing() {
     return (mIsClosed ||
@@ -809,7 +807,7 @@ protected:
 
   // Object Management
   virtual ~nsGlobalWindow();
-  void CleanUp(bool aIgnoreModalDialog);
+  void CleanUp();
   void ClearControllers();
   nsresult FinalClose();
 
@@ -1244,7 +1242,7 @@ protected:
   nsCOMPtr<nsIURI> mLastOpenedURI;
 #endif
 
-  bool mCleanedUp, mCallCleanUpAfterModalDialogCloses;
+  bool mCleanedUp;
 
   nsCOMPtr<nsIDOMOfflineResourceList> mApplicationCache;
 

@@ -18,6 +18,8 @@
     _(Value)                        \
     _(Parameter)                    \
     _(Callee)                       \
+    _(ForceUseV)                    \
+    _(ForceUseT)                    \
     _(TableSwitch)                  \
     _(TableSwitchV)                 \
     _(Goto)                         \
@@ -28,20 +30,23 @@
     _(NewDeclEnvObject)             \
     _(NewCallObject)                \
     _(NewStringObject)              \
-    _(ParNew)                       \
-    _(ParNewDenseArray)             \
-    _(ParNewCallObject)             \
-    _(ParBailout)                   \
+    _(NewPar)                       \
+    _(NewDenseArrayPar)             \
+    _(NewCallObjectPar)             \
+    _(AbortPar)                     \
     _(InitElem)                     \
+    _(InitElemGetterSetter)         \
     _(InitProp)                     \
+    _(InitPropGetterSetter)         \
     _(CheckOverRecursed)            \
-    _(ParCheckOverRecursed)         \
+    _(CheckOverRecursedPar)         \
     _(DefVar)                       \
     _(DefFun)                       \
     _(CallKnown)                    \
     _(CallGeneric)                  \
     _(CallNative)                   \
     _(ApplyArgsGeneric)             \
+    _(Bail)                         \
     _(GetDynamicName)               \
     _(FilterArguments)              \
     _(CallDirectEval)               \
@@ -81,6 +86,7 @@
     _(CompareV)                     \
     _(CompareVAndBranch)            \
     _(CompareVM)                    \
+    _(BitAndAndBranch)              \
     _(IsNullOrLikeUndefined)        \
     _(IsNullOrLikeUndefinedAndBranch)\
     _(EmulatesUndefined)            \
@@ -108,7 +114,7 @@
     _(ModD)                         \
     _(BinaryV)                      \
     _(Concat)                       \
-    _(ParConcat)                    \
+    _(ConcatPar)                    \
     _(CharCodeAt)                   \
     _(FromCharCode)                 \
     _(Int32ToDouble)                \
@@ -126,7 +132,7 @@
     _(RegExpTest)                   \
     _(Lambda)                       \
     _(LambdaForSingleton)           \
-    _(ParLambda)                    \
+    _(LambdaPar)                    \
     _(ImplicitThis)                 \
     _(Slots)                        \
     _(Elements)                     \
@@ -139,8 +145,7 @@
     _(GuardShape)                   \
     _(GuardObjectType)              \
     _(GuardClass)                   \
-    _(ParWriteGuard)                \
-    _(ParDump)                      \
+    _(GuardThreadLocalObject)       \
     _(TypeBarrier)                  \
     _(MonitorTypes)                 \
     _(PostWriteBarrierO)            \
@@ -177,7 +182,7 @@
     _(StoreFixedSlotV)              \
     _(StoreFixedSlotT)              \
     _(FunctionEnvironment)          \
-    _(ParSlice)                     \
+    _(ForkJoinSlice)                \
     _(GetPropertyCacheV)            \
     _(GetPropertyCacheT)            \
     _(GetPropertyPolymorphicV)      \
@@ -213,7 +218,7 @@
     _(GetArgument)                  \
     _(RunOncePrologue)              \
     _(Rest)                         \
-    _(ParRest)                      \
+    _(RestPar)                      \
     _(TypeOfV)                      \
     _(ToIdV)                        \
     _(Floor)                        \
@@ -241,7 +246,7 @@
     _(AsmJSPassStackArg)            \
     _(AsmJSCall)                    \
     _(AsmJSCheckOverRecursed)       \
-    _(ParCheckInterrupt)
+    _(CheckInterruptPar)
 
 #if defined(JS_CPU_X86)
 # include "ion/x86/LOpcodes-x86.h"

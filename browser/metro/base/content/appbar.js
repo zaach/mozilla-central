@@ -36,7 +36,7 @@ var Appbar = {
         break;
 
       case 'MozAppbarDismissing':
-        if (this.activeTileset) {
+        if (this.activeTileset && ('isBound' in this.activeTileset)) {
           this.activeTileset.clearSelection();
         }
         this.clearContextualActions();
@@ -45,10 +45,9 @@ var Appbar = {
 
       case 'MozContextActionsChange':
         let actions = aEvent.actions;
-        let noun = aEvent.noun;
-        let qty = aEvent.qty;
+        let setName = aEvent.target.contextSetName;
         // could transition in old, new buttons?
-        this.showContextualActions(actions, noun, qty);
+        this.showContextualActions(actions, setName);
         break;
 
       case "selectionchange":
@@ -101,15 +100,19 @@ var Appbar = {
   },
 
   onMenuButton: function(aEvent) {
-      var typesArray = ["find-in-page"];
+      let typesArray = [];
 
-      if (ConsolePanelView.enabled) typesArray.push("open-error-console");
-      if (!MetroUtils.immersive) typesArray.push("open-jsshell");
+      if (!StartUI.isVisible)
+        typesArray.push("find-in-page");
+      if (ConsolePanelView.enabled)
+        typesArray.push("open-error-console");
+      if (!MetroUtils.immersive)
+        typesArray.push("open-jsshell");
 
       try {
         // If we have a valid http or https URI then show the view on desktop
         // menu item.
-        var uri = Services.io.newURI(Browser.selectedBrowser.currentURI.spec,
+        let uri = Services.io.newURI(Browser.selectedBrowser.currentURI.spec,
                                      null, null);
         if (uri.schemeIs('http') || uri.schemeIs('https')) {
           typesArray.push("view-on-desktop");
@@ -147,7 +150,7 @@ var Appbar = {
 
   dispatchContextualAction: function(aActionName){
     let activeTileset = this.activeTileset;
-    if (activeTileset) {
+    if (activeTileset && ('isBound' in this.activeTileset)) {
       // fire event on the richgrid, others can listen
       // but we keep coupling loose so grid doesn't need to know about appbar
       let event = document.createEvent("Events");
@@ -161,14 +164,15 @@ var Appbar = {
     }
   },
 
-  showContextualActions: function(aVerbs, aNoun, aQty) {
+  showContextualActions: function(aVerbs, aSetName) {
     // When the appbar is not visible, we want the icons to refresh right away
     let immediate = !Elements.contextappbar.isShowing;
 
-    if (aVerbs.length)
+    if (aVerbs.length) {
       Elements.contextappbar.show();
-    else
+    } else {
       Elements.contextappbar.hide();
+    }
 
     // Look up all of the buttons for the verbs that should be visible.
     let idsToVisibleVerbs = new Map();
@@ -187,7 +191,7 @@ var Appbar = {
       let verb = idsToVisibleVerbs.get(button.id);
       if (verb != undefined) {
         // Button should be visible, and may or may not be showing.
-        this._updateContextualActionLabel(button, verb, aNoun, aQty);
+        this._updateContextualActionLabel(button, verb, aSetName);
         if (button.hidden) {
           toShow.push(button);
         }
@@ -223,25 +227,22 @@ var Appbar = {
     this.showContextualActions([]);
   },
 
-  _updateContextualActionLabel: function(aBtnNode, aVerb, aNoun, aQty) {
-    // True if action modifies the noun for the grid (bookmark, top site, etc.),
-    // causing the label to be pluralized by the number of selected items.
-    let modifiesNoun = aBtnNode.getAttribute("modifies-noun") == "true";
-    if (modifiesNoun && (!aNoun || isNaN(aQty))) {
-      throw new Error("Appbar._updateContextualActionLabel: " +
-                      "missing noun/quantity for " + aVerb);
-    }
-
-    let labelName = "contextAppbar." + aVerb + (modifiesNoun ? "." + aNoun : "");
-    let label = Strings.browser.GetStringFromName(labelName);
-    aBtnNode.label = modifiesNoun ? PluralForm.get(aQty, label) : label;
+  _updateContextualActionLabel: function(aButton, aVerb, aSetName) {
+    // True if the action's label string contains the set name and
+    // thus has to be selected based on the list passed in.
+    let usesSetName = aButton.hasAttribute("label-uses-set-name");
+    let name = "contextAppbar2." + aVerb + (usesSetName ? "." + aSetName : "");
+    aButton.label = Strings.browser.GetStringFromName(name);
   },
 
   _onTileSelectionChanged: function _onTileSelectionChanged(aEvent){
     let activeTileset = aEvent.target;
 
-    // deselect tiles in other tile groups
-    if (this.activeTileset && this.activeTileset !== activeTileset) {
+    // deselect tiles in other tile groups,
+    // ensure previousyl-activeTileset is bound before calling methods on it
+    if (this.activeTileset &&
+          ('isBound' in this.activeTileset) &&
+          this.activeTileset !== activeTileset) {
       this.activeTileset.clearSelection();
     }
     // keep track of which view is the target/scope for the contextual actions
@@ -255,10 +256,8 @@ var Appbar = {
     // fire event with these verbs as payload
     let event = document.createEvent("Events");
     event.actions = verbs;
-    event.noun = activeTileset.contextNoun;
-    event.qty = activeTileset.selectedItems.length;
     event.initEvent("MozContextActionsChange", true, false);
-    Elements.contextappbar.dispatchEvent(event);
+    activeTileset.dispatchEvent(event);
 
     if (verbs.length) {
       Elements.contextappbar.show(); // should be no-op if we're already showing

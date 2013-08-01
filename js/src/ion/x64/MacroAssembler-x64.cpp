@@ -5,10 +5,12 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "ion/x64/MacroAssembler-x64.h"
-#include "ion/BaselineFrame.h"
-#include "ion/MoveEmitter.h"
-#include "ion/IonFrames.h"
+
 #include "mozilla/Casting.h"
+
+#include "ion/BaselineFrame.h"
+#include "ion/IonFrames.h"
+#include "ion/MoveEmitter.h"
 
 using namespace js;
 using namespace js::ion;
@@ -240,7 +242,7 @@ MacroAssemblerX64::handleFailureWithHandler(void *handler)
     passABIArg(rax);
     callWithABI(handler);
 
-    IonCode *excTail = GetIonContext()->compartment->ionCompartment()->getExceptionTail();
+    IonCode *excTail = GetIonContext()->runtime->ionRuntime()->getExceptionTail();
     jmp(excTail);
 }
 

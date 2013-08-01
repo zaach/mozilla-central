@@ -119,7 +119,7 @@ interface ScheduledGCCallback : nsISupports
 /**
 * interface of Components.utils
 */
-[scriptable, uuid(19682543-2475-45a2-a4c7-781efe490e6c)]
+[scriptable, uuid(35d5b0e5-9b29-48de-9f79-d2534b497435)]
 interface nsIXPCComponents_Utils : nsISupports
 {
 
@@ -427,6 +427,18 @@ interface nsIXPCComponents_Utils : nsISupports
      */
     nsIClassInfo getDOMClassInfo(in AString aClassName);
 
+    /**
+      * Retrieve the last time, in microseconds since epoch, that a given
+      * watchdog-related event occured.
+      *
+      * Valid categories:
+      *   "RuntimeStateChange"      - Runtime switching between active and inactive states
+      *   "WatchdogWakeup"          - Watchdog waking up from sleeping
+      *   "WatchdogHibernateStart"  - Watchdog begins hibernating
+      *   "WatchdogHibernateStop"   - Watchdog stops hibernating
+      */
+    PRTime getWatchdogTimestamp(in AString aCategory);
+    
     /**
      * Returns whether an nsISupports is a wrapped JS object.
      */

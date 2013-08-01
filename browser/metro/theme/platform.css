@@ -661,16 +661,24 @@ arrowbox {
 .meta-section-title {
   font-size: @metro_font_large@;
   font-weight: 100;
-  visibility: collapse;
+  display: none;
+  cursor: default;
 }
 
 #start-container[viewstate="snapped"] .meta-section-title.narrow-title,
 #start-container:not([viewstate="snapped"]) .meta-section-title.wide-title {
-  visibility: visible;
+  display: block;
+}
+
+.meta-section:not([expanded]) > .meta-section-title.narrow-title:-moz-locale-dir(ltr):after {
+  content: ">";
+}
+
+.meta-section:not([expanded]) > .meta-section-title.narrow-title:-moz-locale-dir(rtl):before {
+  content: "<";
 }
 
 /* App bars ----------------------------------------------------------------- */
-
 appbar {
   display: block;
   position: fixed;

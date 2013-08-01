@@ -407,6 +407,18 @@ js_ReportOutOfMemory(ThreadSafeContext *cxArg)
         AutoSuppressGC suppressGC(cx);
         onError(cx, msg, &report);
     }
+
+    /*
+     * We would like to enforce the invariant that any exception reported
+     * during an OOM situation does not require wrapping. Besides avoiding
+     * allocation when memory is low, this reduces the number of places where
+     * we might need to GC.
+     *
+     * When JS code is running, we set the pending exception to an atom, which
+     * does not need wrapping. If no JS code is running, no exception should be
+     * set at all.
+     */
+    JS_ASSERT(!cx->isExceptionPending());
 }
 
 JS_FRIEND_API(void)
@@ -1026,13 +1038,12 @@ js_InvokeOperationCallback(JSContext *cx)
     return !cb || cb(cx);
 }
 
-JSBool
+bool
 js_HandleExecutionInterrupt(JSContext *cx)
 {
-    JSBool result = JS_TRUE;
     if (cx->runtime()->interrupt)
-        result = js_InvokeOperationCallback(cx) && result;
-    return result;
+        return js_InvokeOperationCallback(cx);
+    return true;
 }
 
 js::ThreadSafeContext::ThreadSafeContext(JSRuntime *rt, PerThreadData *pt, ContextKind kind)

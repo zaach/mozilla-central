@@ -9,12 +9,12 @@
 
 #include "mozilla/Attributes.h"
 
-#include "ion/Ion.h"
-#include "ion/MIR.h"
-#include "ion/MIRGraph.h"
 #include "ion/InlineList.h"
+#include "ion/Ion.h"
 #include "ion/LIR.h"
 #include "ion/Lowering.h"
+#include "ion/MIR.h"
+#include "ion/MIRGraph.h"
 
 // Generic structures and functions for use by register allocators.
 
@@ -297,14 +297,13 @@ class RegisterAllocator
     // Computed data
     InstructionDataMap insData;
 
-  public:
     RegisterAllocator(MIRGenerator *mir, LIRGenerator *lir, LIRGraph &graph)
       : mir(mir),
         lir(lir),
         graph(graph),
         allRegisters_(RegisterSet::All())
     {
-        if (FramePointer != InvalidReg && lir->mir()->instrumentedProfiling())
+        if (FramePointer != InvalidReg && mir->instrumentedProfiling())
             allRegisters_.take(AnyRegister(FramePointer));
 #if defined(JS_CPU_X64)
         if (mir->compilingAsmJS())
@@ -318,7 +317,6 @@ class RegisterAllocator
 #endif
     }
 
-  protected:
     bool init();
 
     CodePosition outputOf(uint32_t pos) const {

@@ -788,7 +788,7 @@ class OrderedHashSet
 /*** HashableValue *******************************************************************************/
 
 bool
-HashableValue::setValue(JSContext *cx, const Value &v)
+HashableValue::setValue(JSContext *cx, HandleValue v)
 {
     if (v.isString()) {
         // Atomize so that hash() and operator==() are fast and infallible.
@@ -1018,8 +1018,8 @@ Class MapObject::class_ = {
     finalize,
     NULL,                    // checkAccess
     NULL,                    // call
-    NULL,                    // construct
     NULL,                    // hasInstance
+    NULL,                    // construct
     mark
 };
 
@@ -1577,8 +1577,8 @@ Class SetObject::class_ = {
     finalize,
     NULL,                    // checkAccess
     NULL,                    // call
-    NULL,                    // construct
     NULL,                    // hasInstance
+    NULL,                    // construct
     mark
 };
 

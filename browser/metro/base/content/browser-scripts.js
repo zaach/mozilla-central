@@ -37,9 +37,8 @@ XPCOMUtils.defineLazyModuleGetter(this, "Task",
 XPCOMUtils.defineLazyModuleGetter(this, "CrossSlide",
                                   "resource:///modules/CrossSlide.jsm");
 
-XPCOMUtils.defineLazyGetter(this, "OS",
+XPCOMUtils.defineLazyModuleGetter(this, "OS",
                                   "resource://gre/modules/osfile.jsm");
-
 XPCOMUtils.defineLazyModuleGetter(this, "View",
                                   "resource:///modules/View.jsm");
 
@@ -137,7 +136,7 @@ let ScriptContexts = {};
   ["ItemPinHelper", "chrome://browser/content/helperui/ItemPinHelper.js"],
   ["NavButtonSlider", "chrome://browser/content/NavButtonSlider.js"],
   ["ContextUI", "chrome://browser/content/ContextUI.js"],
-  ["FlyoutPanelsUI", "chrome://browser/content/flyouts/flyoutUI.js"],
+  ["FlyoutPanelsUI", "chrome://browser/content/flyoutpanels/FlyoutPanelsUI.js"],
 #ifdef MOZ_SERVICES_SYNC
   ["RemoteTabsView", "chrome://browser/content/RemoteTabs.js"],
   ["RemoteTabsStartView", "chrome://browser/content/RemoteTabs.js"],

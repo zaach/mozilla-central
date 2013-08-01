@@ -50,8 +50,8 @@ using mozilla::RangedPtr;
 
 /*
  * If we're accumulating a decimal number and the number is >= 2^53, then the
- * fast result from the loop in GetPrefixInteger may be inaccurate. Call
- * js_strtod_harder to get the correct answer.
+ * fast result from the loop in Get{Prefix,Decimal}Integer may be inaccurate.
+ * Call js_strtod_harder to get the correct answer.
  */
 static bool
 ComputeAccurateDecimalInteger(ExclusiveContext *cx,
@@ -140,7 +140,7 @@ ComputeAccurateBinaryBaseInteger(const jschar *start, const jschar *end, int bas
         bit = bdr.nextDigit();
     } while (bit == 0);
 
-    JS_ASSERT(bit == 1); // guaranteed by GetPrefixInteger
+    JS_ASSERT(bit == 1); // guaranteed by Get{Prefix,Decimal}Integer
 
     /* Gather the 53 significant bits (including the leading 1). */
     double value = 1.0;
@@ -232,6 +232,30 @@ js::GetPrefixInteger(ExclusiveContext *cx, const jschar *start, const jschar *en
     return true;
 }
 
+bool
+js::GetDecimalInteger(ExclusiveContext *cx, const jschar *start, const jschar *end, double *dp)
+{
+    JS_ASSERT(start <= end);
+
+    const jschar *s = start;
+    double d = 0.0;
+    for (; s < end; s++) {
+        jschar c = *s;
+        JS_ASSERT('0' <= c && c <= '9');
+        int digit = c - '0';
+        d = d * 10 + digit;
+    }
+
+    *dp = d;
+
+    // If we haven't reached the limit of integer precision, we're done.
+    if (d < DOUBLE_INTEGRAL_PRECISION_LIMIT)
+        return true;
+
+    // Otherwise compute the correct integer from the prefix of valid digits.
+    return ComputeAccurateDecimalInteger(cx, start, s, dp);
+}
+
 static JSBool
 num_isNaN(JSContext *cx, unsigned argc, Value *vp)
 {
@@ -243,7 +267,7 @@ num_isNaN(JSContext *cx, unsigned argc, Value *vp)
     }
 
     double x;
-    if (!ToNumber(cx, args.handleAt(0), &x))
+    if (!ToNumber(cx, args[0], &x))
         return false;
 
     args.rval().setBoolean(mozilla::IsNaN(x));
@@ -261,7 +285,7 @@ num_isFinite(JSContext *cx, unsigned argc, Value *vp)
     }
 
     double x;
-    if (!ToNumber(cx, args.handleAt(0), &x))
+    if (!ToNumber(cx, args[0], &x))
         return false;
 
     args.rval().setBoolean(mozilla::IsFinite(x));
@@ -277,7 +301,7 @@ num_parseFloat(JSContext *cx, unsigned argc, Value *vp)
         args.rval().setDouble(js_NaN);
         return JS_TRUE;
     }
-    JSString *str = ToString<CanGC>(cx, args.handleAt(0));
+    JSString *str = ToString<CanGC>(cx, args[0]);
     if (!str)
         return JS_FALSE;
     const jschar *bp = str->getChars(cx);
@@ -344,7 +368,7 @@ js::num_parseInt(JSContext *cx, unsigned argc, Value *vp)
     }
 
     /* Step 1. */
-    RootedString inputString(cx, ToString<CanGC>(cx, args.handleAt(0)));
+    RootedString inputString(cx, ToString<CanGC>(cx, args[0]));
     if (!inputString)
         return false;
     args[0].setString(inputString);
@@ -439,7 +463,7 @@ Number(JSContext *cx, unsigned argc, Value *vp)
     bool isConstructing = args.isConstructing();
 
     if (args.length() > 0) {
-        if (!ToNumber(cx, args.handleAt(0)))
+        if (!ToNumber(cx, args[0]))
             return false;
         args.rval().set(args[0]);
     } else {
@@ -605,7 +629,7 @@ num_toString_impl(JSContext *cx, CallArgs args)
     int32_t base = 10;
     if (args.hasDefined(0)) {
         double d2;
-        if (!ToInteger(cx, args.handleAt(0), &d2))
+        if (!ToInteger(cx, args[0], &d2))
             return false;
 
         if (d2 < 2 || d2 > 36) {
@@ -830,7 +854,7 @@ num_toFixed_impl(JSContext *cx, CallArgs args)
     if (args.length() == 0) {
         precision = 0;
     } else {
-        if (!ComputePrecisionInRange(cx, -20, MAX_PRECISION, args.handleAt(0), &precision))
+        if (!ComputePrecisionInRange(cx, -20, MAX_PRECISION, args[0], &precision))
             return false;
     }
 
@@ -856,7 +880,7 @@ num_toExponential_impl(JSContext *cx, CallArgs args)
         precision = 0;
     } else {
         mode = DTOSTR_EXPONENTIAL;
-        if (!ComputePrecisionInRange(cx, 0, MAX_PRECISION, args.handleAt(0), &precision))
+        if (!ComputePrecisionInRange(cx, 0, MAX_PRECISION, args[0], &precision))
             return false;
     }
 
@@ -894,7 +918,7 @@ num_toPrecision_impl(JSContext *cx, CallArgs args)
         precision = 0;
     } else {
         mode = DTOSTR_PRECISION;
-        if (!ComputePrecisionInRange(cx, 1, MAX_PRECISION, args.handleAt(0), &precision))
+        if (!ComputePrecisionInRange(cx, 1, MAX_PRECISION, args[0], &precision))
             return false;
     }
 
@@ -979,7 +1003,7 @@ Number_toInteger(JSContext *cx, unsigned argc, Value *vp)
         return true;
     }
     double asint;
-    if (!ToInteger(cx, args.handleAt(0), &asint))
+    if (!ToInteger(cx, args[0], &asint))
         return false;
     args.rval().setNumber(asint);
     return true;

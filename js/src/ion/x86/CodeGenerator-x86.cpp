@@ -4,18 +4,20 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#include "ion/x86/CodeGenerator-x86.h"
+
 #include "mozilla/DebugOnly.h"
 
 #include "jsnum.h"
 
-#include "ion/x86/CodeGenerator-x86.h"
+#include "ion/ExecutionModeInlines.h"
 #include "ion/MIR.h"
 #include "ion/MIRGraph.h"
-#include "ion/shared/CodeGenerator-shared-inl.h"
 #include "vm/Shape.h"
 
 #include "jsscriptinlines.h"
-#include "ion/ExecutionModeInlines.h"
+
+#include "ion/shared/CodeGenerator-shared-inl.h"
 
 using namespace js;
 using namespace js::ion;
@@ -454,11 +456,14 @@ CodeGeneratorX86::visitLoadTypedArrayElementStatic(LLoadTypedArrayElementStatic 
         FloatRegister dest = ToFloatRegister(out);
         masm.movssWithPatch(srcAddr, dest);
         masm.cvtss2sd(dest, dest);
+        masm.canonicalizeDouble(dest);
         if (ool)
             masm.bind(ool->rejoin());
         return true;
     }
     loadViewTypeElement(vt, srcAddr, out);
+    if (vt == ArrayBufferView::TYPE_FLOAT64)
+        masm.canonicalizeDouble(ToFloatRegister(out));
     if (ool)
         masm.bind(ool->rejoin());
     return true;
@@ -491,13 +496,13 @@ CodeGeneratorX86::visitAsmJSLoadHeap(LAsmJSLoadHeap *ins)
         uint32_t after = masm.size();
         masm.cvtss2sd(dest, dest);
         masm.bind(ool->rejoin());
-        return gen->noteHeapAccess(AsmJSHeapAccess(cmp.offset(), before, after, vt, AnyRegister(dest)));
+        return gen->noteHeapAccess(AsmJSHeapAccess(before, after, vt, AnyRegister(dest), cmp.offset()));
     }
     uint32_t before = masm.size();
     loadViewTypeElement(vt, srcAddr, out);
     uint32_t after = masm.size();
     masm.bind(ool->rejoin());
-    return gen->noteHeapAccess(AsmJSHeapAccess(cmp.offset(), before, after, vt, ToAnyRegister(out)));
+    return gen->noteHeapAccess(AsmJSHeapAccess(before, after, vt, ToAnyRegister(out), cmp.offset()));
 }
 
 bool
@@ -578,13 +583,13 @@ CodeGeneratorX86::visitAsmJSStoreHeap(LAsmJSStoreHeap *ins)
         masm.movssWithPatch(ScratchFloatReg, dstAddr);
         uint32_t after = masm.size();
         masm.bind(&rejoin);
-        return gen->noteHeapAccess(AsmJSHeapAccess(cmp.offset(), before, after));
+        return gen->noteHeapAccess(AsmJSHeapAccess(before, after, cmp.offset()));
     }
     uint32_t before = masm.size();
     storeViewTypeElement(vt, value, dstAddr);
     uint32_t after = masm.size();
     masm.bind(&rejoin);
-    return gen->noteHeapAccess(AsmJSHeapAccess(cmp.offset(), before, after));
+    return gen->noteHeapAccess(AsmJSHeapAccess(before, after, cmp.offset()));
 }
 
 bool
@@ -663,7 +668,7 @@ DispatchIonCache::initializeAddCacheState(LInstruction *ins, AddCacheState *addS
 }
 
 void
-ParallelGetPropertyIC::initializeAddCacheState(LInstruction *ins, AddCacheState *addState)
+GetPropertyParIC::initializeAddCacheState(LInstruction *ins, AddCacheState *addState)
 {
     // We don't have a scratch register, but only use the temp if we needed
     // one, it's BogusTemp otherwise.
@@ -675,7 +680,7 @@ ParallelGetPropertyIC::initializeAddCacheState(LInstruction *ins, AddCacheState 
 }
 
 void
-ParallelGetElementIC::initializeAddCacheState(LInstruction *ins, AddCacheState *addState)
+GetElementParIC::initializeAddCacheState(LInstruction *ins, AddCacheState *addState)
 {
     // We don't have a scratch register, but only use the temp if we needed
     // one, it's BogusTemp otherwise.

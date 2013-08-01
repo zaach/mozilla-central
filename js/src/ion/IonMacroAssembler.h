@@ -18,7 +18,6 @@
 #elif defined(JS_CPU_ARM)
 # include "ion/arm/MacroAssembler-arm.h"
 #endif
-#include "ion/AsmJS.h"
 #include "ion/IonCompartment.h"
 #include "ion/IonInstrumentation.h"
 #include "ion/ParallelFunctions.h"
@@ -217,6 +216,12 @@ class MacroAssembler : public MacroAssemblerSpecific
     void branchIfFalseBool(const Register &reg, Label *label) {
         // Note that C++ bool is only 1 byte, so ignore the higher-order bits.
         branchTest32(Assembler::Zero, reg, Imm32(0xFF), label);
+    }
+
+    // Branches to |label| if |reg| is true. |reg| should be a C++ bool.
+    void branchIfTrueBool(const Register &reg, Label *label) {
+        // Note that C++ bool is only 1 byte, so ignore the higher-order bits.
+        branchTest32(Assembler::NonZero, reg, Imm32(0xFF), label);
     }
 
     void loadObjPrivate(Register obj, uint32_t nfixed, Register dest) {
@@ -493,10 +498,10 @@ class MacroAssembler : public MacroAssemblerSpecific
         Push(PreBarrierReg);
         computeEffectiveAddress(address, PreBarrierReg);
 
-        JSCompartment *compartment = GetIonContext()->compartment;
+        JSRuntime *runtime = GetIonContext()->runtime;
         IonCode *preBarrier = (type == MIRType_Shape)
-                              ? compartment->ionCompartment()->shapePreBarrier()
-                              : compartment->ionCompartment()->valuePreBarrier();
+                              ? runtime->ionRuntime()->shapePreBarrier()
+                              : runtime->ionRuntime()->valuePreBarrier();
 
         call(preBarrier);
         Pop(PreBarrierReg);
@@ -612,27 +617,17 @@ class MacroAssembler : public MacroAssemblerSpecific
     void newGCString(const Register &result, Label *fail);
     void newGCShortString(const Register &result, Label *fail);
 
-    void parNewGCThing(const Register &result,
-                       const Register &threadContextReg,
-                       const Register &tempReg1,
-                       const Register &tempReg2,
-                       gc::AllocKind allocKind,
-                       Label *fail);
-    void parNewGCThing(const Register &result,
-                       const Register &threadContextReg,
-                       const Register &tempReg1,
-                       const Register &tempReg2,
-                       JSObject *templateObject,
-                       Label *fail);
-    void parNewGCString(const Register &result,
-                        const Register &threadContextReg,
-                        const Register &tempReg1,
-                        const Register &tempReg2,
+    void newGCThingPar(const Register &result, const Register &slice,
+                       const Register &tempReg1, const Register &tempReg2,
+                       gc::AllocKind allocKind, Label *fail);
+    void newGCThingPar(const Register &result, const Register &slice,
+                       const Register &tempReg1, const Register &tempReg2,
+                       JSObject *templateObject, Label *fail);
+    void newGCStringPar(const Register &result, const Register &slice,
+                        const Register &tempReg1, const Register &tempReg2,
                         Label *fail);
-    void parNewGCShortString(const Register &result,
-                             const Register &threadContextReg,
-                             const Register &tempReg1,
-                             const Register &tempReg2,
+    void newGCShortStringPar(const Register &result, const Register &slice,
+                             const Register &tempReg1, const Register &tempReg2,
                              Label *fail);
     void initGCThing(const Register &obj, JSObject *templateObject);
 
@@ -643,8 +638,7 @@ class MacroAssembler : public MacroAssemblerSpecific
 
     // Checks the flags that signal that parallel code may need to interrupt or
     // abort.  Branches to fail in that case.
-    void parCheckInterruptFlags(const Register &tempReg,
-                                Label *fail);
+    void checkInterruptFlagsPar(const Register &tempReg, Label *fail);
 
     // If the IonCode that created this assembler needs to transition into the VM,
     // we want to store the IonCode on the stack in order to mark it during a GC.

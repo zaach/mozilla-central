@@ -28,7 +28,7 @@
 #include "nsDisplayListInvalidation.h"
 #include "DisplayListClipState.h"
 
-#include "mozilla/StandardInteger.h"
+#include <stdint.h>
 
 #include <stdlib.h>
 #include <algorithm>
@@ -1002,12 +1002,6 @@ public:
    * active. Requires setting the pref layers.force-active=true.
    */
   static bool ForceActiveLayers();
-
-  /**
-   * Returns the maximum number of layers that should be created
-   * or -1 for no limit. Requires setting the pref layers.max-acitve.
-   */
-  static int32_t MaxActiveLayers();
 
   /**
    * @return LAYER_NONE if BuildLayer will return null. In this case

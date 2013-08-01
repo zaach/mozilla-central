@@ -113,6 +113,12 @@ abstract public class BrowserApp extends GeckoApp
         public int parent;
     }
 
+    // The types of guest mdoe dialogs we show
+    private static enum GuestModeDialog {
+        ENTERING,
+        LEAVING
+    }
+
     private Vector<MenuItemInfo> mAddonMenuItemsCache;
     private PropertyAnimator mMainLayoutAnimator;
 
@@ -394,6 +400,13 @@ abstract public class BrowserApp extends GeckoApp
         String args = getIntent().getStringExtra("args");
         if (args != null && args.contains("--guest-mode")) {
             mProfile = GeckoProfile.createGuestProfile(this);
+        } else {
+            ThreadUtils.postToBackgroundThread(new Runnable() {
+                @Override
+                public void run() {
+                    GeckoProfile.removeGuestProfile(BrowserApp.this);
+                }
+            });
         }
 
         super.onCreate(savedInstanceState);
@@ -505,6 +518,21 @@ abstract public class BrowserApp extends GeckoApp
             }
         });
     }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        unregisterEventListener("Prompt:ShowTop");
+    }
+
+    @Override
+    public void onPause() {
+        super.onPause();
+        // Register for Prompt:ShowTop so we can foreground this activity even if it's hidden.
+        registerEventListener("Prompt:ShowTop");
+    }
+
+
 
     private void showBookmarkDialog() {
         final Tab tab = Tabs.getInstance().getSelectedTab();
@@ -707,6 +735,11 @@ abstract public class BrowserApp extends GeckoApp
         if (mBrowserToolbar != null)
             mBrowserToolbar.onDestroy();
 
+        if (mFindInPageBar != null) {
+            mFindInPageBar.onDestroy();
+            mFindInPageBar = null;
+        }
+
         if (mSharedPreferencesHelper != null) {
             mSharedPreferencesHelper.uninit();
             mSharedPreferencesHelper = null;
@@ -742,14 +775,6 @@ abstract public class BrowserApp extends GeckoApp
         }
 
         super.onDestroy();
-    }
-
-    @Override
-    protected void finishProfileMigration() {
-        // Update about:home with the new information.
-        updateAboutHomeTopSites();
-
-        super.finishProfileMigration();
     }
 
     @Override
@@ -1117,6 +1142,12 @@ abstract public class BrowserApp extends GeckoApp
                 startActivity(settingsIntent);
             } else if (event.equals("Updater:Launch")) {
                 handleUpdaterLaunch();
+            } else if (event.equals("Prompt:ShowTop")) {
+                // Bring this activity to front so the prompt is visible..
+                Intent bringToFrontIntent = new Intent();
+                bringToFrontIntent.setClassName(AppConstants.ANDROID_PACKAGE_NAME, AppConstants.BROWSER_INTENT_CLASS);
+                bringToFrontIntent.setFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+                startActivity(bringToFrontIntent);
             } else {
                 super.handleMessage(event, message);
             }
@@ -1450,11 +1481,13 @@ abstract public class BrowserApp extends GeckoApp
                 @Override
                 public void onBitmapFound(Drawable d) {
                     MenuItem item = mMenu.findItem(id);
+                    if (item == null) {
+                        return;
+                    }
                     if (d == null) {
                         item.setIcon(R.drawable.ic_menu_addons_filler);
                         return;
                     }
-
                     item.setIcon(d);
                 }
             });
@@ -1761,16 +1794,53 @@ abstract public class BrowserApp extends GeckoApp
                 addPrivateTab();
                 return true;
             case R.id.enter_guest_mode:
-                doRestart("--guest-mode");
-                System.exit(0);
+                showGuestModeDialog(GuestModeDialog.ENTERING);
                 return true;
             case R.id.exit_guest_mode:
-                doRestart();
-                System.exit(0);
+                showGuestModeDialog(GuestModeDialog.LEAVING);
                 return true;
             default:
                 return super.onOptionsItemSelected(item);
         }
+    }
+
+    private void showGuestModeDialog(final GuestModeDialog type) {
+        final Prompt ps = new Prompt(this, new Prompt.PromptCallback() {
+            @Override
+            public void onPromptFinished(String result) {
+                try {
+                    int itemId = new JSONObject(result).getInt("button");
+                    if (itemId == 0) {
+                        String args = "";
+                        if (type == GuestModeDialog.ENTERING) {
+                            args = "--guest-mode";
+                        }
+                        doRestart(args);
+                        System.exit(0);
+                    }
+                } catch(JSONException ex) {
+                    Log.e(LOGTAG, "Exception reading guest mode prompt result", ex);
+                }
+            }
+        });
+
+        Resources res = getResources();
+        ps.setButtons(new String[] {
+            res.getString(R.string.guest_mode_dialog_continue),
+            res.getString(R.string.guest_mode_dialog_cancel)
+        });
+
+        int titleString = 0;
+        int msgString = 0;
+        if (type == GuestModeDialog.ENTERING) {
+            titleString = R.string.guest_mode_enter_title;
+            msgString = R.string.guest_mode_enter_text;
+        } else {
+            titleString = R.string.guest_mode_leave_title;
+            msgString = R.string.guest_mode_leave_text;
+        }
+
+        ps.show(res.getString(titleString), res.getString(msgString), null, false);
     }
 
     /**

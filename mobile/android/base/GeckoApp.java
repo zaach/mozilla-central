@@ -152,6 +152,7 @@ abstract public class GeckoApp
     public static final String ACTION_LOAD          = "org.mozilla.gecko.LOAD";
     public static final String ACTION_LAUNCH_SETTINGS = "org.mozilla.gecko.SETTINGS";
     public static final String ACTION_INIT_PW       = "org.mozilla.gecko.INIT_PW";
+    public static final String SAVED_STATE_INTENT_HANDLED = "intentHandled";
     public static final String SAVED_STATE_IN_BACKGROUND = "inBackground";
     public static final String SAVED_STATE_PRIVATE_SESSION = "privateSession";
 
@@ -167,6 +168,10 @@ abstract public class GeckoApp
 
     static private final String LOCATION_URL = "https://location.services.mozilla.com/v1/submit";
 
+    // Delay before running one-time "cleanup" tasks that may be needed
+    // after a version upgrade.
+    private static final int CLEANUP_DEFERRAL_SECONDS = 15;
+
     protected RelativeLayout mMainLayout;
     protected RelativeLayout mGeckoLayout;
     public View getView() { return mGeckoLayout; }
@@ -180,6 +185,7 @@ abstract public class GeckoApp
     protected GeckoProfile mProfile;
     public static int mOrientation;
     protected boolean mIsRestoringActivity;
+    private boolean mIntentHandled;
     private String mCurrentResponse = "";
     public static boolean sIsUsingCustomProfile = false;
 
@@ -483,11 +489,13 @@ abstract public class GeckoApp
     protected void onSaveInstanceState(Bundle outState) {
         super.onSaveInstanceState(outState);
 
-        if (outState == null)
-            outState = new Bundle();
-
         outState.putBoolean(SAVED_STATE_IN_BACKGROUND, isApplicationInBackground());
         outState.putString(SAVED_STATE_PRIVATE_SESSION, mPrivateBrowsingSession);
+
+        // Bug 896992 - Replace intent action with ACTION_MAIN on restart.
+        if (mIntentHandled) {
+            outState.putBoolean(SAVED_STATE_INTENT_HANDLED, true);
+        }
     }
 
     void handleFaviconRequest(final String url) {
@@ -1330,6 +1338,16 @@ abstract public class GeckoApp
                 Telemetry.HistogramAdd("FENNEC_WAS_KILLED", 1);
             }
 
+            if (savedInstanceState.getBoolean(SAVED_STATE_INTENT_HANDLED, false)) {
+                Intent thisIntent = getIntent();
+                // Bug 896992 - This intent has already been handled, clear the intent action.
+                thisIntent.setAction(Intent.ACTION_MAIN);
+                setIntent(thisIntent);
+
+                // Persist this flag for reincarnations of this Activity Intent.
+                mIntentHandled = true;
+            }
+
             mPrivateBrowsingSession = savedInstanceState.getString(SAVED_STATE_PRIVATE_SESSION);
         }
 
@@ -1409,7 +1427,7 @@ abstract public class GeckoApp
             }
         } else {
             // If given an external URL, load it
-            int flags = Tabs.LOADURL_NEW_TAB | Tabs.LOADURL_USER_ENTERED;
+            int flags = Tabs.LOADURL_NEW_TAB | Tabs.LOADURL_USER_ENTERED | Tabs.LOADURL_EXTERNAL;
             Tabs.getInstance().loadUrl(url, flags);
         }
     }
@@ -1512,6 +1530,7 @@ abstract public class GeckoApp
 
         // Check if launched from data reporting notification.
         if (ACTION_LAUNCH_SETTINGS.equals(action)) {
+            mIntentHandled = true;
             Intent settingsIntent = new Intent(GeckoApp.this, GeckoPreferences.class);
             // Copy extras.
             settingsIntent.putExtras(intent);
@@ -1916,7 +1935,8 @@ abstract public class GeckoApp
             GeckoAppShell.sendEventToGecko(GeckoEvent.createURILoadEvent(uri));
         } else if (ACTION_ALERT_CALLBACK.equals(action)) {
             processAlertCallback(intent);
-        } if (ACTION_LAUNCH_SETTINGS.equals(action)) {
+        } else if (ACTION_LAUNCH_SETTINGS.equals(action)) {
+            mIntentHandled = true;
             // Check if launched from data reporting notification.
             Intent settingsIntent = new Intent(GeckoApp.this, GeckoPreferences.class);
             // Copy extras.
@@ -2245,23 +2265,54 @@ abstract public class GeckoApp
             ThreadUtils.postToBackgroundThread(new Runnable() {
                 @Override
                 public void run() {
-                    ProfileMigrator profileMigrator = new ProfileMigrator(app);
-
-                    profileMigrator.launchDeferredCleanup();
-
-                    // Do a migration run on the first start after an upgrade.
-                    if (!GeckoApp.sIsUsingCustomProfile &&
-                        !profileMigrator.hasMigrationRun()) {
-
-                        profileMigrator.launchPlaces(profileDir);
-                        finishProfileMigration();
-                    }
-                }}
-            );
+                    Handler handler = new Handler();
+                    handler.postDelayed(new DeferredCleanupTask(), CLEANUP_DEFERRAL_SECONDS * 1000);
+                }
+            });
         }
     }
 
-    protected void finishProfileMigration() {
+    private class DeferredCleanupTask implements Runnable {
+        // The cleanup-version setting is recorded to avoid repeating the same
+        // tasks on subsequent startups; CURRENT_CLEANUP_VERSION may be updated
+        // if we need to do additional cleanup for future Gecko versions.
+
+        private static final String CLEANUP_VERSION = "cleanup-version";
+        private static final int CURRENT_CLEANUP_VERSION = 1;
+
+        @Override
+        public void run() {
+            long cleanupVersion = getAppSharedPreferences().getInt(CLEANUP_VERSION, 0);
+
+            if (cleanupVersion < 1) {
+                // Reduce device storage footprint by removing .ttf files from
+                // the res/fonts directory: we no longer need to copy our
+                // bundled fonts out of the APK in order to use them.
+                // See https://bugzilla.mozilla.org/show_bug.cgi?id=878674.
+                File dir = new File("res/fonts");
+                if (dir.exists() && dir.isDirectory()) {
+                    for (File file : dir.listFiles()) {
+                        if (file.isFile() && file.getName().endsWith(".ttf")) {
+                            Log.i(LOGTAG, "deleting " + file.toString());
+                            file.delete();
+                        }
+                    }
+                    if (!dir.delete()) {
+                        Log.w(LOGTAG, "unable to delete res/fonts directory (not empty?)");
+                    } else {
+                        Log.i(LOGTAG, "res/fonts directory deleted");
+                    }
+                }
+            }
+
+            // Additional cleanup needed for future versions would go here
+
+            if (cleanupVersion != CURRENT_CLEANUP_VERSION) {
+                SharedPreferences.Editor editor = getAppSharedPreferences().edit();
+                editor.putInt(CLEANUP_VERSION, CURRENT_CLEANUP_VERSION);
+                editor.commit();
+            }
+        }
     }
 
     public PromptService getPromptService() {

@@ -134,7 +134,7 @@ intrinsic_ToInteger(JSContext *cx, unsigned argc, Value *vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
     double result;
-    if (!ToInteger(cx, args.handleAt(0), &result))
+    if (!ToInteger(cx, args[0], &result))
         return false;
     args.rval().setDouble(result);
     return true;
@@ -192,7 +192,7 @@ intrinsic_AssertionFailed(JSContext *cx, unsigned argc, Value *vp)
     CallArgs args = CallArgsFromVp(argc, vp);
     if (args.length() > 0) {
         // try to dump the informative string
-        JSString *str = ToString<CanGC>(cx, args.handleAt(0));
+        JSString *str = ToString<CanGC>(cx, args[0]);
         if (str) {
             const jschar *chars = str->getChars(cx);
             if (chars) {
@@ -219,7 +219,7 @@ intrinsic_MakeConstructible(JSContext *cx, unsigned argc, Value *vp)
     // Normal .prototype properties aren't enumerable.  But for this to clone
     // correctly, it must be enumerable.
     RootedObject ctor(cx, &args[0].toObject());
-    if (!JSObject::defineProperty(cx, ctor, cx->names().classPrototype, args.handleAt(1),
+    if (!JSObject::defineProperty(cx, ctor, cx->names().classPrototype, args[1],
                                   JS_PropertyStub, JS_StrictPropertyStub,
                                   JSPROP_READONLY | JSPROP_ENUMERATE | JSPROP_PERMANENT))
     {
@@ -319,14 +319,20 @@ intrinsic_SetScriptHints(JSContext *cx, unsigned argc, Value *vp)
  * Dump(val): Dumps a value for debugging, even in parallel mode.
  */
 JSBool
-js::intrinsic_Dump(JSContext *cx, unsigned argc, Value *vp)
+intrinsic_Dump(ThreadSafeContext *cx, unsigned argc, Value *vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
-    RootedValue val(cx, args[0]);
-    js_DumpValue(val);
+    js_DumpValue(args[0]);
+    if (args[0].isObject()) {
+        fprintf(stderr, "\n");
+        js_DumpObject(&args[0].toObject());
+    }
     args.rval().setUndefined();
     return true;
 }
+
+const JSJitInfo intrinsic_Dump_jitInfo =
+    JS_JITINFO_NATIVE_PARALLEL(JSParallelNativeThreadSafeWrapper<intrinsic_Dump>);
 
 JSBool
 intrinsic_ParallelSpew(ThreadSafeContext *cx, unsigned argc, Value *vp)
@@ -665,7 +671,9 @@ const JSFunctionSpec intrinsic_functions[] = {
     JS_FN("regexp_test_no_statics", regexp_test_no_statics, 2,0),
 
 #ifdef DEBUG
-    JS_FN("Dump",                 intrinsic_Dump,                 1,0),
+    JS_FNINFO("Dump",
+              JSNativeThreadSafeWrapper<intrinsic_Dump>,
+              &intrinsic_Dump_jitInfo, 1,0),
 
     JS_FNINFO("ParallelSpew",
               JSNativeThreadSafeWrapper<intrinsic_ParallelSpew>,
@@ -679,11 +687,11 @@ bool
 JSRuntime::initSelfHosting(JSContext *cx)
 {
     JS_ASSERT(!selfHostingGlobal_);
-    RootedObject savedGlobal(cx, js::GetDefaultGlobalForContext(cx));
+    RootedObject savedGlobal(cx, js::DefaultObjectForContextOrNull(cx));
     if (!(selfHostingGlobal_ = JS_NewGlobalObject(cx, &self_hosting_global_class, NULL)))
         return false;
     JSAutoCompartment ac(cx, selfHostingGlobal_);
-    JS_SetGlobalObject(cx, selfHostingGlobal_);
+    js::SetDefaultObjectForContext(cx, selfHostingGlobal_);
     Rooted<GlobalObject*> shg(cx, &selfHostingGlobal_->as<GlobalObject>());
     /*
      * During initialization of standard classes for the self-hosting global,
@@ -750,7 +758,7 @@ JSRuntime::initSelfHosting(JSContext *cx)
         ok = Evaluate(cx, shg, options, src, srcLen, &rv);
     }
     JS_SetErrorReporter(cx, oldReporter);
-    JS_SetGlobalObject(cx, savedGlobal);
+    js::SetDefaultObjectForContext(cx, savedGlobal);
     return ok;
 }
 
@@ -822,6 +830,21 @@ CloneProperties(JSContext *cx, HandleObject obj, HandleObject clone, CloneMemory
     return true;
 }
 
+static gc::AllocKind
+GetObjectAllocKindForClone(JSRuntime *rt, JSObject *obj)
+{
+    if (!gc::IsInsideNursery(rt, (void *)obj))
+        return obj->tenuredGetAllocKind();
+
+    if (obj->is<JSFunction>())
+        return obj->as<JSFunction>().getAllocKind();
+
+    gc::AllocKind kind = gc::GetGCObjectFixedSlotsKind(obj->numFixedSlots());
+    if (CanBeFinalizedInBackground(kind, obj->getClass()))
+        kind = GetBackgroundAllocKind(kind);
+    return kind;
+}
+
 static JSObject *
 CloneObject(JSContext *cx, HandleObject srcObj, CloneMemory &clonedObjects)
 {
@@ -861,7 +884,8 @@ CloneObject(JSContext *cx, HandleObject srcObj, CloneMemory &clonedObjects)
     } else {
         JS_ASSERT(srcObj->isNative());
         clone = NewObjectWithGivenProto(cx, srcObj->getClass(), NULL, cx->global(),
-                                        srcObj->tenuredGetAllocKind(), SingletonObject);
+                                        GetObjectAllocKindForClone(cx->runtime(), srcObj),
+                                        SingletonObject);
     }
     if (!clone || !clonedObjects.relookupOrAdd(p, srcObj.get(), clone.get()) ||
         !CloneProperties(cx, srcObj, clone, clonedObjects))
@@ -891,9 +915,7 @@ CloneValue(JSContext *cx, MutableHandleValue vp, CloneMemory &clonedObjects)
             return false;
         vp.setString(clone);
     } else {
-        if (JSString *valSrc = JS_ValueToSource(cx, vp))
-            printf("Error: Can't yet clone value: %s\n", JS_EncodeString(cx, valSrc));
-        return false;
+        MOZ_ASSUME_UNREACHABLE("Self-hosting CloneValue can't clone given value.");
     }
     return true;
 }

@@ -4,24 +4,25 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#include "ion/arm/CodeGenerator-arm.h"
+
 #include "mozilla/MathAlgorithms.h"
 
 #include "jscntxt.h"
 #include "jscompartment.h"
 #include "jsnum.h"
 
-#include "ion/arm/CodeGenerator-arm.h"
-#include "ion/PerfSpewer.h"
 #include "ion/CodeGenerator.h"
 #include "ion/IonCompartment.h"
 #include "ion/IonFrames.h"
 #include "ion/MIR.h"
 #include "ion/MIRGraph.h"
-#include "ion/shared/CodeGenerator-shared-inl.h"
+#include "ion/PerfSpewer.h"
 #include "vm/Shape.h"
 
 #include "jsscriptinlines.h"
 
+#include "ion/shared/CodeGenerator-shared-inl.h"
 #include "vm/Shape-inl.h"
 
 using namespace js;
@@ -160,9 +161,7 @@ CodeGeneratorARM::generateOutOfLineCode()
         // Push the frame size, so the handler can recover the IonScript.
         masm.ma_mov(Imm32(frameSize()), lr);
 
-        IonCompartment *ion = GetIonContext()->compartment->ionCompartment();
-        IonCode *handler = ion->getGenericBailoutHandler();
-
+        IonCode *handler = gen->ionRuntime()->getGenericBailoutHandler();
         masm.branch(handler);
     }
 
@@ -172,6 +171,22 @@ CodeGeneratorARM::generateOutOfLineCode()
 bool
 CodeGeneratorARM::bailoutIf(Assembler::Condition condition, LSnapshot *snapshot)
 {
+    CompileInfo &info = snapshot->mir()->block()->info();
+    switch (info.executionMode()) {
+
+      case ParallelExecution: {
+        // in parallel mode, make no attempt to recover, just signal an error.
+        OutOfLineAbortPar *ool = oolAbortPar(ParallelBailoutUnsupported,
+                                             snapshot->mir()->block(),
+                                             snapshot->mir()->pc());
+        masm.ma_b(ool->entry(), condition);
+        return true;
+      }
+      case SequentialExecution:
+        break;
+      default:
+        MOZ_ASSUME_UNREACHABLE("No such execution mode");
+    }
     if (!encode(snapshot))
         return false;
 
@@ -206,11 +221,12 @@ CodeGeneratorARM::bailoutFrom(Label *label, LSnapshot *snapshot)
 
     CompileInfo &info = snapshot->mir()->block()->info();
     switch (info.executionMode()) {
+
       case ParallelExecution: {
         // in parallel mode, make no attempt to recover, just signal an error.
-        OutOfLineParallelAbort *ool = oolParallelAbort(ParallelBailoutUnsupported,
-                                                       snapshot->mir()->block(),
-                                                       snapshot->mir()->pc());
+        OutOfLineAbortPar *ool = oolAbortPar(ParallelBailoutUnsupported,
+                                             snapshot->mir()->block(),
+                                             snapshot->mir()->pc());
         masm.retarget(label, ool->entry());
         return true;
       }
@@ -1450,6 +1466,17 @@ CodeGeneratorARM::visitCompareVAndBranch(LCompareVAndBranch *lir)
 }
 
 bool
+CodeGeneratorARM::visitBitAndAndBranch(LBitAndAndBranch *baab)
+{
+    if (baab->right()->isConstant())
+        masm.ma_tst(ToRegister(baab->left()), Imm32(ToInt32(baab->right())));
+    else
+        masm.ma_tst(ToRegister(baab->left()), ToRegister(baab->right()));
+    emitBranch(Assembler::NonZero, baab->ifTrue(), baab->ifFalse());
+    return true;
+}
+
+bool
 CodeGeneratorARM::visitUInt32ToDouble(LUInt32ToDouble *lir)
 {
     masm.convertUInt32ToDouble(ToRegister(lir->input()), ToFloatRegister(lir->output()));
@@ -1719,7 +1746,7 @@ CodeGeneratorARM::generateInvalidateEpilogue()
 
     // Push the Ion script onto the stack (when we determine what that pointer is).
     invalidateEpilogueData_ = masm.pushWithPatch(ImmWord(uintptr_t(-1)));
-    IonCode *thunk = GetIonContext()->compartment->ionCompartment()->getInvalidationThunk();
+    IonCode *thunk = gen->ionRuntime()->getInvalidationThunk();
 
     masm.branch(thunk);
 
@@ -1796,7 +1823,7 @@ CodeGeneratorARM::visitAsmJSLoadHeap(LAsmJSLoadHeap *ins)
                               ToRegister(ins->output()), Offset, Assembler::Zero);
         masm.ma_mov(Imm32(0), ToRegister(ins->output()), NoSetCond, Assembler::NonZero);
     }
-    return gen->noteBoundsCheck(bo.getOffset());
+    return gen->noteHeapAccess(AsmJSHeapAccess(bo.getOffset()));
 }
 
 bool
@@ -1834,7 +1861,7 @@ CodeGeneratorARM::visitAsmJSStoreHeap(LAsmJSStoreHeap *ins)
         masm.ma_dataTransferN(IsStore, size, isSigned, HeapReg, index,
                               ToRegister(ins->value()), Offset, Assembler::Zero);
     }
-    return gen->noteBoundsCheck(bo.getOffset());
+    return gen->noteHeapAccess(AsmJSHeapAccess(bo.getOffset()));
 }
 
 bool
@@ -1896,8 +1923,9 @@ CodeGeneratorARM::visitSoftUDivOrMod(LSoftUDivOrMod *ins)
 
     JS_ASSERT(lhs == r0);
     JS_ASSERT(rhs == r1);
-    JS_ASSERT(ins->mirRaw()->isAsmJSUDiv() || ins->mirRaw()->isAsmJSUMod());
-    JS_ASSERT_IF(ins->mirRaw()->isAsmJSUDiv(), output == r0);
+    JS_ASSERT(ins->mirRaw()->isDiv() || ins->mirRaw()->isAsmJSUDiv() ||
+              ins->mirRaw()->isAsmJSUMod());
+    JS_ASSERT_IF(ins->mirRaw()->isDiv() || ins->mirRaw()->isAsmJSUDiv(), output == r0);
     JS_ASSERT_IF(ins->mirRaw()->isAsmJSUMod(), output == r1);
 
     Label afterDiv;

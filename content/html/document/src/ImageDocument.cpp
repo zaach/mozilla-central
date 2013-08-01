@@ -95,7 +95,7 @@ ImageListener::OnStartRequest(nsIRequest* request, nsISupports *ctxt)
   if (secMan) {
     secMan->GetChannelPrincipal(channel, getter_AddRefs(channelPrincipal));
   }
-  
+
   int16_t decision = nsIContentPolicy::ACCEPT;
   nsresult rv = NS_CheckContentProcessPolicy(nsIContentPolicy::TYPE_IMAGE,
                                              channelURI,
@@ -106,7 +106,7 @@ ImageListener::OnStartRequest(nsIRequest* request, nsISupports *ctxt)
                                              &decision,
                                              nsContentUtils::GetContentPolicy(),
                                              secMan);
-                                               
+
   if (NS_FAILED(rv) || NS_CP_REJECTED(decision)) {
     request->Cancel(NS_ERROR_CONTENT_BLOCKED);
     return NS_OK;
@@ -123,13 +123,13 @@ ImageListener::OnStartRequest(nsIRequest* request, nsISupports *ctxt)
 }
 
 NS_IMETHODIMP
-ImageListener::OnStopRequest(nsIRequest* request, nsISupports* ctxt, nsresult status)
+ImageListener::OnStopRequest(nsIRequest* aRequest, nsISupports* aCtxt, nsresult aStatus)
 {
-  ImageDocument *imgDoc = static_cast<ImageDocument*>(mDocument.get());
-  nsContentUtils::DispatchTrustedEvent(imgDoc, static_cast<nsIDocument*>(imgDoc),
-                                       NS_LITERAL_STRING("ImageContentLoaded"),
-                                       true, true);
-  return MediaDocumentStreamListener::OnStopRequest(request, ctxt, status);
+  ImageDocument* imgDoc = static_cast<ImageDocument*>(mDocument.get());
+  nsContentUtils::DispatchChromeEvent(imgDoc, static_cast<nsIDocument*>(imgDoc),
+                                      NS_LITERAL_STRING("ImageContentLoaded"),
+                                      true, true);
+  return MediaDocumentStreamListener::OnStopRequest(aRequest, aCtxt, aStatus);
 }
 
 ImageDocument::ImageDocument()

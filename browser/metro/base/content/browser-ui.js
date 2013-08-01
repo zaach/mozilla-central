@@ -11,11 +11,6 @@ Cu.import("resource://gre/modules/devtools/dbg-server.jsm")
  * Constants
  */
 
-// BrowserUI.update(state) constants. Currently passed in
-// but update doesn't pay attention to them. Can we remove?
-const TOOLBARSTATE_LOADING  = 1;
-const TOOLBARSTATE_LOADED   = 2;
-
 // Page for which the start UI is shown
 const kStartOverlayURI = "about:start";
 
@@ -297,11 +292,19 @@ var BrowserUI = {
    * Navigation
    */
 
-  /* Updates the overall state of the toolbar, but not the URL bar. */
-  update: function(aState) {
-    let uri = this.getDisplayURI(Browser.selectedBrowser);
-    StartUI.update(uri);
+  // BrowserUI update bit flags
+  NO_STARTUI_VISIBILITY:  1, // don't change the start ui visibility
 
+  /*
+   * Updates the overall state of startui visibility and the toolbar, but not
+   * the URL bar.
+   */
+  update: function(aFlags) {
+    let flags = aFlags || 0;
+    if (!(flags & this.NO_STARTUI_VISIBILITY)) {
+      let uri = this.getDisplayURI(Browser.selectedBrowser);
+      StartUI.update(uri);
+    }
     this._updateButtons();
     this._updateToolbar();
   },
@@ -1033,7 +1036,7 @@ var BrowserUI = {
       case "cmd_remoteTabs":
 #ifdef MOZ_SERVICES_SYNC
         if (Weave.Status.checkSetup() == Weave.CLIENT_NOT_CONFIGURED) {
-          FlyoutPanelsUI.show('SyncFlyout');
+          FlyoutPanelsUI.show('SyncFlyoutPanel');
         } else {
           PanelUI.show("remotetabs-container");
         }
@@ -1182,16 +1185,16 @@ var StartUI = {
       ContextUI.dismissTabs();
   },
 
-  onNarrowTitleClick: function onNarrowTitleClick(gridId) {
-    let grid = document.getElementById(gridId);
+  onNarrowTitleClick: function onNarrowTitleClick(sectionId) {
+    let section = document.getElementById(sectionId);
 
-    if (grid.hasAttribute("expanded"))
+    if (section.hasAttribute("expanded"))
       return;
 
-    for (let expandedGrid of Elements.startUI.querySelectorAll("[expanded]"))
-      expandedGrid.removeAttribute("expanded")
+    for (let expandedSection of Elements.startUI.querySelectorAll(".meta-section[expanded]"))
+      expandedSection.removeAttribute("expanded")
 
-    grid.setAttribute("expanded", "true");
+    section.setAttribute("expanded", "true");
   },
 
   handleEvent: function handleEvent(aEvent) {
@@ -1503,17 +1506,17 @@ var SettingsCharm = {
     // Options
     this.addEntry({
         label: Strings.browser.GetStringFromName("optionsCharm"),
-        onselected: function() FlyoutPanelsUI.show('PrefsFlyout')
+        onselected: function() FlyoutPanelsUI.show('PrefsFlyoutPanel')
     });
     // Sync
     this.addEntry({
         label: Strings.browser.GetStringFromName("syncCharm"),
-        onselected: function() FlyoutPanelsUI.show('SyncFlyout')
+        onselected: function() FlyoutPanelsUI.show('SyncFlyoutPanel')
     });
     // About
     this.addEntry({
         label: Strings.browser.GetStringFromName("aboutCharm1"),
-        onselected: function() FlyoutPanelsUI.show('AboutFlyout')
+        onselected: function() FlyoutPanelsUI.show('AboutFlyoutPanel')
     });
     // Help
     this.addEntry({

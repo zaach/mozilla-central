@@ -761,6 +761,11 @@ let RIL = {
   cellBroadcastDisabled: false,
 
   /**
+   * Global CLIR mode settings.
+   */
+  clirMode: CLIR_DEFAULT,
+
+  /**
    * Parsed Cell Broadcast search lists.
    * cellBroadcastConfigs.MMI should be preserved over rild reset.
    */
@@ -821,11 +826,6 @@ let RIL = {
      * CDMA specific information. ex. CDMA Network ID, CDMA System ID... etc.
      */
     this.cdmaHome = null;
-
-    /**
-     * CDMA Subscription information.
-     */
-    this.cdmaSubscription = {};
 
     /**
      * Application identification for apps in ICC.
@@ -1506,9 +1506,12 @@ let RIL = {
    *        nsIDOMMozMobileConnection interface.
    */
   setCLIR: function setCLIR(options) {
+    if (options) {
+      this.clirMode = options.clirMode;
+    }
     Buf.newParcel(REQUEST_SET_CLIR, options);
     Buf.writeUint32(1);
-    Buf.writeUint32(options.clirMode);
+    Buf.writeUint32(this.clirMode);
     Buf.sendParcel();
   },
 
@@ -1611,6 +1614,31 @@ let RIL = {
   selectNetworkAuto: function selectNetworkAuto(options) {
     if (DEBUG) debug("Setting automatic network selection");
     Buf.simpleRequest(REQUEST_SET_NETWORK_SELECTION_AUTOMATIC, options);
+  },
+
+  /**
+   * Set the roaming preference mode
+   */
+  setRoamingPreference: function setRoamingPreference(options) {
+    let roamingMode = CDMA_ROAMING_PREFERENCE_TO_GECKO.indexOf(options.mode);
+
+    if (roamingMode === -1) {
+      options.errorMsg = GECKO_ERROR_INVALID_PARAMETER;
+      this.sendChromeMessage(options);
+      return;
+    }
+
+    Buf.newParcel(REQUEST_CDMA_SET_ROAMING_PREFERENCE, options);
+    Buf.writeUint32(1);
+    Buf.writeUint32(roamingMode);
+    Buf.sendParcel();
+  },
+
+  /**
+   * Get the roaming preference mode
+   */
+  queryRoamingPreference: function getRoamingPreference(options) {
+    Buf.simpleRequest(REQUEST_CDMA_QUERY_ROAMING_PREFERENCE, options);
   },
 
   /**
@@ -1875,6 +1903,12 @@ let RIL = {
     // so only reject if that is still incoming/waiting.
     let call = this.currentCalls[options.callIndex];
     if (!call) {
+      return;
+    }
+
+    if (this._isCdma) {
+      // AT+CHLD=0 means "release held or UDUB."
+      Buf.simpleRequest(REQUEST_HANGUP_WAITING_OR_BACKGROUND);
       return;
     }
 
@@ -2519,9 +2553,11 @@ let RIL = {
             options.clirMode = CLIR_SUPPRESSION;
             break;
           default:
-            _sendMMIError(MMI_ERROR_KS_ERROR);
+            _sendMMIError(MMI_ERROR_KS_NOT_SUPPORTED, MMI_KS_SC_CLIR);
             return;
         }
+        options.rilMessageType = "setCLIR";
+        options.isSendMMI = true;
         this.setCLIR(options);
         return;
 
@@ -2534,6 +2570,24 @@ let RIL = {
       case MMI_SC_BA_ALL:
       case MMI_SC_BA_MO:
       case MMI_SC_BA_MT:
+        options.mmiServiceCode = MMI_KS_SC_CALL_BARRING;
+        options.password = mmi.sia || "";
+        options.serviceClass = this._siToServiceClass(mmi.sib);
+        options.facility = MMI_SC_TO_CB_FACILITY[sc];
+        options.procedure = mmi.procedure;
+        if (mmi.procedure === MMI_PROCEDURE_INTERROGATION) {
+          this.queryICCFacilityLock(options);
+          return;
+        } else if (mmi.procedure === MMI_PROCEDURE_ACTIVATION) {
+          options.enabled = 1;
+        } else if (mmi.procedure === MMI_PROCEDURE_DEACTIVATION) {
+          options.enabled = 0;
+        } else {
+          _sendMMIError(MMI_ERROR_KS_NOT_SUPPORTED, MMI_KS_SC_CALL_BARRING);
+          return;
+        }
+        this.setICCFacilityLock(options);
+        return;
       // Call waiting
       case MMI_SC_CALL_WAITING:
         _sendMMIError(MMI_ERROR_KS_NOT_SUPPORTED);
@@ -3252,7 +3306,7 @@ let RIL = {
                    mmiServiceCode === MMI_KS_SC_PUK2) {
           options.errorMsg = MMI_ERROR_KS_BAD_PUK;
         }
-        if (options.retryCount != undefined) {
+        if (options.retryCount !== undefined) {
           options.additionalInformation = options.retryCount;
         }
       }
@@ -3403,23 +3457,33 @@ let RIL = {
       RIL.getSMSCAddress();
     }
 
+    let cell = rs.cell;
     if (this._isCdma) {
       // Some variables below are not used. Comment them instead of removing to
       // keep the information about state[x].
-
-      // let baseStationId = RIL.parseInt(state[4]);
-      let baseStationLatitude = RIL.parseInt(state[5]);
-      let baseStationLongitude = RIL.parseInt(state[6]);
-      if (!baseStationLatitude && !baseStationLongitude) {
-        baseStationLatitude = baseStationLongitude = null;
-      }
+      let cdmaBaseStationId = RIL.parseInt(state[4], -1);
+      let cdmaBaseStationLatitude = RIL.parseInt(state[5], -2147483648);
+      let cdmaBaseStationLongitude = RIL.parseInt(state[6], -2147483648);
       // let cssIndicator = RIL.parseInt(state[7]);
-      RIL.cdmaSubscription.systemId = RIL.parseInt(state[8]);
-      RIL.cdmaSubscription.networkId = RIL.parseInt(state[9]);
+      let cdmaSystemId = RIL.parseInt(state[8], -1);
+      let cdmaNetworkId = RIL.parseInt(state[9], -1);
       // let roamingIndicator = RIL.parseInt(state[10]);
       // let systemIsInPRL = RIL.parseInt(state[11]);
       // let defaultRoamingIndicator = RIL.parseInt(state[12]);
       // let reasonForDenial = RIL.parseInt(state[13]);
+
+      if (cell.cdmaBaseStationId !== cdmaBaseStationId ||
+          cell.cdmaBaseStationLatitude !== cdmaBaseStationLatitude ||
+          cell.cdmaBaseStationLongitude !== cdmaBaseStationLongitude ||
+          cell.cdmaSystemId !== cdmaSystemId ||
+          cell.cdmaNetworkId !== cdmaNetworkId) {
+        stateChanged = true;
+        cell.cdmaBaseStationId = cdmaBaseStationId;
+        cell.cdmaBaseStationLatitude = cdmaBaseStationLatitude;
+        cell.cdmaBaseStationLongitude = cdmaBaseStationLongitude;
+        cell.cdmaSystemId = cdmaSystemId;
+        cell.cdmaNetworkId = cdmaNetworkId;
+      }
     }
 
     if (stateChanged) {
@@ -4609,6 +4673,7 @@ let RIL = {
     DEBUG = DEBUG_WORKER || options.debug;
     CLIENT_ID = options.clientId;
     this.cellBroadcastDisabled = options.cellBroadcastDisabled;
+    this.clirMode = options.clirMode;
   }
 };
 
@@ -4891,12 +4956,6 @@ RIL[REQUEST_SIGNAL_STRENGTH] = function REQUEST_SIGNAL_STRENGTH(length, options)
   if (DEBUG) debug("Signal strength " + JSON.stringify(obj));
   obj.rilMessageType = "signalstrengthchange";
   this.sendChromeMessage(obj);
-
-  if (this.cachedDialRequest && obj.gsmDBM && obj.gsmRelative) {
-    // Radio is ready for making the cached emergency call.
-    this.cachedDialRequest.callback();
-    this.cachedDialRequest = null;
-  }
 };
 RIL[REQUEST_VOICE_REGISTRATION_STATE] = function REQUEST_VOICE_REGISTRATION_STATE(length, options) {
   this._receivedNetworkInfo(NETWORK_INFO_VOICE_REGISTRATION_STATE);
@@ -4909,6 +4968,15 @@ RIL[REQUEST_VOICE_REGISTRATION_STATE] = function REQUEST_VOICE_REGISTRATION_STAT
   if (DEBUG) debug("voice registration state: " + state);
 
   this._processVoiceRegistrationState(state);
+
+  if (this.cachedDialRequest &&
+       (this.voiceRegistrationState.emergencyCallsOnly ||
+        this.voiceRegistrationState.connected) &&
+      this.voiceRegistrationState.radioTech != NETWORK_CREG_TECH_UNKNOWN) {
+    // Radio is ready for making the cached emergency call.
+    this.cachedDialRequest.callback();
+    this.cachedDialRequest = null;
+  }
 };
 RIL[REQUEST_DATA_REGISTRATION_STATE] = function REQUEST_DATA_REGISTRATION_STATE(length, options) {
   this._receivedNetworkInfo(NETWORK_INFO_DATA_REGISTRATION_STATE);
@@ -5107,11 +5175,15 @@ RIL[REQUEST_GET_CLIR] = function REQUEST_GET_CLIR(length, options) {
   this.sendChromeMessage(options);
 };
 RIL[REQUEST_SET_CLIR] = function REQUEST_SET_CLIR(length, options) {
+  if (options.rilMessageType == null) {
+    // The request was made by ril_worker itself automatically. Don't report.
+    return;
+  }
   options.success = (options.rilRequestError === 0);
   if (!options.success) {
     options.errorMsg = RIL_ERROR_TO_GECKO_ERROR[options.rilRequestError];
   }
-  if (options.success && (options.rilMessageType === "sendMMI")) {
+  if (options.success && options.isSendMMI) {
     switch (options.procedure) {
       case MMI_PROCEDURE_ACTIVATION:
         options.statusMessage = MMI_SM_KS_SERVICE_ENABLED;
@@ -5252,8 +5324,35 @@ RIL[REQUEST_QUERY_FACILITY_LOCK] = function REQUEST_QUERY_FACILITY_LOCK(length, 
     options.errorMsg = RIL_ERROR_TO_GECKO_ERROR[options.rilRequestError];
   }
 
+  let services;
   if (length) {
-    options.enabled = Buf.readUint32List()[0] === 0 ? false : true;
+    // Buf.readUint32List()[0] for Call Barring is a bit vector of services.
+    services = Buf.readUint32List()[0];
+  } else {
+    options.success = false;
+    options.errorMsg = GECKO_ERROR_GENERIC_FAILURE;
+    this.sendChromeMessage(options);
+    return;
+  }
+
+  options.enabled = services === 0 ? false : true;
+
+  if (options.success && (options.rilMessageType === "sendMMI")) {
+    if (!options.enabled) {
+      options.statusMessage = MMI_SM_KS_SERVICE_DISABLED;
+    } else {
+      options.statusMessage = MMI_SM_KS_SERVICE_ENABLED_FOR;
+      let serviceClass = [];
+      for (let serviceClassMask = 1;
+           serviceClassMask <= ICC_SERVICE_CLASS_MAX;
+           serviceClassMask <<= 1) {
+        if ((serviceClassMask & services) !== 0) {
+          serviceClass.push(MMI_KS_SERVICE_CLASS_MAPPING[serviceClassMask]);
+        }
+      }
+
+      options.additionalInformation = serviceClass;
+    }
   }
   this.sendChromeMessage(options);
 };
@@ -5262,7 +5361,19 @@ RIL[REQUEST_SET_FACILITY_LOCK] = function REQUEST_SET_FACILITY_LOCK(length, opti
   if (!options.success) {
     options.errorMsg = RIL_ERROR_TO_GECKO_ERROR[options.rilRequestError];
   }
+
   options.retryCount = length ? Buf.readUint32List()[0] : -1;
+
+  if (options.success && (options.rilMessageType === "sendMMI")) {
+    switch (options.procedure) {
+      case MMI_PROCEDURE_ACTIVATION:
+        options.statusMessage = MMI_SM_KS_SERVICE_ENABLED;
+        break;
+      case MMI_PROCEDURE_DEACTIVATION:
+        options.statusMessage = MMI_SM_KS_SERVICE_DISABLED;
+        break;
+    }
+  }
   this.sendChromeMessage(options);
 };
 RIL[REQUEST_CHANGE_BARRING_PASSWORD] = null;
@@ -5550,8 +5661,26 @@ RIL[REQUEST_GET_PREFERRED_NETWORK_TYPE] = function REQUEST_GET_PREFERRED_NETWORK
 RIL[REQUEST_GET_NEIGHBORING_CELL_IDS] = null;
 RIL[REQUEST_SET_LOCATION_UPDATES] = null;
 RIL[REQUEST_CDMA_SET_SUBSCRIPTION_SOURCE] = null;
-RIL[REQUEST_CDMA_SET_ROAMING_PREFERENCE] = null;
-RIL[REQUEST_CDMA_QUERY_ROAMING_PREFERENCE] = null;
+RIL[REQUEST_CDMA_SET_ROAMING_PREFERENCE] = function REQUEST_CDMA_SET_ROAMING_PREFERENCE(length, options) {
+  if (options.rilRequestError) {
+    options.errorMsg = RIL_ERROR_TO_GECKO_ERROR[options.rilRequestError];
+    this.sendChromeMessage(options);
+    return;
+  }
+
+  this.sendChromeMessage(options);
+};
+RIL[REQUEST_CDMA_QUERY_ROAMING_PREFERENCE] = function REQUEST_CDMA_QUERY_ROAMING_PREFERENCE(length, options) {
+  if (options.rilRequestError) {
+    options.errorMsg = RIL_ERROR_TO_GECKO_ERROR[options.rilRequestError];
+    this.sendChromeMessage(options);
+    return;
+  }
+
+  let mode = Buf.readUint32List();
+  options.mode = CDMA_ROAMING_PREFERENCE_TO_GECKO[mode[0]];
+  this.sendChromeMessage(options);
+};
 RIL[REQUEST_SET_TTY_MODE] = null;
 RIL[REQUEST_QUERY_TTY_MODE] = null;
 RIL[REQUEST_CDMA_SET_PREFERRED_VOICE_PRIVACY_MODE] = null;
@@ -5711,6 +5840,7 @@ RIL[UNSOLICITED_RESPONSE_RADIO_STATE_CHANGED] = function UNSOLICITED_RESPONSE_RA
     this.getBasebandVersion();
     this.updateCellBroadcastConfig();
     this.setPreferredNetworkType();
+    this.setCLIR();
   }
 
   this.radioState = newState;
@@ -10860,20 +10990,16 @@ let ICCRecordHelper = {
       }
       Buf.readStringDelimiter(strLen);
 
-      if (pbrTlvs.length === 0) {
-        let error = onerror || debug;
-        error("Cannot access Phonebook.");
-        return;
+      if (pbrTlvs.length > 0) {
+        let pbr = ICCUtilsHelper.parsePbrTlvs(pbrTlvs);
+        // EF_ADN is mandatory if and only if DF_PHONEBOOK is present.
+        if (!pbr.adn) {
+          let error = onerror || debug;
+          error("Cannot access ADN.");
+          return;
+        }
+        pbrs.push(pbr);
       }
-
-      let pbr = ICCUtilsHelper.parsePbrTlvs(pbrTlvs);
-      // EF_ADN is mandatory if and only if DF_PHONEBOOK is present.
-      if (!pbr.adn) {
-        let error = onerror || debug;
-        error("Cannot access ADN.");
-        return;
-      }
-      pbrs.push(pbr);
 
       if (options.p1 < options.totalRecords) {
         ICCIOHelper.loadNextRecord(options);
@@ -11650,8 +11776,9 @@ let ICCUtilsHelper = {
     } else if (RIL._isCdma) {
       // CDMA family display rule.
       let cdmaHome = RIL.cdmaHome;
-      let sid = RIL.cdmaSubscription.systemId;
-      let nid = RIL.cdmaSubscription.networkId;
+      let cell = RIL.voiceRegistrationState.cell;
+      let sid = cell && cell.cdmaSystemId;
+      let nid = cell && cell.cdmaNetworkId;
 
       iccInfo.isDisplayNetworkNameRequired = false;
 
@@ -11917,7 +12044,7 @@ let ICCUtilsHelper = {
    */
   parseMccMncFromImsi: function parseMccMncFromImsi(imsi, mncLength) {
     if (!imsi) {
-      return;
+      return null;
     }
 
     // MCC is the first 3 digits of IMSI.
@@ -12299,6 +12426,11 @@ let ICCContactHelper = {
     let gotPbrCb = function gotPbrCb(pbrs) {
       let pbrIndex = Math.floor(contact.recordId / ICC_MAX_LINEAR_FIXED_RECORDS);
       let pbr = pbrs[pbrIndex];
+      if (!pbr) {
+        let error = onerror || debug;
+        error("Cannot access Phonebook.");
+        return;
+      }
       this.updatePhonebookSet(pbr, contact, onsuccess, onerror);
     }.bind(this);
 

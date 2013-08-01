@@ -4,9 +4,9 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "jscntxt.h"
-
 #include "vm/ForkJoin.h"
+
+#include "jscntxt.h"
 
 #ifdef JS_THREADSAFE
 # include "prthread.h"
@@ -1247,7 +1247,7 @@ class ParallelIonInvoke
   public:
     Value *args;
 
-    ParallelIonInvoke(JSCompartment *compartment,
+    ParallelIonInvoke(JSRuntime *rt,
                       HandleFunction callee,
                       uint32_t argc)
       : argc_(argc),
@@ -1263,7 +1263,7 @@ class ParallelIonInvoke
         IonScript *ion = callee->nonLazyScript()->parallelIonScript();
         IonCode *code = ion->method();
         jitcode_ = code->raw();
-        enter_ = compartment->ionCompartment()->enterJIT();
+        enter_ = rt->ionRuntime()->enterIon();
         calleeToken_ = CalleeToParallelToken(callee);
     }
 
@@ -1470,7 +1470,7 @@ ForkJoinShared::executePortion(PerThreadData *perThread,
                                       NULL, NULL, NULL);
         setAbortFlag(false);
     } else {
-        ParallelIonInvoke<3> fii(cx_->compartment(), callee, 3);
+        ParallelIonInvoke<3> fii(cx_->runtime(), callee, 3);
 
         fii.args[0] = Int32Value(slice.sliceId);
         fii.args[1] = Int32Value(slice.numSlices);
@@ -1712,9 +1712,9 @@ bool
 ForkJoinSlice::InitializeTLS()
 {
     if (!TLSInitialized) {
+        if (PR_NewThreadPrivateIndex(&ThreadPrivateIndex, NULL) != PR_SUCCESS)
+            return false;
         TLSInitialized = true;
-        PRStatus status = PR_NewThreadPrivateIndex(&ThreadPrivateIndex, NULL);
-        return status == PR_SUCCESS;
     }
     return true;
 }

@@ -266,9 +266,10 @@ private:
     JS::Rooted<JSObject*> event(aCx, &JS_ARGV(aCx, aVp)[0].toObject());
 
     jsval argv[3] = { JSVAL_VOID, JSVAL_VOID, JSVAL_VOID };
-    if (!JS_GetProperty(aCx, event, "message", &argv[0]) ||
-        !JS_GetProperty(aCx, event, "filename", &argv[1]) ||
-        !JS_GetProperty(aCx, event, "lineno", &argv[2])) {
+    JS::AutoArrayRooter rootedArgv(aCx, ArrayLength(argv), argv);
+    if (!JS_GetProperty(aCx, event, "message", rootedArgv.handleAt(0)) ||
+        !JS_GetProperty(aCx, event, "filename", rootedArgv.handleAt(1)) ||
+        !JS_GetProperty(aCx, event, "lineno", rootedArgv.handleAt(2))) {
       return false;
     }
 
@@ -336,7 +337,7 @@ private:
 
     JSFunction* adaptor =
       js::NewFunctionWithReserved(aCx, UnwrapErrorEvent, 1, 0,
-                                  JS_GetGlobalForScopeChain(aCx), "unwrap");
+                                  JS::CurrentGlobalOrNull(aCx), "unwrap");
     if (!adaptor) {
       return false;
     }
@@ -978,14 +979,14 @@ CreateDedicatedWorkerGlobalScope(JSContext* aCx)
     return NULL;
   }
 
-  JSObject* scopeProto =
-    WorkerGlobalScope::InitClass(aCx, global, eventTargetProto);
+  JS::Rooted<JSObject*> scopeProto(aCx,
+    WorkerGlobalScope::InitClass(aCx, global, eventTargetProto));
   if (!scopeProto) {
     return NULL;
   }
 
-  JSObject* dedicatedScopeProto =
-    DedicatedWorkerGlobalScope::InitClass(aCx, global, scopeProto);
+  JS::Rooted<JSObject*> dedicatedScopeProto(aCx,
+    DedicatedWorkerGlobalScope::InitClass(aCx, global, scopeProto));
   if (!dedicatedScopeProto) {
     return NULL;
   }

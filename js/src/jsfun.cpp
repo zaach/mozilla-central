@@ -519,7 +519,7 @@ FindBody(JSContext *cx, HandleFunction fun, StableCharPtr chars, size_t length,
     options.setFileAndLine("internal-findBody", 0)
            .setVersion(fun->nonLazyScript()->getVersion());
     AutoKeepAtoms keepAtoms(cx->perThreadData);
-    TokenStream ts(cx, options, chars.get(), length, NULL, keepAtoms);
+    TokenStream ts(cx, options, chars.get(), length, NULL);
     int nest = 0;
     bool onward = true;
     // Skip arguments list.
@@ -1206,7 +1206,7 @@ js::CallOrConstructBoundFunction(JSContext *cx, unsigned argc, Value *vp)
 
     /* 15.3.4.5.1, 15.3.4.5.2 step 4. */
     for (unsigned i = 0; i < argslen; i++)
-        invokeArgs[i] = fun->getBoundFunctionArgument(i);
+        invokeArgs[i].set(fun->getBoundFunctionArgument(i));
     PodCopy(invokeArgs.array() + argslen, vp + 2, argc);
 
     /* 15.3.4.5.1, 15.3.4.5.2 step 5. */
@@ -1381,7 +1381,7 @@ js::Function(JSContext *cx, unsigned argc, Value *vp)
         size_t args_length = 0;
         for (unsigned i = 0; i < n; i++) {
             /* Collect the lengths for all the function-argument arguments. */
-            arg = ToString<CanGC>(cx, args.handleAt(i));
+            arg = ToString<CanGC>(cx, args[i]);
             if (!arg)
                 return false;
             args[i].setString(arg);
@@ -1444,7 +1444,7 @@ js::Function(JSContext *cx, unsigned argc, Value *vp)
          * compile the function body.
          */
         TokenStream ts(cx, options, collected_args.get(), args_length,
-                       /* strictModeGetter = */ NULL, keepAtoms);
+                       /* strictModeGetter = */ NULL);
 
         /* The argument string may be empty or contain no tokens. */
         TokenKind tt = ts.getToken();
@@ -1501,7 +1501,7 @@ js::Function(JSContext *cx, unsigned argc, Value *vp)
     if (!args.length())
         str = cx->runtime()->emptyString;
     else
-        str = ToString<CanGC>(cx, args.handleAt(args.length() - 1));
+        str = ToString<CanGC>(cx, args[args.length() - 1]);
     if (!str)
         return false;
     JSLinearString *linear = str->ensureLinear(cx);

@@ -78,13 +78,14 @@
 #include "mozilla/Assertions.h"
 #include "mozilla/Attributes.h"
 #include "mozilla/MemoryReporting.h"
-#include "mozilla/StandardInteger.h"
 #include "mozilla/Util.h"
 
-#include <string.h>
-#include <stdlib.h>
-#include <stdarg.h>
 #include <math.h>
+#include <stdarg.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+
 #include "xpcpublic.h"
 #include "jsapi.h"
 #include "jsprf.h"
@@ -595,6 +596,17 @@ public:
 // So, xpconnect can only be used on one JSRuntime within the process.
 
 class XPCJSContextStack;
+class WatchdogManager;
+
+enum WatchdogTimestampCategory
+{
+    TimestampRuntimeStateChange = 0,
+    TimestampWatchdogWakeup,
+    TimestampWatchdogHibernateStart,
+    TimestampWatchdogHibernateStop,
+    TimestampCount
+};
+
 class XPCJSRuntime : public mozilla::CycleCollectedJSRuntime
 {
 public:
@@ -816,18 +828,14 @@ public:
 
     JSObject* GetJunkScope();
     void DeleteJunkScope();
+
+    PRTime GetWatchdogTimestamp(WatchdogTimestampCategory aCategory);
+
 private:
     XPCJSRuntime(); // no implementation
     XPCJSRuntime(nsXPConnect* aXPConnect);
 
-    // The caller must be holding the GC lock
-    void RescheduleWatchdog(XPCContext* ccx);
-
-    static void WatchdogMain(void *arg);
-
     void ReleaseIncrementally(nsTArray<nsISupports *> &array);
-    bool IsRuntimeActive();
-    PRTime TimeSinceLastRuntimeStateChange();
 
     static const char* mStrings[IDX_TOTAL_COUNT];
     jsid mStrIDs[IDX_TOTAL_COUNT];
@@ -855,13 +863,8 @@ private:
     XPCRootSetElem *mVariantRoots;
     XPCRootSetElem *mWrappedJSRoots;
     XPCRootSetElem *mObjectHolderRoots;
-    PRLock *mWatchdogLock;
-    PRCondVar *mWatchdogWakeup;
-    PRThread *mWatchdogThread;
     nsTArray<xpcGCCallback> extraGCCallbacks;
-    bool mWatchdogHibernating;
-    enum { RUNTIME_ACTIVE, RUNTIME_INACTIVE } mRuntimeState;
-    PRTime mTimeAtLastRuntimeStateChange;
+    nsRefPtr<WatchdogManager> mWatchdogManager;
     JS::GCSliceCallback mPrevGCSliceCallback;
     JSObject* mJunkScope;
 
@@ -886,6 +889,7 @@ private:
 
     StringWrapperEntry mScratchStrings[XPCCCX_STRING_CACHE_SIZE];
 
+    friend class Watchdog;
     friend class AutoLockWatchdog;
     friend class XPCIncrementalReleaseRunnable;
 };

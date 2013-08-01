@@ -6,6 +6,7 @@
  * This IDL depend on WebGLRenderingContext.webidl
  */
 
+[Pref="webgl.enable-prototype-webgl2"]
 interface WebGL2RenderingContext : WebGLRenderingContext {
 
     /* draw buffers */
@@ -55,7 +56,9 @@ interface WebGL2RenderingContext : WebGLRenderingContext {
 
     void bindVertexArray(WebGLVertexArray? arrayObject);
     WebGLVertexArray? createVertexArray();
+    void drawArraysInstanced(GLenum mode, GLint first, GLsizei count, GLsizei primcount);
     void drawBuffers(sequence<GLenum> buffers);
+    void drawElementsInstanced(GLenum mode, GLsizei count, GLenum type, GLintptr offset, GLsizei primcount);
     void deleteVertexArray(WebGLVertexArray? arrayObject);
     [WebGLHandlesContextLoss] GLboolean isVertexArray(WebGLVertexArray? arrayObject);
 

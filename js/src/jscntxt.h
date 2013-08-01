@@ -825,7 +825,7 @@ extern const JSErrorFormatString js_ErrorFormatString[JSErr_Limit];
 extern JSBool
 js_InvokeOperationCallback(JSContext *cx);
 
-extern JSBool
+extern bool
 js_HandleExecutionInterrupt(JSContext *cx);
 
 /*
@@ -993,10 +993,6 @@ JSBool intrinsic_HaveSameClass(JSContext *cx, unsigned argc, Value *vp);
 
 JSBool intrinsic_ShouldForceSequential(JSContext *cx, unsigned argc, Value *vp);
 JSBool intrinsic_NewParallelArray(JSContext *cx, unsigned argc, Value *vp);
-
-#ifdef DEBUG
-JSBool intrinsic_Dump(JSContext *cx, unsigned argc, Value *vp);
-#endif
 
 } /* namespace js */
 
