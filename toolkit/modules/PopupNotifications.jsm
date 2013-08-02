@@ -268,7 +268,7 @@ PopupNotifications.prototype = {
     let notifications = this._getNotificationsForBrowser(browser);
     notifications.push(notification);
 
-    let isActive = browser.docShell ? browser.docShell.isActive : true;
+    let isActive = this._isActiveBrowser(browser);
     let fm = Cc["@mozilla.org/focus-manager;1"].getService(Ci.nsIFocusManager);
     if (isActive && fm.activeWindow == this.window) {
       // show panel now
@@ -348,15 +348,8 @@ PopupNotifications.prototype = {
 
     this._setNotificationsForBrowser(aBrowser, notifications);
 
-    if (aBrowser.docShell.isActive) {
-      // get the anchor element if the browser has defined one so it will
-      // _update will handle both the tabs iconBox and non-tab permission
-      // anchors.
-      let anchorElement = notifications.length > 0 ? notifications[0].anchorElement : null;
-      if (!anchorElement)
-        anchorElement = getAnchorFromBrowser(aBrowser);
-      this._update(notifications, anchorElement);
-    }
+    if (this._isActiveBrowser(aBrowser))
+      this._update(notifications);
   },
 
   /**
@@ -367,7 +360,7 @@ PopupNotifications.prototype = {
   remove: function PopupNotifications_remove(notification) {
     this._remove(notification);
     
-    if (notification.browser.docShell.isActive) {
+    if (this._isActiveBrowser(notification.browser)) {
       let notifications = this._getNotificationsForBrowser(notification.browser);
       this._update(notifications, notification.anchorElement);
     }
@@ -419,9 +412,7 @@ PopupNotifications.prototype = {
     if (index == -1)
       return;
 
-    // This seems kinda wrong, not sure what this does?
-    // Maybe this removes the icon.
-    if (notification.browser.getAttribute("remote") || notification.browser.docShell.isActive)
+    if (this._isActiveBrowser(notification.browser))
       notification.anchorElement.removeAttribute(ICON_ATTRIBUTE_SHOWING);
 
     // remove the notification
@@ -705,6 +696,13 @@ PopupNotifications.prototype = {
   _setNotificationsForBrowser: function PopupNotifications_setNotifications(browser, notifications) {
     popupNotificationsMap.set(browser, notifications);
     return notifications;
+  },
+
+  _isActiveBrowser: function (browser) {
+    return browser.docShell
+      ? browser.docShell.isActive
+      : (this.window.gBrowser.selectedBrowser == browser);
+      // Todo: e10s should use something more like docShell.isActive.
   },
 
   _onIconBoxCommand: function PopupNotifications_onIconBoxCommand(event) {
