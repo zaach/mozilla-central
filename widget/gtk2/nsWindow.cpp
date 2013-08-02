@@ -96,6 +96,7 @@ using namespace mozilla::widget;
 #include "nsIInterfaceRequestorUtils.h"
 #include "nsAutoPtr.h"
 #include "BasicLayers.h"
+#include "ClientLayerManager.h"
 
 extern "C" {
 #define PIXMAN_DONT_DEFINE_STDINT
@@ -107,7 +108,6 @@ extern "C" {
 #include "gfxUtils.h"
 #include "Layers.h"
 #include "LayerManagerOGL.h"
-#include "ClientLayerManager.h"
 #include "GLContextProvider.h"
 
 #ifdef MOZ_X11

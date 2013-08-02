@@ -187,7 +187,7 @@ let SecurityUI = {
 
     return null;
   }
-}
+};
 
 let Content = {
   init: function init() {

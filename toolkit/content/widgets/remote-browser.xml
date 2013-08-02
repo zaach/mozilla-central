@@ -35,12 +35,6 @@
                 onget="return this._remoteWebNavigation;"
                 readonly="true"/>
 
-      <field name="_documentURI">null</field>
-
-      <property name="documentURI"
-                onget="return this._documentURI;"
-                readonly="true"/>
-
       <field name="_remoteWebProgress">null</field>
 
       <property name="webProgress" readonly="true">
@@ -55,6 +49,12 @@
       	  ]]>
       	</getter>
       </property>
+
+      <field name="_documentURI">null</field>
+
+      <property name="documentURI"
+                onget="return this._documentURI;"
+                readonly="true"/>
 
       <field name="_remoteMarkupDocumentViewer">null</field>
 

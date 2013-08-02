@@ -8,7 +8,6 @@ let Ci = Components.interfaces;
 let Cu = Components.utils;
 
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
-Cu.import('resource://gre/modules/Services.jsm');
 
 XPCOMUtils.defineLazyModuleGetter(this,
   "LoginManagerContent", "resource://gre/modules/LoginManagerContent.jsm");

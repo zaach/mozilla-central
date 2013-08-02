@@ -17,11 +17,6 @@ function newURI(spec)
                                                     .newURI(spec, null, null);
 }
 
-{
-    return Cc["@mozilla.org/network/io-service;1"].getService(Ci.nsIIOService)
-                                                    .newURI(spec, null, null);
-}
-
 function RemoteWebProgressRequest(spec)
 {
   this.uri = newURI(spec)

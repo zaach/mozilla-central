@@ -60,10 +60,8 @@ const MESSAGES = [
   // clicking the back or forward button.
   "SessionStore:pageshow",
 
-  "SessionStore:History",
-
-  "SessionStore:load",
-  
+  // The content script has received a MozStorageChanged event dealing
+  // with a change in the contents of the sessionStorage.
   "SessionStore:MozStorageChanged",
 
   // The content script tells us that a new page just started loading in a
@@ -399,7 +397,7 @@ let SessionStoreInternal = {
 
     this._initPrefs();
     this._initialized = true;
-    //this._disabledForMultiProcess = this._prefBranch.getBoolPref("tabs.remote");
+    this._disabledForMultiProcess = this._prefBranch.getBoolPref("tabs.remote");
 
     // this pref is only read at startup, so no need to observe it
     this._sessionhistory_max_entries =
@@ -579,9 +577,6 @@ let SessionStoreInternal = {
     });
   },
 
-    if (this._disabledForMultiProcess)
-      return;
-
   /**
    * Called on application shutdown, after notifications:
    * quit-application-granted, quit-application
@@ -662,12 +657,6 @@ let SessionStoreInternal = {
       case "SessionStore:input":
         this.onTabInput(win, browser);
         break;
-      case "SessionStore:History":
-        browser.__SS_remote_data = aMessage.json;
-        break;
-      case "SessionStore:load":
-        this.onTabLoad(win, browser);
-        break;
       case "SessionStore:MozStorageChanged":
         TabStateCache.delete(browser);
         this.saveStateDelayed(win);
@@ -694,7 +683,6 @@ let SessionStoreInternal = {
 
     var win = aEvent.currentTarget.ownerDocument.defaultView;
     switch (aEvent.type) {
-/* FIXME(billm)
       case "load":
         // If __SS_restore_data is set, then we need to restore the document
         // (form data, scrolling, etc.). This will only happen when a tab is
@@ -705,7 +693,6 @@ let SessionStoreInternal = {
           this.restoreDocument(win, browser, aEvent);
         this.onTabLoad(win, browser);
         break;
-*/
       case "TabOpen":
         this.onTabAdd(win, aEvent.originalTarget);
         break;
@@ -2000,7 +1987,7 @@ let SessionStoreInternal = {
    */
   _cloneFullTabData: function ssi_cloneFullTabData(aTab) {
     let options = { includePrivateData: true };
-
+    let tabData = this._collectBaseTabData(aTab, options);
     this._updateTextAndScrollDataForTab(aTab, tabData, options);
     return tabData;
   },
@@ -2032,58 +2019,59 @@ let SessionStoreInternal = {
       return tabData;
     }
 
-    var remote = browser.getAttribute('remote') == 'true';
-    if (remote) {
-      if (browser.__SS_remote_data) {
-        for (var p in browser.__SS_remote_data)
-          tabData[p] = browser.__SS_remote_data[p];
-      }
-    } else {
-      var history = null;
-      try {
-        history = browser.sessionHistory;
-      }
-      catch (ex) { } // this could happen if we catch a tab during (de)initialization
+    var history = null;
+    try {
+      history = browser.sessionHistory;
+    }
+    catch (ex) { } // this could happen if we catch a tab during (de)initialization
 
-      if (history && history.count > 0) {
-        browser.__SS_hostSchemeData = [];
-        try {
-          for (var j = 0; j < history.count; j++) {
-            let entry = this._serializeHistoryEntry(history.getEntryAtIndex(j, false),
-                                                    aFullData, aTab.pinned, browser.__SS_hostSchemeData);
-            tabData.entries.push(entry);
-          }
-          // If we make it through the for loop, then we're ok and we should clear
-          // any indicator of brokenness.
-          delete aTab.__SS_broken_history;
+    // XXXzeniko anchor navigation doesn't reset __SS_data, so we could reuse
+    //           data even when we shouldn't (e.g. Back, different anchor)
+    if (history && browser.__SS_data &&
+        browser.__SS_data.entries[history.index] &&
+        browser.__SS_data.entries[history.index].url == browser.currentURI.spec &&
+        history.index < this._sessionhistory_max_entries - 1 && !includePrivateData) {
+      tabData = browser.__SS_data;
+      tabData.index = history.index + 1;
+    }
+    else if (history && history.count > 0) {
+      browser.__SS_hostSchemeData = [];
+      try {
+        for (var j = 0; j < history.count; j++) {
+          let entry = this._serializeHistoryEntry(history.getEntryAtIndex(j, false),
+                                                  includePrivateData, aTab.pinned, browser.__SS_hostSchemeData);
+          tabData.entries.push(entry);
         }
-        catch (ex) {
-          // In some cases, getEntryAtIndex will throw. This seems to be due to
-          // history.count being higher than it should be. By doing this in a
-          // try-catch, we'll update history to where it breaks, assert for
-          // non-release builds, and still save sessionstore.js. We'll track if
-          // we've shown the assert for this tab so we only show it once.
-          // cf. bug 669196.
-          if (!aTab.__SS_broken_history) {
-            // First Focus the window & tab we're having trouble with.
-            aTab.ownerDocument.defaultView.focus();
-            aTab.ownerDocument.defaultView.gBrowser.selectedTab = aTab;
-            NS_ASSERT(false, "SessionStore failed gathering complete history " +
-                      "for the focused window/tab. See bug 669196.");
-            aTab.__SS_broken_history = true;
-          }
+        // If we make it through the for loop, then we're ok and we should clear
+        // any indicator of brokenness.
+        delete aTab.__SS_broken_history;
+      }
+      catch (ex) {
+        // In some cases, getEntryAtIndex will throw. This seems to be due to
+        // history.count being higher than it should be. By doing this in a
+        // try-catch, we'll update history to where it breaks, assert for
+        // non-release builds, and still save sessionstore.js. We'll track if
+        // we've shown the assert for this tab so we only show it once.
+        // cf. bug 669196.
+        if (!aTab.__SS_broken_history) {
+          // First Focus the window & tab we're having trouble with.
+          aTab.ownerDocument.defaultView.focus();
+          aTab.ownerDocument.defaultView.gBrowser.selectedTab = aTab;
+          NS_ASSERT(false, "SessionStore failed gathering complete history " +
+                           "for the focused window/tab. See bug 669196.");
+          aTab.__SS_broken_history = true;
         }
-        tabData.index = history.index + 1;
+      }
+      tabData.index = history.index + 1;
 
       // make sure not to cache privacy sensitive data which shouldn't get out
       if (!includePrivateData)
         browser.__SS_data = tabData;
-      }
-      else if (browser.currentURI.spec != "about:blank" ||
-               browser.contentDocument.body.hasChildNodes()) {
-        tabData.entries[0] = { url: browser.currentURI.spec };
-        tabData.index = 1;
-      }
+    }
+    else if (browser.currentURI.spec != "about:blank" ||
+             browser.contentDocument.body.hasChildNodes()) {
+      tabData.entries[0] = { url: browser.currentURI.spec };
+      tabData.index = 1;
     }
 
     // If there is a userTypedValue set, then either the user has typed something
@@ -2104,7 +2092,6 @@ let SessionStoreInternal = {
       delete tabData.pinned;
     tabData.hidden = aTab.hidden;
 
-/* FIXME(billm)
     var disallow = [];
     for (let cap of gDocShellCapabilities(browser.docShell))
       if (!browser.docShell["allow" + cap])
@@ -2113,7 +2100,6 @@ let SessionStoreInternal = {
       tabData.disallow = disallow.join(",");
     else if (tabData.disallow)
       delete tabData.disallow;
-*/
 
     // Save tab attributes.
     tabData.attributes = TabAttributes.get(aTab);
@@ -2127,13 +2113,11 @@ let SessionStoreInternal = {
     else if (tabData.extData)
       delete tabData.extData;
 
-/* FIXME(billm)
     if (history && browser.docShell instanceof Ci.nsIDocShell) {
       let storageData = SessionStorage.serialize(browser.docShell, includePrivateData)
       if (Object.keys(storageData).length)
         tabData.storage = storageData;
     }
-*/
 
     return tabData;
   },
@@ -2317,10 +2301,8 @@ let SessionStoreInternal = {
       return false;
     }
 
-    var remote = aBrowser.getAttribute('remote') == 'true';
-    if (remote)
-      return;
-
+    let selectedPageStyle = browser.markupDocumentViewer.authorStyleDisabled ? "_nostyle" :
+                            this._getSelectedPageStyle(browser.contentWindow);
     if (selectedPageStyle)
       aTabData.pageStyle = selectedPageStyle;
     else if (aTabData.pageStyle)
@@ -2715,8 +2697,9 @@ let SessionStoreInternal = {
     if (!this._isWindowLoaded(aWindow))
       return this._statesToRestore[aWindow.__SS_restoreID];
 
-    if (this._loadState == STATE_RUNNING)
+    if (this._loadState == STATE_RUNNING) {
       this._collectWindowData(aWindow);
+    }
 
     var winData = this._windows[aWindow.__SSi];
     let windows = {};
@@ -3065,9 +3048,7 @@ let SessionStoreInternal = {
     // - if one's not, resume this check in 100ms (repeat at most 10 times)
     for (var t = aIx; t < aTabs.length; t++) {
       try {
-        let browser = tabbrowser.getBrowserForTab(aTabs[t]);
-        let remote = browser.getAttribute('remote') == 'true';
-        if (!remote && !browser.webNavigation.sessionHistory) {
+        if (!tabbrowser.getBrowserForTab(aTabs[t]).webNavigation.sessionHistory) {
           throw new Error();
         }
       }
@@ -3139,8 +3120,6 @@ let SessionStoreInternal = {
       delete tab.__SS_extdata;
 
       if (!tabData.entries || tabData.entries.length == 0) {
-        /* FIXME(billm) */
-
         // make sure to blank out this tab's content
         // (just purging the tab's history won't be enough)
         browser.contentDocument.location = "about:blank";
@@ -3156,14 +3135,11 @@ let SessionStoreInternal = {
       let uri = activePageData ? activePageData.url || null : null;
       browser.userTypedValue = uri;
 
-      /* FIXME(billm) */
-#if 0
       // Also make sure currentURI is set so that switch-to-tab works before
       // the tab is restored. We'll reset this to about:blank when we try to
       // restore the tab to ensure that docshell doeesn't get confused.
       if (uri)
         browser.docShell.setCurrentURI(this._getURIFromString(uri));
-#endif
 
       // If the page has a title, set it.
       if (activePageData) {
@@ -3201,8 +3177,7 @@ let SessionStoreInternal = {
    */
   restoreHistory:
     function ssi_restoreHistory(aWindow, aTabs, aTabData, aIdMap, aDocIdentMap,
-                                aRestoreImmediately)
-  {
+                                aRestoreImmediately) {
     var _this = this;
     // if the tab got removed before being completely restored, then skip it
     while (aTabs.length > 0 && !(this._canRestoreTabHistory(aTabs[0]))) {
@@ -3219,12 +3194,6 @@ let SessionStoreInternal = {
     var tab = aTabs.shift();
     var tabData = aTabData.shift();
     var browser = aWindow.gBrowser.getBrowserForTab(tab);
-
-    var remote = browser.getAttribute('remote') == 'true';
-    if (remote) {
-      browser.messageManager.sendAsyncMessage("SessionStore:Restore", tabData);
-    } else {
-
     var history = browser.webNavigation.sessionHistory;
 
     if (history.count > 0) {
@@ -3259,8 +3228,6 @@ let SessionStoreInternal = {
     for (let cap of gDocShellCapabilities(browser.docShell))
       browser.docShell["allow" + cap] = !disallow.has(cap);
 
-    }
-
     // Restore tab attributes.
     if ("attributes" in tabData) {
       TabAttributes.set(tab, tabData.attributes);
@@ -3271,8 +3238,6 @@ let SessionStoreInternal = {
       aWindow.gBrowser.setIcon(tab, tabData.image);
     }
 
-/*
-  FIXME(billm)
     if (tabData.storage && browser.docShell instanceof Ci.nsIDocShell)
       SessionStorage.deserialize(browser.docShell, tabData.storage);
 
@@ -3280,7 +3245,6 @@ let SessionStoreInternal = {
     var event = aWindow.document.createEvent("Events");
     event.initEvent("SSTabRestoring", true, false);
     tab.dispatchEvent(event);
-*/
 
     // Restore the history in the next tab
     aWindow.setTimeout(function(){
@@ -3343,16 +3307,13 @@ let SessionStoreInternal = {
     // Remove the history listener, since we no longer need it once we start restoring
     this._removeSHistoryListener(aTab);
 
-    var remote = browser.getAttribute('remote') == 'true';
-
     let activeIndex = (tabData.index || tabData.entries.length) - 1;
     if (activeIndex >= tabData.entries.length)
       activeIndex = tabData.entries.length - 1;
     // Reset currentURI.  This creates a new session history entry with a new
     // doc identifier, so we need to explicitly save and restore the old doc
     // identifier (corresponding to the SHEntry at activeIndex) below.
-    if (!remote)
-      browser.webNavigation.setCurrentURI(this._getURIFromString("about:blank"));
+    browser.webNavigation.setCurrentURI(this._getURIFromString("about:blank"));
     // Attach data that will be restored on "load" event, after tab is restored.
     if (activeIndex > -1) {
       // restore those aspects of the currently active documents which are not
@@ -3365,10 +3326,8 @@ let SessionStoreInternal = {
         // In order to work around certain issues in session history, we need to
         // force session history to update its internal index and call reload
         // instead of gotoIndex. See bug 597315.
-        if (!remote) {
-          browser.webNavigation.sessionHistory.getEntryAtIndex(activeIndex, true);
-          browser.webNavigation.sessionHistory.reloadCurrentEntry();
-        }
+        browser.webNavigation.sessionHistory.getEntryAtIndex(activeIndex, true);
+        browser.webNavigation.sessionHistory.reloadCurrentEntry();
       }
       catch (ex) {
         // ignore page load errors
