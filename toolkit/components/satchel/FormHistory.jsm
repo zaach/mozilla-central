@@ -133,6 +133,7 @@ let Prefs = {
 };
 
 function log(aMessage) {
+  dump("FormHistory: " + aMessage + "\n"); // XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
   if (Prefs.debug) {
     Services.console.logStringMessage("FormHistory: " + aMessage);
   }
@@ -415,7 +416,7 @@ XPCOMUtils.defineLazyGetter(this, "dbConnection", function() {
   return connectionReady.promise;
 });
 
-
+// A map of promises.
 let dbStmts = new Map();
 
 /*
@@ -427,47 +428,49 @@ function dbCreateAsyncStatement(aQuery, aParams, aBindingArrays) {
   if (!aQuery)
     throw "invalid (empty) query";
 
-  let result;
-  let stmt = dbStmts.get(aQuery);
-  if (!stmt) {
+  let result = Promise.defer();
+  let stmtPromise = dbStmts.get(aQuery);
+  if (!stmtPromise) {
     log("Creating new statement for query: " + aQuery);
     // A bit of a leaky abstraction here - ideally we could just use the
     // caching Sqlite.jsm provides, but that would mean moar refactoring of
     // this module (specifically, this module splits "create" and "execute"
     // whereas Sqlite.jsm hides that all behind "execute"...)
+    let stmtReady = Promise.defer();
     dbConnection.then(connection => {
-      stmt = dbConnection._connection.createAsyncStatement(aQuery);
-      
-
-    })
-    stmt = dbConnection._connection.createAsyncStatement(aQuery);
-    dbStmts.set(aQuery, stmt);
+      let stmt = connection._connection.createAsyncStatement(aQuery);
+      stmtReady.resolve(stmt);
+    });
+    stmtPromise = stmtReady.promise;
+    dbStmts.set(aQuery, stmtPromise);
   }
-
-  if (aBindingArrays) {
-    let bindingArray = aBindingArrays.get(stmt);
-    if (!bindingArray) {
-      // first time using a particular statement in update
-      bindingArray = stmt.newBindingParamsArray();
-      aBindingArrays.set(stmt, bindingArray);
-    }
-
-    if (aParams) {
-      let bindingParams = bindingArray.newBindingParams();
-      for (let field in aParams) {
-        bindingParams.bindByName(field, aParams[field]);
+  stmtPromise.then(stmt => {
+    if (aBindingArrays) {
+      let bindingArray = aBindingArrays.get(stmt);
+      if (!bindingArray) {
+        // first time using a particular statement in update
+        bindingArray = stmt.newBindingParamsArray();
+        aBindingArrays.set(stmt, bindingArray);
       }
-      bindingArray.addParams(bindingParams);
-    }
-  } else {
-    if (aParams) {
-      for (let field in aParams) {
-        stmt.params[field] = aParams[field];
+
+      if (aParams) {
+        let bindingParams = bindingArray.newBindingParams();
+        for (let field in aParams) {
+          bindingParams.bindByName(field, aParams[field]);
+        }
+        bindingArray.addParams(bindingParams);
+      }
+    } else {
+      if (aParams) {
+        for (let field in aParams) {
+          stmt.params[field] = aParams[field];
+        }
       }
     }
-  }
+    result.resolve(stmt);
+  });
 
-  return stmt;
+  return result.promise;
 }
 
 /**
