@@ -38,7 +38,8 @@ function next_test()
   let dbConnection = Services.storage.openUnsharedDatabase(destFile);
 
   // check for upgraded schema.
-  do_check_eq(CURRENT_SCHEMA, FormHistory.schemaVersion);
+  let curVersion = yield FormHistory.schemaVersion;
+  do_check_eq(CURRENT_SCHEMA, curVersion);
 
   // Check that the index was added
   do_check_true(dbConnection.tableExists("moz_deleted_formhistory"));

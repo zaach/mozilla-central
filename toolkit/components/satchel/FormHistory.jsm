@@ -91,10 +91,16 @@ const Cr = Components.results;
 
 Components.utils.import("resource://gre/modules/XPCOMUtils.jsm");
 Components.utils.import("resource://gre/modules/Services.jsm");
+Components.utils.import("resource://gre/modules/Sqlite.jsm");
 
 XPCOMUtils.defineLazyServiceGetter(this, "uuidService",
                                    "@mozilla.org/uuid-generator;1",
                                    "nsIUUIDGenerator");
+
+XPCOMUtils.defineLazyModuleGetter(this, "Promise",
+                                  "resource://gre/modules/commonjs/sdk/core/promise.js");
+XPCOMUtils.defineLazyModuleGetter(this, "Task",
+                                  "resource://gre/modules/Task.jsm");
 
 const DB_SCHEMA_VERSION = 4;
 const DAY_IN_MS  = 86400000; // 1 day in milliseconds
@@ -110,7 +116,7 @@ let supportsDeletedTable =
 let Prefs = {
   initialized: false,
 
-  get debug() { this.ensureInitialized(); return this._debug; },
+  get debug() { this.ensureInitialized(); return true || this._debug; /* XXXXXXXXXXXXXXXXXXXXXXXXXXXX - delete me! */},
   get enabled() { this.ensureInitialized(); return this._enabled; },
   get expireDays() { this.ensureInitialized(); return this._expireDays; },
 
@@ -370,24 +376,43 @@ function generateGUID() {
  * Database creation and access
  */
 
+// _dbConnection is the Sqlite.jsm connection object.
 let _dbConnection = null;
+
+// dbConnection is a promise object that becomes resolved when the connection
+// is ready.
 XPCOMUtils.defineLazyGetter(this, "dbConnection", function() {
-  let dbFile;
+  let dbFile = Services.dirsvc.get("ProfD", Ci.nsIFile).clone();
+  dbFile.append("formhistory.sqlite");
+  log("Opening database at " + dbFile.path);
 
-  try {
-    dbFile = Services.dirsvc.get("ProfD", Ci.nsIFile).clone();
-    dbFile.append("formhistory.sqlite");
-    log("Opening database at " + dbFile.path);
+  let options = {
+    path: dbFile.path,
+    shared: false
+  };
 
-    _dbConnection = Services.storage.openUnsharedDatabase(dbFile);
-    dbInit();
-  } catch (e if e.result == Cr.NS_ERROR_FILE_CORRUPTED) {
+  // This is the promize we actually return - it becomes resolved once all
+  // the async init tasks have been done.
+  let connectionReady = Promise.defer();
+
+  let connection = Sqlite.openConnection(options);
+  connection.then(connection => {
+    _dbConnection = connection;
+    Task.spawn(dbInit).then(connectionReady.resolve);
+  }, error => {
+    if (!error.result || error.result != Cr.NS_ERROR_FILE_CORRUPTED) {
+      throw error;
+    }
+    // this error case is a little too sync, but we can live with this given
+    // we should "never" actually get here anyway...
     dbCleanup(dbFile);
-    _dbConnection = Services.storage.openUnsharedDatabase(dbFile);
-    dbInit();
-  }
+    connection = Sqlite.openConnection(options);
+    connection.then(connection => {
+      Task.spawn(dbInit).then(connectionReady.resolve);
+    })
+  });
 
-  return _dbConnection;
+  return connectionReady.promise;
 });
 
 
@@ -400,12 +425,22 @@ let dbStmts = new Map();
  */
 function dbCreateAsyncStatement(aQuery, aParams, aBindingArrays) {
   if (!aQuery)
-    return null;
+    throw "invalid (empty) query";
 
+  let result;
   let stmt = dbStmts.get(aQuery);
   if (!stmt) {
     log("Creating new statement for query: " + aQuery);
-    stmt = dbConnection.createAsyncStatement(aQuery);
+    // A bit of a leaky abstraction here - ideally we could just use the
+    // caching Sqlite.jsm provides, but that would mean moar refactoring of
+    // this module (specifically, this module splits "create" and "execute"
+    // whereas Sqlite.jsm hides that all behind "execute"...)
+    dbConnection.then(connection => {
+      stmt = dbConnection._connection.createAsyncStatement(aQuery);
+      
+
+    })
+    stmt = dbConnection._connection.createAsyncStatement(aQuery);
     dbStmts.set(aQuery, stmt);
   }
 
@@ -445,18 +480,18 @@ function dbInit() {
   log("Initializing Database");
 
   if (!_dbConnection.tableExists("moz_formhistory")) {
-    dbCreate();
+    yield dbCreate();
     return;
   }
 
   // When FormHistory is released, we will no longer support the various schema versions prior to
   // this release that nsIFormHistory2 once did.
-  let version = _dbConnection.schemaVersion;
+  let version = yield _dbConnection.getSchemaVersion();
   if (version < 3) {
     throw Components.Exception("DB version is unsupported.",
                                Cr.NS_ERROR_FILE_CORRUPTED);
   } else if (version != DB_SCHEMA_VERSION) {
-    dbMigrate(version);
+    yield dbMigrate(version);
   }
 }
 
@@ -466,7 +501,8 @@ function dbCreate() {
     let table = dbSchema.tables[name];
     let tSQL = [[col, table[col]].join(" ") for (col in table)].join(", ");
     log("Creating table " + name + " with " + tSQL);
-    _dbConnection.createTable(name, tSQL);
+    let statement = "CREATE TABLE " + name + "(" + tSQL + ")";
+    yield _dbConnection.execute(statement);
   }
 
   log("Creating DB -- indices");
@@ -474,10 +510,10 @@ function dbCreate() {
     let index = dbSchema.indices[name];
     let statement = "CREATE INDEX IF NOT EXISTS " + name + " ON " + index.table +
                     "(" + index.columns.join(", ") + ")";
-    _dbConnection.executeSimpleSQL(statement);
+    yield _dbConnection.execute(statement);
   }
 
-  _dbConnection.schemaVersion = DB_SCHEMA_VERSION;
+  yield _dbConnection.setSchemaVersion(DB_SCHEMA_VERSION);
 }
 
 function dbMigrate(oldVersion) {
@@ -503,23 +539,19 @@ function dbMigrate(oldVersion) {
     return;
   }
 
-  // Note that migration is currently performed synchronously.
-  _dbConnection.beginTransaction();
-
-  try {
-    for (let v = oldVersion + 1; v <= DB_SCHEMA_VERSION; v++) {
-      this.log("Upgrading to version " + v + "...");
-      Migrators["dbMigrateToVersion" + v]();
+  yield _dbConnection.executeTransaction(function() {
+    try {
+      for (let v = oldVersion + 1; v <= DB_SCHEMA_VERSION; v++) {
+        this.log("Upgrading to version " + v + "...");
+        yield Migrators["dbMigrateToVersion" + v]();
+      }
+    } catch (e) {
+      this.log("Migration failed: "  + e);
+      // re-throwing the error will cause a rollback.
+      throw e;
     }
-  } catch (e) {
-    this.log("Migration failed: "  + e);
-    this.dbConnection.rollbackTransaction();
-    throw e;
-  }
-
-  _dbConnection.schemaVersion = DB_SCHEMA_VERSION;
-  _dbConnection.commitTransaction();
-
+    _dbConnection.schemaVersion = DB_SCHEMA_VERSION;
+  });
   log("DB migration completed.");
 }
 
@@ -529,10 +561,12 @@ var Migrators = {
    * Adds deleted form history table.
    */
   dbMigrateToVersion4: function dbMigrateToVersion4() {
-    if (!_dbConnection.tableExists("moz_deleted_formhistory")) {
+    let exists = yield _dbConnection.tableExists("moz_deleted_formhistory");
+    if (!exists) {
       let table = dbSchema.tables["moz_deleted_formhistory"];
       let tSQL = [[col, table[col]].join(" ") for (col in table)].join(", ");
-      _dbConnection.createTable("moz_deleted_formhistory", tSQL);
+      let statement = "CREATE TABLE moz_deleted_formhistory (" + tSQL + ")";
+      yield _dbConnection.execute(statement);
     }
   }
 };
@@ -550,7 +584,9 @@ function dbAreExpectedColumnsPresent() {
                 [col for (col in table)].join(", ") +
                 " FROM " + name;
     try {
-      let stmt = _dbConnection.createStatement(query);
+      // XXX markh - hrmph - is this really being compiled?
+      // XXX - should we add a createAsyncStatement method to Sqlite.jsm?
+      let stmt = _dbConnection._connection.createAsyncStatement(query);
       // (no need to execute statement, if it compiled we're good)
       stmt.finalize();
     } catch (e) {
@@ -573,6 +609,8 @@ function dbCleanup(dbFile) {
 
   // Create backup file
   let backupFile = dbFile.leafName + ".corrupt";
+  // XXX - this is sync - we could probably use OS.file, but it's probably
+  // not worth it seeing it only happens in "exceptional" circumstances...
   Services.storage.backupDatabaseFile(dbFile, backupFile);
 
   dbClose(false);
@@ -592,6 +630,7 @@ function dbClose(aShutdown) {
     return;
   }
 
+  // XXX - Sqlite.jsm has support for these statements too - drop these??
   log("dbClose finalize statements");
   for (let stmt of dbStmts.values()) {
     stmt.finalize();
@@ -599,10 +638,10 @@ function dbClose(aShutdown) {
 
   dbStmts = new Map();
 
-  let closed = false;
-  _dbConnection.asyncClose(function () closed = true);
-
+  let promise = _dbConnection.close();
   if (!aShutdown) {
+    let closed = false;
+    promise.then(() => {closed = true;});
     let thread = Services.tm.currentThread;
     while (!closed) {
       thread.processNextEvent(true);
@@ -626,7 +665,7 @@ function updateFormHistoryWrite(aChanges, aCallbacks) {
   // stmts or bind a new set of parameters to an existing storage statement.
   // stmts and bindingArrays are updated when makeXXXStatement eventually
   // calls dbCreateAsyncStatement.
-  let stmts = [];
+  let stmtPromises = [];
   let notifications = [];
   let bindingArrays = new Map();
 
@@ -680,15 +719,7 @@ function updateFormHistoryWrite(aChanges, aCallbacks) {
         throw Components.Exception("Invalid operation " + operation,
                                    Cr.NS_ERROR_ILLEGAL_VALUE);
     }
-
-    // As identical statements are reused, only add statements if they aren't already present.
-    if (stmt && stmts.indexOf(stmt) == -1) {
-      stmts.push(stmt);
-    }
-  }
-
-  for (let stmt of stmts) {
-    stmt.bindParameters(bindingArrays.get(stmt));
+    stmtPromises.push(stmt);
   }
 
   let handlers = {
@@ -712,7 +743,25 @@ function updateFormHistoryWrite(aChanges, aCallbacks) {
     handleResult : NOOP
   };
 
-  dbConnection.executeAsync(stmts, stmts.length, handlers);
+  let stmts = [];
+  // resolve all the statement promises...
+  dbConnection.then(connection => {
+    Task.spawn(function() {
+      let resolvedStatements = [];
+      for (let stmtPromise of stmtPromises) {
+        let stmt = yield stmtPromise;
+
+        // As identical statements are reused, only add statements if they aren't already present.
+        if (stmt && stmts.indexOf(stmt) == -1) {
+          stmts.push(stmt);
+        }
+
+        stmt.bindParameters(bindingArrays.get(stmt));
+      }
+    }).then(() => {
+      connection._connection.executeAsync(stmts, stmts.length, handlers);
+    });
+  });
 }
 
 /**
@@ -753,13 +802,14 @@ function expireOldEntriesVacuum(aExpireTime, aBeginningCount) {
       if (aBeginningCount - aEndingCount > 500) {
         log("expireOldEntriesVacuum");
 
-        let stmt = dbCreateAsyncStatement("VACUUM");
-        stmt.executeAsync({
-          handleResult : NOOP,
-          handleError : function(aError) {
-            log("expireVacuumError");
-          },
-          handleCompletion : NOOP
+        dbCreateAsyncStatement("VACUUM").then(() => {
+          stmt.executeAsync({
+            handleResult : NOOP,
+            handleError : function(aError) {
+              log("expireVacuumError");
+            },
+            handleCompletion : NOOP
+          });
         });
       }
 
@@ -776,8 +826,6 @@ this.FormHistory = {
     // if no terms selected, select everything
     aSelectTerms = (aSelectTerms) ?  aSelectTerms : validFields;
     validateSearchData(aSearchData, "Search");
-
-    let stmt = makeSearchStatement(aSearchData, aSelectTerms);
 
     let handlers = {
       handleResult : function(aResultSet) {
@@ -807,12 +855,13 @@ this.FormHistory = {
       }
     };
 
-    stmt.executeAsync(handlers);
+    makeSearchStatement(aSearchData, aSelectTerms).then((stmt) => {
+      stmt.executeAsync(handlers);
+    });
   },
 
   count : function formHistoryCount(aSearchData, aCallbacks) {
     validateSearchData(aSearchData, "Count");
-    let stmt = makeCountStatement(aSearchData);
     let handlers = {
       handleResult : function countResultHandler(aResultSet) {
         let row = aResultSet.getNextRow();
@@ -834,8 +883,9 @@ this.FormHistory = {
         }
       }
     };
-
-    stmt.executeAsync(handlers);
+    makeCountStatement(aSearchData).then((stmt) => {
+      stmt.executeAsync(handlers);
+    });
   },
 
   update : function formHistoryUpdate(aChanges, aCallbacks) {
@@ -956,6 +1006,10 @@ this.FormHistory = {
   },
 
   getAutoCompleteResults: function getAutoCompleteResults(searchString, params, aCallbacks) {
+    Task.spawn(function () {yield this._getAutoCompleteResults(searchString, params, aCallbacks)});
+  },
+
+  _getAutoCompleteResults: function getAutoCompleteResults(searchString, params, aCallbacks) {
     // only do substring matching when the search string contains more than one character
     let searchTokens;
     let where = ""
@@ -1013,7 +1067,7 @@ this.FormHistory = {
                 "WHERE fieldname=:fieldname " + where +
                 "ORDER BY ROUND(frecency * boundaryBonuses) DESC, UPPER(value) ASC";
 
-    let stmt = dbCreateAsyncStatement(query, params);
+    let stmt = yield dbCreateAsyncStatement(query, params);
 
     // Chicken and egg problem: Need the statement to escape the params we
     // pass to the function that gives us the statement. So, fix it up now.
@@ -1031,7 +1085,7 @@ this.FormHistory = {
       // length is zero or one
     }
 
-    let pending = stmt.executeAsync({
+    stmt.executeAsync({
       handleResult : function (aResultSet) {
         for (let row = aResultSet.getNextRow(); row; row = aResultSet.getNextRow()) {
           let value = row.getResultByName("value");
@@ -1060,11 +1114,15 @@ this.FormHistory = {
         }
       }
     });
-    return pending;
   },
 
   get schemaVersion() {
-    return dbConnection.schemaVersion;
+    let result = Promise.defer();
+    dbConnection.then(connection => {
+      connection.getSchemaVersion().then(version => {
+        result.resolve(version);
+      });
+    });
   },
 
   // This is used only so that the test can verify deleted table support.

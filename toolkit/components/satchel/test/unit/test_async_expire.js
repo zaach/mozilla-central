@@ -73,7 +73,8 @@ function tests()
   yield countEntries("name-A", "value-A", checkExists); // lastUsed == distant past
   yield countEntries("name-B", "value-B", checkExists); // lastUsed == distant future
 
-  do_check_eq(CURRENT_SCHEMA, FormHistory.schemaVersion);
+  let curVersion = yield FormHistory.schemaVersion;
+  do_check_eq(CURRENT_SCHEMA, curVersion);
 
   // Add a new entry
   yield countEntries("name-C", "value-C", checkNotExists);
