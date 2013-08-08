@@ -162,9 +162,11 @@ const BackgroundPageThumbs = {
 
     browser.messageManager.loadFrameScript(FRAME_SCRIPT_URL, false);
     this._thumbBrowser = browser;
+    dump("PAGETHUMBS: creating browser\n");
   },
 
   _destroyBrowser: function () {
+    dump("PAGETHUMBS: destroying browser\n");
     if (!this._thumbBrowser)
       return;
     this._thumbBrowser.remove();
@@ -245,6 +247,7 @@ Capture.prototype = {
    * @param messageManager  The nsIMessageSender of the thumbnail browser.
    */
   start: function (messageManager) {
+    dump("PAGETHUMBS: starting capture of " + this.url + "\n");
     this.startDate = new Date();
     tel("CAPTURE_QUEUE_TIME_MS", this.startDate - this.creationDate);
 
@@ -323,6 +326,7 @@ Capture.prototype = {
   },
 
   _done: function (data) {
+    dump("PAGETHUMBS: finished capture of " + this.url + "\n");
     // Note that _done will be called only once, by either receiveMessage or
     // notify, since it calls destroy, which cancels the timeout timer and
     // removes the didCapture message listener.
