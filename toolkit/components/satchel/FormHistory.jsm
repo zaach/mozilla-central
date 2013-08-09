@@ -56,7 +56,7 @@
  *                is an object with four arguments:
  *                  text, textLowerCase, frecency, totalScore
  * schemaVersion
- *   This property holds the version of the database schema
+ *   This promise resolves to the the version of the database schema
  *
  * Terms:
  *  guid - entry identifier. For 'add', a guid will be generated.
@@ -490,12 +490,14 @@ function dbInit() {
   // When FormHistory is released, we will no longer support the various schema versions prior to
   // this release that nsIFormHistory2 once did.
   let version = yield _dbConnection.getSchemaVersion();
+
   if (version < 3) {
     throw Components.Exception("DB version is unsupported.",
                                Cr.NS_ERROR_FILE_CORRUPTED);
   } else if (version != DB_SCHEMA_VERSION) {
     yield dbMigrate(version);
   }
+  throw new Task.Result(_dbConnection);
 }
 
 function dbCreate() {
@@ -538,7 +540,7 @@ function dbMigrate(oldVersion) {
     // Change the stored version to the current version. If the user
     // runs the newer code again, it will see the lower version number
     // and re-upgrade (to fixup any entries the old code added).
-    _dbConnection.schemaVersion = DB_SCHEMA_VERSION;
+    yield _dbConnection.setSchemaVersion(DB_SCHEMA_VERSION);
     return;
   }
 
@@ -553,7 +555,7 @@ function dbMigrate(oldVersion) {
       // re-throwing the error will cause a rollback.
       throw e;
     }
-    _dbConnection.schemaVersion = DB_SCHEMA_VERSION;
+    yield _dbConnection.setSchemaVersion(DB_SCHEMA_VERSION);
   });
   log("DB migration completed.");
 }
@@ -751,15 +753,21 @@ function updateFormHistoryWrite(aChanges, aCallbacks) {
   dbConnection.then(connection => {
     Task.spawn(function() {
       let resolvedStatements = [];
+      dump("have " + stmtPromises.length + "\n")
       for (let stmtPromise of stmtPromises) {
+        dump("yielding for promise\n");
         let stmt = yield stmtPromise;
+        dump("yielded for promise: " + stmt + "\n");
+        try {
 
         // As identical statements are reused, only add statements if they aren't already present.
         if (stmt && stmts.indexOf(stmt) == -1) {
           stmts.push(stmt);
         }
 
+        dump("bind: " + bindingArrays.size + "\n");
         stmt.bindParameters(bindingArrays.get(stmt));
+      } catch (ex) {dump("EEEK: " + ex + "/" + ex.stack + "\n")}
       }
     }).then(() => {
       connection._connection.executeAsync(stmts, stmts.length, handlers);
@@ -1126,6 +1134,7 @@ this.FormHistory = {
         result.resolve(version);
       });
     });
+    return result.promise;
   },
 
   // This is used only so that the test can verify deleted table support.
