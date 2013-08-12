@@ -190,8 +190,6 @@ parent:
     SetCursor(uint32_t value);
     SetBackgroundColor(nscolor color);
 
-    SetStatus(uint32_t type, nsString status);
-
     /**
      * Used to set the current text of the status tooltip.
      * Nowadays this is mainly used for link locations on hover.

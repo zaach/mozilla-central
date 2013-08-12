@@ -146,7 +146,6 @@ nsXULPopupListener::HandleEvent(nsIDOMEvent* aEvent)
     return NS_OK;
   }
 
-
   bool preventDefault;
   mouseEvent->GetDefaultPrevented(&preventDefault);
   if (preventDefault && targetNode && mIsContext) {
