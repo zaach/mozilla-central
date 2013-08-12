@@ -1354,12 +1354,8 @@
             else
               t.setAttribute("label", aURI);
 
-            let remote = this.shouldBrowserBeRemote(aURI);
-
             t.setAttribute("crop", "end");
             t.setAttribute("onerror", "this.removeAttribute('image');");
-            if (remote)
-              t.setAttribute("remote", "true");
             t.className = "tabbrowser-tab";
 
             this.tabContainer._unlockTabSizing();
@@ -1395,7 +1391,8 @@
             b.setAttribute("contextmenu", this.getAttribute("contentcontextmenu"));
             b.setAttribute("tooltip", this.getAttribute("contenttooltip"));
 
-            if (remote) {
+            if (Services.prefs.getPrefType("browser.tabs.remote") == Services.prefs.PREF_BOOL &&
+                Services.prefs.getBoolPref("browser.tabs.remote")) {
               b.setAttribute("remote", "true");
               if (aProcessNumber != undefined)
                 b.setAttribute("processnumber", aProcessNumber);
@@ -2024,43 +2021,6 @@
         </body>
       </method>
 
-      <method name="updateBrowserRemoteness">
-        <parameter name="aBrowser"/>
-        <parameter name="aRemote"/>
-        <body>
-          <![CDATA[
-            let isRemote = aBrowser.getAttribute("remote") == "true";
-            if (isRemote == aRemote)
-              return;
-
-            // Unhook our progress listener
-            let tab = this._getTabForBrowser(aBrowser);
-            let index = tab._tPos;
-            let filter = this.mTabFilters[index];
-            let tabListener = this.mTabListeners[index];
-            aBrowser.webProgress.removeProgressListener(filter);
-            filter.removeProgressListener(tabListener);
-
-            let parent = aBrowser.parentNode;
-            parent.removeChild(aBrowser);
-            aBrowser.setAttribute("remote", aRemote ? "true" : "false");
-            parent.appendChild(aBrowser);
-
-            // Restore the progress listener
-            this.mTabListeners[index] = tabListener =
-              this.mTabProgressListener(tab, aBrowser, false);
-
-            filter.addProgressListener(tabListener, Ci.nsIWebProgress.NOTIFY_ALL);
-            aBrowser.webProgress.addProgressListener(filter, Ci.nsIWebProgress.NOTIFY_ALL);
-
-            if (aRemote)
-              tab.setAttribute("remote", "true");
-            else
-              tab.removeAttribute("remote");
-          ]]>
-        </body>
-      </method>
-
       <method name="swapNewTabWithBrowser">
         <parameter name="aNewTab"/>
         <parameter name="aBrowser"/>
@@ -2601,33 +2561,6 @@
         </body>
       </method>
 
-      <method name="shouldBrowserBeRemote">
-        <parameter name="aURI"/>
-        <body>
-          <![CDATA[
-            if (!gMultiProcessBrowser) {
-              return false;
-            }
-
-            if (!aURI) {
-              return true;
-            }
-
-            if (aURI instanceof Ci.nsIURI) {
-              aURI = aURI.spec;
-            }
-
-            if (aURI.startsWith("about:") && aURI.toLowerCase() != "about:home" && aURI.toLowerCase() != "about:blank") {
-             return false;
-            }
-            if (aURI.startsWith("chrome:")) {
-              return false;
-            }
-            return true;
-          ]]>
-        </body>
-      </method>
-
       <!-- throws exception for unknown schemes -->
       <method name="loadURI">
         <parameter name="aURI"/>
@@ -2635,8 +2568,6 @@
         <parameter name="aCharset"/>
         <body>
           <![CDATA[
-            this.updateBrowserRemoteness(this.mCurrentBrowser, this.shouldBrowserBeRemote(aURI));
-
             return this.mCurrentBrowser.loadURI(aURI, aReferrerURI, aCharset);
           ]]>
         </body>
@@ -2651,8 +2582,6 @@
         <parameter name="aPostData"/>
         <body>
           <![CDATA[
-            this.updateBrowserRemoteness(this.mCurrentBrowser, this.shouldBrowserBeRemote(aURI));
-
             return this.mCurrentBrowser.loadURIWithFlags(aURI, aFlags, aReferrerURI, aCharset, aPostData);
           ]]>
         </body>
@@ -2895,15 +2824,6 @@
               let titleChanged = this.setTabTitle(tab);
               if (titleChanged && !tab.selected && !tab.hasAttribute("busy"))
                 tab.setAttribute("titlechanged", "true");
-              break;
-            case "contextmenu":
-              gContextMenuContext = json.contextMenuContext;
-              gContextMenuContext.link = aMessage.objects.link;
-              gContextMenuContext.target = aMessage.objects.target;
-              gContextMenuContext.browser = browser;
-              let popup = browser.ownerDocument.getElementById("contentAreaContextMenu");
-              popup.openPopup(browser, "overlap", json.screenX, json.screenY, true, false, null);
-              break;
           }
         ]]></body>
       </method>
@@ -2954,9 +2874,6 @@
 
           if (Services.prefs.getBoolPref("browser.tabs.remote"))
             messageManager.addMessageListener("DOMTitleChanged", this);
-
-          messageManager.loadFrameScript("chrome://browser/content/nsContextMenu-content.js", true);
-          messageManager.addMessageListener("contextmenu", this);
         ]]>
       </constructor>
 
@@ -2993,8 +2910,6 @@
 
           if (Services.prefs.getBoolPref("browser.tabs.remote"))
             messageManager.removeMessageListener("DOMTitleChanged", this);
-
-          messageManager.removeMessageListener("contextmenu", this);
         ]]>
       </destructor>
 
@@ -3194,8 +3109,6 @@
           tab.setAttribute("label",
                            this.tabbrowser.mStringBundle.getString("tabs.emptyTabTitle"));
           tab.setAttribute("crop", "end");
-          if (Services.prefs.getBoolPref("browser.tabs.remote"))
-            tab.setAttribute("remote", "true");
           tab.setAttribute("onerror", "this.removeAttribute('image');");
           this.adjustTabstrip();
 
@@ -4470,16 +4383,16 @@
 
     <content context="tabContextMenu" closetabtext="&closeTab.label;">
       <xul:stack class="tab-stack" flex="1">
-        <xul:hbox xbl:inherits="pinned,selected,titlechanged,remote"
+        <xul:hbox xbl:inherits="pinned,selected,titlechanged"
                   class="tab-background">
-          <xul:hbox xbl:inherits="pinned,selected,titlechanged,remote"
+          <xul:hbox xbl:inherits="pinned,selected,titlechanged"
                     class="tab-background-start"/>
-          <xul:hbox xbl:inherits="pinned,selected,titlechanged,remote"
+          <xul:hbox xbl:inherits="pinned,selected,titlechanged"
                     class="tab-background-middle"/>
-          <xul:hbox xbl:inherits="pinned,selected,titlechanged,remote"
+          <xul:hbox xbl:inherits="pinned,selected,titlechanged"
                     class="tab-background-end"/>
         </xul:hbox>
-        <xul:hbox xbl:inherits="pinned,selected,titlechanged,remote"
+        <xul:hbox xbl:inherits="pinned,selected,titlechanged"
                   class="tab-content" align="center">
           <xul:image xbl:inherits="fadein,pinned,busy,progress,selected"
                      class="tab-throbber"

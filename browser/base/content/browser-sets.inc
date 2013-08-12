@@ -17,6 +17,8 @@
 
   <commandset id="mainCommandSet">
     <command id="cmd_newNavigator"                 oncommand="OpenBrowserWindow()"/>
+    <command id="cmd_handleBackspace" oncommand="BrowserHandleBackspace();" />
+    <command id="cmd_handleShiftBackspace" oncommand="BrowserHandleShiftBackspace();" />
 
     <command id="cmd_newNavigatorTab" oncommand="BrowserOpenTab();"/>
     <command id="Browser:OpenFile"  oncommand="BrowserOpenFileWindow();"/>

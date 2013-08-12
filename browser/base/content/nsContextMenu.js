@@ -4,15 +4,40 @@
 
 Components.utils.import("resource://gre/modules/PrivateBrowsingUtils.jsm");
 
-function nsContextMenu(aContextInformation) {
-  for (let attr in aContextInformation) {
-    this[attr] = aContextInformation[attr];
-  }
-  this.initItems();
+function nsContextMenu(aXulMenu, aIsShift) {
+  this.shouldDisplay = true;
+  this.initMenu(aXulMenu, aIsShift);
 }
 
 // Prototype for nsContextMenu "class."
 nsContextMenu.prototype = {
+  initMenu: function CM_initMenu(aXulMenu, aIsShift) {
+    // Get contextual info.
+    this.setTarget(document.popupNode, document.popupRangeParent,
+                   document.popupRangeOffset);
+    if (!this.shouldDisplay)
+      return;
+
+    this.hasPageMenu = false;
+    if (!aIsShift) {
+      this.hasPageMenu = PageMenu.maybeBuildAndAttachMenu(this.target,
+                                                          aXulMenu);
+    }
+
+    this.isFrameImage = document.getElementById("isFrameImage");
+    this.ellipsis = "\u2026";
+    try {
+      this.ellipsis = gPrefService.getComplexValue("intl.ellipsis",
+                                                   Ci.nsIPrefLocalizedString).data;
+    } catch (e) { }
+    this.isTextSelected = this.isTextSelection();
+    this.isContentSelected = this.isContentSelection();
+    this.onPlainTextLink = false;
+
+    // Initialize (disable/remove) menu items.
+    this.initItems();
+  },
+
   hiding: function CM_hiding() {
     InlineSpellCheckerUI.clearSuggestionsFromMenu();
     InlineSpellCheckerUI.clearDictionaryListFromMenu();
@@ -144,7 +169,7 @@ nsContextMenu.prototype = {
 
   initLeaveDOMFullScreenItems: function CM_initLeaveFullScreenItem() {
     // only show the option if the user is in DOM fullscreen
-    var shouldShow = false;
+    var shouldShow = (this.target.ownerDocument.mozFullScreenElement != null);
     this.showItem("context-leave-dom-fullscreen", shouldShow);
 
     // Explicitly show if in DOM fullscreen, but do not hide it has already been shown
@@ -749,8 +774,6 @@ nsContextMenu.prototype = {
 
   // Open linked-to URL in a new window.
   openLink : function () {
-      openLinkIn(this.linkURL, "window", {});
-    return;
     var doc = this.target.ownerDocument;
     urlSecurityCheck(this.linkURL, doc.nodePrincipal);
     openLinkIn(this.linkURL, "window",
@@ -770,8 +793,6 @@ nsContextMenu.prototype = {
 
   // Open linked-to URL in a new tab.
   openLinkInTab: function() {
-      openLinkIn(this.linkURL, "tab", {});
-    return;
     var doc = this.target.ownerDocument;
     urlSecurityCheck(this.linkURL, doc.nodePrincipal);
     openLinkIn(this.linkURL, "tab",
@@ -908,20 +929,19 @@ nsContextMenu.prototype = {
       viewURL = this.target.toDataURL();
     else {
       viewURL = this.mediaURL;
-      // urlSecurityCheck(viewURL,
-      //                  this.browser.contentPrincipal,
-      //                  Ci.nsIScriptSecurityManager.DISALLOW_SCRIPT);
+      urlSecurityCheck(viewURL,
+                       this.browser.contentPrincipal,
+                       Ci.nsIScriptSecurityManager.DISALLOW_SCRIPT);
     }
 
-    //var doc = this.target.ownerDocument;
-    openLinkIn(viewURL, "tab", {});
-    // openUILink(viewURL, e, { disallowInheritPrincipal: true,
-    //                          referrerURI: doc.documentURIObject });
+    var doc = this.target.ownerDocument;
+    openUILink(viewURL, e, { disallowInheritPrincipal: true,
+                             referrerURI: doc.documentURIObject });
   },
 
   saveVideoFrameAsImage: function () {
-    // urlSecurityCheck(this.mediaURL, this.browser.contentPrincipal,
-    //                  Ci.nsIScriptSecurityManager.DISALLOW_SCRIPT);
+    urlSecurityCheck(this.mediaURL, this.browser.contentPrincipal,
+                     Ci.nsIScriptSecurityManager.DISALLOW_SCRIPT);
     let name = "";
     try {
       let uri = makeURI(this.mediaURL);
@@ -1229,7 +1249,7 @@ nsContextMenu.prototype = {
     // Let's try to unescape it using a character set
     // in case the address is not ASCII.
     try {
-      var characterSet = this.browser.characterSet;
+      var characterSet = this.target.ownerDocument.characterSet;
       const textToSubURI = Cc["@mozilla.org/intl/texttosuburi;1"].
                            getService(Ci.nsITextToSubURI);
       addresses = textToSubURI.unEscapeURIForUI(characterSet, addresses);
@@ -1241,26 +1261,6 @@ nsContextMenu.prototype = {
     var clipboard = Cc["@mozilla.org/widget/clipboardhelper;1"].
                     getService(Ci.nsIClipboardHelper);
     clipboard.copyString(addresses, document);
-  },
-
-  copyLink: function() {
-    var url = this.linkURL;
-
-    // Let's try to unescape it using a character set
-    // in case the address is not ASCII.
-    try {
-      var characterSet = this.browser.characterSet;
-      const textToSubURI = Cc["@mozilla.org/intl/texttosuburi;1"].
-                           getService(Ci.nsITextToSubURI);
-      url = textToSubURI.unEscapeURIForUI(characterSet, url);
-    }
-    catch(ex) {
-      // Do nothing.
-    }
-
-    var clipboard = Cc["@mozilla.org/widget/clipboardhelper;1"].
-                    getService(Ci.nsIClipboardHelper);
-    clipboard.copyString(url, document);
   },
 
   ///////////////
@@ -1369,6 +1369,44 @@ nsContextMenu.prototype = {
     return text;
   },
 
+  // Get selected text. Only display the first 15 chars.
+  isTextSelection: function() {
+    // Get 16 characters, so that we can trim the selection if it's greater
+    // than 15 chars
+    var selectedText = getBrowserSelection(16);
+
+    if (!selectedText)
+      return false;
+
+    if (selectedText.length > 15)
+      selectedText = selectedText.substr(0,15) + this.ellipsis;
+
+    // Use the current engine if the search bar is visible, the default
+    // engine otherwise.
+    var engineName = "";
+    var ss = Cc["@mozilla.org/browser/search-service;1"].
+             getService(Ci.nsIBrowserSearchService);
+    if (isElementVisible(BrowserSearch.searchBar))
+      engineName = ss.currentEngine.name;
+    else
+      engineName = ss.defaultEngine.name;
+
+    // format "Search <engine> for <selection>" string to show in menu
+    var menuLabel = gNavigatorBundle.getFormattedString("contextMenuSearch",
+                                                        [engineName,
+                                                         selectedText]);
+    document.getElementById("context-searchselect").label = menuLabel;
+    document.getElementById("context-searchselect").accessKey =
+             gNavigatorBundle.getString("contextMenuSearch.accesskey"); 
+
+    return true;
+  },
+
+  // Returns true if anything is selected.
+  isContentSelection: function() {
+    return !document.commandDispatcher.focusedWindow.getSelection().isCollapsed;
+  },
+
   toString: function () {
     return "contextMenu.target     = " + this.target + "\n" +
            "contextMenu.onImage    = " + this.onImage + "\n" +
@@ -1386,6 +1424,37 @@ nsContextMenu.prototype = {
               .QueryInterface(Components.interfaces.nsIInterfaceRequestor)
               .getInterface(Components.interfaces.nsIDOMWindowUtils)
               .isNodeDisabledForEvents(aNode);
+  },
+
+  isTargetATextBox: function(node) {
+    if (node instanceof HTMLInputElement)
+      return node.mozIsTextField(false);
+
+    return (node instanceof HTMLTextAreaElement);
+  },
+
+  isTargetAKeywordField: function(aNode) {
+    if (!(aNode instanceof HTMLInputElement))
+      return false;
+
+    var form = aNode.form;
+    if (!form || aNode.type == "password")
+      return false;
+
+    var method = form.method.toUpperCase();
+
+    // These are the following types of forms we can create keywords for:
+    //
+    // method   encoding type       can create keyword
+    // GET      *                                 YES
+    //          *                                 YES
+    // POST                                       YES
+    // POST     application/x-www-form-urlencoded YES
+    // POST     text/plain                        NO (a little tricky to do)
+    // POST     multipart/form-data               NO
+    // POST     everything else                   YES
+    return (method == "GET" || method == "") ||
+           (form.enctype != "text/plain") && (form.enctype != "multipart/form-data");
   },
 
   // Determines whether or not the separator with the specified ID should be
@@ -1539,10 +1608,6 @@ nsContextMenu.prototype = {
   },
 
   copyMediaLocation : function () {
-    var consoleService = Components.classes["@mozilla.org/consoleservice;1"]
-                     .getService(Components.interfaces.nsIConsoleService);
-    consoleservice.logStringMessage('test');
-
     var clipboard = Cc["@mozilla.org/widget/clipboardhelper;1"].
                     getService(Ci.nsIClipboardHelper);
     clipboard.copyString(this.mediaURL, document);

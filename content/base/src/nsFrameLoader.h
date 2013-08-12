@@ -22,7 +22,6 @@
 #include "mozilla/dom/Element.h"
 #include "mozilla/Attributes.h"
 #include "FrameMetrics.h"
-#include "nsIBrowserDOMWindow.h"
 #include "nsStubMutationObserver.h"
 
 class nsIURI;
@@ -177,8 +176,6 @@ public:
   nsIDocShell* GetExistingDocShell() { return mDocShell; }
   mozilla::dom::EventTarget* GetTabChildGlobalAsEventTarget();
   nsresult CreateStaticClone(nsIFrameLoader* aDest);
-
-  nsIBrowserDOMWindow* GetBrowserDOMWindow();
 
   /**
    * MessageManagerCallback methods that we override.
