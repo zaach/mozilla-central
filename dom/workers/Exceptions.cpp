@@ -69,7 +69,7 @@ private:
     MOZ_COUNT_DTOR(mozilla::dom::workers::exceptions::DOMException);
   }
 
-  static JSBool
+  static bool
   Construct(JSContext* aCx, unsigned aArgc, jsval* aVp)
   {
     JS_ReportErrorNumber(aCx, js_GetErrorMessage, NULL, JSMSG_WRONG_CONSTRUCTOR,
@@ -84,7 +84,7 @@ private:
     delete GetJSPrivateSafeish<DOMException>(aObj);
   }
 
-  static JSBool
+  static bool
   ToString(JSContext* aCx, unsigned aArgc, jsval* aVp)
   {
     JS::Rooted<JSObject*> obj(aCx, JS_THIS_OBJECT(aCx, aVp));
@@ -125,7 +125,7 @@ private:
     return true;
   }
 
-  static JSBool
+  static bool
   GetProperty(JSContext* aCx, JS::Handle<JSObject*> aObj, JS::Handle<jsid> aIdval,
               JS::MutableHandle<JS::Value> aVp)
   {
@@ -146,7 +146,7 @@ private:
     return true;
   }
 
-  static JSBool
+  static bool
   GetConstant(JSContext* aCx, JS::Handle<JSObject*> aObj, JS::Handle<jsid> idval,
               JS::MutableHandle<JS::Value> aVp)
   {

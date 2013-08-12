@@ -825,7 +825,10 @@ TabChild::SetStatusWithContext(uint32_t aStatusType,
                                const nsAString& aStatusText,
                                nsISupports* aStatusContext)
 {
-  SendSetStatus(aStatusType, nsString(aStatusText));
+  // We can only send the status after the ipc machinery is set up,
+  // mRemoteFrame is a good indicator.
+  if (mRemoteFrame)
+    SendSetStatus(aStatusType, nsString(aStatusText));
   return NS_OK;
 }
 
@@ -891,7 +894,8 @@ TabChild::GetTitle(PRUnichar** aTitle)
 NS_IMETHODIMP
 TabChild::SetTitle(const PRUnichar* aTitle)
 {
-  // FIXME/bug 617804: should the platform support this?
+  // JavaScript sends the "DOMTitleChanged" event to the parent
+  // via the message manager.
   return NS_OK;
 }
 
@@ -1708,7 +1712,7 @@ TabChild::DispatchSynthesizedMouseEvent(uint32_t aMsg, uint64_t aTime,
 
   nsMouseEvent event(true, aMsg, NULL,
       nsMouseEvent::eReal, nsMouseEvent::eNormal);
-  event.refPoint = nsIntPoint(aRefPoint.x, aRefPoint.y);
+  event.refPoint = LayoutDeviceIntPoint(aRefPoint.x, aRefPoint.y);
   event.time = aTime;
   event.button = nsMouseEvent::eLeftButton;
   event.inputSource = nsIDOMMouseEvent::MOZ_SOURCE_TOUCH;
@@ -2210,14 +2214,19 @@ TabChild::InitRenderingState()
     if (id != 0) {
         // Pushing layers transactions directly to a separate
         // compositor context.
-		PCompositorChild* compositorChild = CompositorChild::Get();
+        PCompositorChild* compositorChild = CompositorChild::Get();
         if (!compositorChild) {
           NS_WARNING("failed to get CompositorChild instance");
           return false;
         }
+        bool success;
         shadowManager =
             compositorChild->SendPLayerTransactionConstructor(mTextureFactoryIdentifier.mParentBackend,
-                                                              id, &mTextureFactoryIdentifier);
+                                                              id, &mTextureFactoryIdentifier, &success);
+        if (!success) {
+          NS_WARNING("failed to properly allocate layer transaction");
+          return false;
+        }
     } else {
         // Pushing transactions to the parent content.
         shadowManager = remoteFrame->SendPLayerTransactionConstructor();

@@ -100,6 +100,9 @@ abstract public class BrowserApp extends GeckoApp
     private AboutHome mAboutHome;
     protected Telemetry.Timer mAboutHomeStartupTimer = null;
 
+    // Set the default session restore value
+    private int mSessionRestore = -1;
+
     private static final int GECKO_TOOLS_MENU = -1;
     private static final int ADDON_MENU_OFFSET = 1000;
     private class MenuItemInfo {
@@ -394,19 +397,23 @@ abstract public class BrowserApp extends GeckoApp
     }
 
     @Override
+    protected int getSessionRestoreState(Bundle savedInstanceState) {
+        if (mSessionRestore > -1) {
+            return mSessionRestore;
+        }
+
+        return super.getSessionRestoreState(savedInstanceState);
+    }
+
+    @Override
     public void onCreate(Bundle savedInstanceState) {
         mAboutHomeStartupTimer = new Telemetry.Timer("FENNEC_STARTUP_TIME_ABOUTHOME");
 
         String args = getIntent().getStringExtra("args");
         if (args != null && args.contains("--guest-mode")) {
             mProfile = GeckoProfile.createGuestProfile(this);
-        } else {
-            ThreadUtils.postToBackgroundThread(new Runnable() {
-                @Override
-                public void run() {
-                    GeckoProfile.removeGuestProfile(BrowserApp.this);
-                }
-            });
+        } else if (GeckoProfile.maybeCleanupGuestProfile(this)) {
+            mSessionRestore = RESTORE_NORMAL;
         }
 
         super.onCreate(savedInstanceState);
@@ -1637,8 +1644,8 @@ abstract public class BrowserApp extends GeckoApp
         MenuItem charEncoding = aMenu.findItem(R.id.char_encoding);
         MenuItem findInPage = aMenu.findItem(R.id.find_in_page);
         MenuItem desktopMode = aMenu.findItem(R.id.desktop_mode);
-        MenuItem enterGuestMode = aMenu.findItem(R.id.enter_guest_mode);
-        MenuItem exitGuestMode = aMenu.findItem(R.id.exit_guest_mode);
+        MenuItem enterGuestMode = aMenu.findItem(R.id.new_guest_session);
+        MenuItem exitGuestMode = aMenu.findItem(R.id.exit_guest_session);
 
         // Only show the "Quit" menu item on pre-ICS or television devices.
         // In ICS+, it's easy to kill an app through the task switcher.
@@ -1793,10 +1800,10 @@ abstract public class BrowserApp extends GeckoApp
             case R.id.new_private_tab:
                 addPrivateTab();
                 return true;
-            case R.id.enter_guest_mode:
+            case R.id.new_guest_session:
                 showGuestModeDialog(GuestModeDialog.ENTERING);
                 return true;
-            case R.id.exit_guest_mode:
+            case R.id.exit_guest_session:
                 showGuestModeDialog(GuestModeDialog.LEAVING);
                 return true;
             default:
@@ -1814,6 +1821,8 @@ abstract public class BrowserApp extends GeckoApp
                         String args = "";
                         if (type == GuestModeDialog.ENTERING) {
                             args = "--guest-mode";
+                        } else {
+                            GeckoProfile.leaveGuestSession(BrowserApp.this);
                         }
                         doRestart(args);
                         System.exit(0);
@@ -1826,18 +1835,18 @@ abstract public class BrowserApp extends GeckoApp
 
         Resources res = getResources();
         ps.setButtons(new String[] {
-            res.getString(R.string.guest_mode_dialog_continue),
-            res.getString(R.string.guest_mode_dialog_cancel)
+            res.getString(R.string.guest_session_dialog_continue),
+            res.getString(R.string.guest_session_dialog_cancel)
         });
 
         int titleString = 0;
         int msgString = 0;
         if (type == GuestModeDialog.ENTERING) {
-            titleString = R.string.guest_mode_enter_title;
-            msgString = R.string.guest_mode_enter_text;
+            titleString = R.string.new_guest_session_title;
+            msgString = R.string.new_guest_session_text;
         } else {
-            titleString = R.string.guest_mode_leave_title;
-            msgString = R.string.guest_mode_leave_text;
+            titleString = R.string.exit_guest_session_title;
+            msgString = R.string.exit_guest_session_text;
         }
 
         ps.show(res.getString(titleString), res.getString(msgString), null, false);
@@ -1979,8 +1988,7 @@ abstract public class BrowserApp extends GeckoApp
      * @return true if update UI was launched.
      */
     protected boolean handleUpdaterLaunch() {
-        if ("release".equals(AppConstants.MOZ_UPDATE_CHANNEL) ||
-            "beta".equals(AppConstants.MOZ_UPDATE_CHANNEL)) {
+        if (AppConstants.RELEASE_BUILD) {
             Intent intent = new Intent(Intent.ACTION_VIEW);
             intent.setData(Uri.parse("market://details?id=" + getPackageName()));
             startActivity(intent);

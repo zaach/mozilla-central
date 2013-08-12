@@ -159,15 +159,15 @@ nsJSON::EncodeToStream(nsIOutputStream *aStream,
   return rv;
 }
 
-static JSBool
+static bool
 WriteCallback(const jschar *buf, uint32_t len, void *data)
 {
   nsJSONWriter *writer = static_cast<nsJSONWriter*>(data);
   nsresult rv =  writer->Write((const PRUnichar*)buf, (uint32_t)len);
   if (NS_FAILED(rv))
-    return JS_FALSE;
+    return false;
 
-  return JS_TRUE;
+  return true;
 }
 
 NS_IMETHODIMP
@@ -527,7 +527,7 @@ nsJSONListener::OnStopRequest(nsIRequest *aRequest, nsISupports *aContext,
 
   JS::StableCharPtr chars(reinterpret_cast<const jschar*>(mBufferedChars.Elements()),
                           mBufferedChars.Length());
-  JSBool ok = JS_ParseJSONWithReviver(mCx, chars.get(),
+  bool ok = JS_ParseJSONWithReviver(mCx, chars.get(),
                                       uint32_t(mBufferedChars.Length()),
                                       reviver, value.address());
 

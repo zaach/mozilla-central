@@ -12,6 +12,7 @@
 
 #include "mozilla/Util.h"
 
+#include <ctype.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
@@ -326,8 +327,8 @@ js_DumpPCCounts(JSContext *cx, HandleScript script, js::Sprinter *sp)
  * If pc != NULL, include a prefix indicating whether the PC is at the current line.
  * If showAll is true, include the source note type and the entry stack depth.
  */
-JS_FRIEND_API(JSBool)
-js_DisassembleAtPC(JSContext *cx, JSScript *scriptArg, JSBool lines,
+JS_FRIEND_API(bool)
+js_DisassembleAtPC(JSContext *cx, JSScript *scriptArg, bool lines,
                    jsbytecode *pc, bool showAll, Sprinter *sp)
 {
     RootedScript script(cx, scriptArg);
@@ -388,41 +389,41 @@ js_DisassembleAtPC(JSContext *cx, JSScript *scriptArg, JSBool lines,
         }
         len = js_Disassemble1(cx, script, next, next - script->code, lines, sp);
         if (!len)
-            return JS_FALSE;
+            return false;
         next += len;
     }
-    return JS_TRUE;
+    return true;
 }
 
-JSBool
-js_Disassemble(JSContext *cx, HandleScript script, JSBool lines, Sprinter *sp)
+bool
+js_Disassemble(JSContext *cx, HandleScript script, bool lines, Sprinter *sp)
 {
     return js_DisassembleAtPC(cx, script, lines, NULL, false, sp);
 }
 
-JS_FRIEND_API(JSBool)
+JS_FRIEND_API(bool)
 js_DumpPC(JSContext *cx)
 {
     js::gc::AutoSuppressGC suppressGC(cx);
     Sprinter sprinter(cx);
     if (!sprinter.init())
-        return JS_FALSE;
+        return false;
     ScriptFrameIter iter(cx);
     RootedScript script(cx, iter.script());
-    JSBool ok = js_DisassembleAtPC(cx, script, true, iter.pc(), false, &sprinter);
+    bool ok = js_DisassembleAtPC(cx, script, true, iter.pc(), false, &sprinter);
     fprintf(stdout, "%s", sprinter.string());
     return ok;
 }
 
-JS_FRIEND_API(JSBool)
+JS_FRIEND_API(bool)
 js_DumpScript(JSContext *cx, JSScript *scriptArg)
 {
     js::gc::AutoSuppressGC suppressGC(cx);
     Sprinter sprinter(cx);
     if (!sprinter.init())
-        return JS_FALSE;
+        return false;
     RootedScript script(cx, scriptArg);
-    JSBool ok = js_Disassemble(cx, script, true, &sprinter);
+    bool ok = js_Disassemble(cx, script, true, &sprinter);
     fprintf(stdout, "%s", sprinter.string());
     return ok;
 }
@@ -430,15 +431,15 @@ js_DumpScript(JSContext *cx, JSScript *scriptArg)
 /*
  * Useful to debug ReconstructPCStack.
  */
-JS_FRIEND_API(JSBool)
+JS_FRIEND_API(bool)
 js_DumpScriptDepth(JSContext *cx, JSScript *scriptArg, jsbytecode *pc)
 {
     js::gc::AutoSuppressGC suppressGC(cx);
     Sprinter sprinter(cx);
     if (!sprinter.init())
-        return JS_FALSE;
+        return false;
     RootedScript script(cx, scriptArg);
-    JSBool ok = js_DisassembleAtPC(cx, script, true, pc, true, &sprinter);
+    bool ok = js_DisassembleAtPC(cx, script, true, pc, true, &sprinter);
     fprintf(stdout, "%s", sprinter.string());
     return ok;
 }
@@ -527,7 +528,7 @@ ToDisassemblySource(JSContext *cx, jsval v, JSAutoByteString *bytes)
 
 unsigned
 js_Disassemble1(JSContext *cx, HandleScript script, jsbytecode *pc,
-                unsigned loc, JSBool lines, Sprinter *sp)
+                unsigned loc, bool lines, Sprinter *sp)
 {
     JSOp op = (JSOp)*pc;
     if (op >= JSOP_LIMIT) {
@@ -981,7 +982,7 @@ static char *
 QuoteString(Sprinter *sp, JSString *str, uint32_t quote)
 {
     /* Sample off first for later return value pointer computation. */
-    JSBool dontEscape = (quote & DONT_ESCAPE) != 0;
+    bool dontEscape = (quote & DONT_ESCAPE) != 0;
     jschar qc = (jschar) quote;
     ptrdiff_t offset = sp->getOffset();
     if (qc && Sprint(sp, "%c", (char)qc) < 0)

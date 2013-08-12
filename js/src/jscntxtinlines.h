@@ -9,20 +9,13 @@
 
 #include "jscntxt.h"
 
-#include "jscompartment.h"
-#include "jsfriendapi.h"
-#include "jsgc.h"
 #include "jsiter.h"
-#include "jsworkers.h"
 
-#include "builtin/Object.h" // For js::obj_construct
-#include "frontend/ParseMaps.h"
-#include "ion/IonFrames.h" // For GetPcScript
+#include "builtin/Object.h"
+#include "jit/IonFrames.h"
+#include "vm/ForkJoin.h"
 #include "vm/Interpreter.h"
-#include "vm/Probes.h"
-#include "vm/RegExpObject.h"
-
-#include "jsgcinlines.h"
+#include "vm/ProxyObject.h"
 
 #include "vm/ObjectImpl-inl.h"
 
@@ -54,14 +47,14 @@ class CompartmentChecker
 
     /* Note: should only be used when neither c1 nor c2 may be the default compartment. */
     static void check(JSCompartment *c1, JSCompartment *c2) {
-        JS_ASSERT(c1 != c1->rt->atomsCompartment);
-        JS_ASSERT(c2 != c2->rt->atomsCompartment);
+        JS_ASSERT(c1 != c1->runtimeFromMainThread()->atomsCompartment);
+        JS_ASSERT(c2 != c2->runtimeFromMainThread()->atomsCompartment);
         if (c1 != c2)
             fail(c1, c2);
     }
 
     void check(JSCompartment *c) {
-        if (c && c != compartment->rt->atomsCompartment) {
+        if (c && c != compartment->runtimeFromMainThread()->atomsCompartment) {
             if (!compartment)
                 compartment = c;
             else if (c != compartment)
@@ -293,7 +286,7 @@ CallJSPropertyOp(JSContext *cx, PropertyOp op, HandleObject receiver, HandleId i
     JS_CHECK_RECURSION(cx, return false);
 
     assertSameCompartment(cx, receiver, id, vp);
-    JSBool ok = op(cx, receiver, id, vp);
+    bool ok = op(cx, receiver, id, vp);
     if (ok)
         assertSameCompartment(cx, vp);
     return ok;
@@ -301,7 +294,7 @@ CallJSPropertyOp(JSContext *cx, PropertyOp op, HandleObject receiver, HandleId i
 
 JS_ALWAYS_INLINE bool
 CallJSPropertyOpSetter(JSContext *cx, StrictPropertyOp op, HandleObject obj, HandleId id,
-                       JSBool strict, MutableHandleValue vp)
+                       bool strict, MutableHandleValue vp)
 {
     JS_CHECK_RECURSION(cx, return false);
 
@@ -311,7 +304,7 @@ CallJSPropertyOpSetter(JSContext *cx, StrictPropertyOp op, HandleObject obj, Han
 
 static inline bool
 CallJSDeletePropertyOp(JSContext *cx, JSDeletePropertyOp op, HandleObject receiver, HandleId id,
-                       JSBool *succeeded)
+                       bool *succeeded)
 {
     JS_CHECK_RECURSION(cx, return false);
 
@@ -321,7 +314,7 @@ CallJSDeletePropertyOp(JSContext *cx, JSDeletePropertyOp op, HandleObject receiv
 
 inline bool
 CallSetter(JSContext *cx, HandleObject obj, HandleId id, StrictPropertyOp op, unsigned attrs,
-           unsigned shortid, JSBool strict, MutableHandleValue vp)
+           unsigned shortid, bool strict, MutableHandleValue vp)
 {
     if (attrs & JSPROP_SETTER) {
         RootedValue opv(cx, CastAsObjectJsval(op));
@@ -432,6 +425,10 @@ class AutoLockForExclusiveAccess
     }
     AutoLockForExclusiveAccess(JSRuntime *rt MOZ_GUARD_OBJECT_NOTIFIER_PARAM) {
         MOZ_GUARD_OBJECT_NOTIFIER_INIT;
+    }
+    ~AutoLockForExclusiveAccess() {
+        // An empty destructor is needed to avoid warnings from clang about
+        // unused local variables of this type.
     }
 #endif // JS_THREADSAFE
 
@@ -576,7 +573,7 @@ JSContext::currentScript(jsbytecode **ppc,
 }
 
 template <JSThreadSafeNative threadSafeNative>
-inline JSBool
+inline bool
 JSNativeThreadSafeWrapper(JSContext *cx, unsigned argc, JS::Value *vp)
 {
     return threadSafeNative(cx, argc, vp);

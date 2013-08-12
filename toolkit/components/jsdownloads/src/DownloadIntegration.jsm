@@ -73,7 +73,7 @@ XPCOMUtils.defineLazyGetter(this, "gStringBundle", function() {
  */
 this.DownloadIntegration = {
   // For testing only
-  testMode: false,
+  _testMode: false,
   dontLoad: false,
   dontCheckParentalControls: false,
   shouldBlockInTest: false,
@@ -87,6 +87,15 @@ this.DownloadIntegration = {
    * doesn't need to be persisted.
    */
   _store: null,
+
+  /**
+   * Gets and sets test mode
+   */
+  get testMode() this._testMode,
+  set testMode(mode) {
+    this._downloadsDirectory = null;
+    return (this._testMode = mode);
+  },
 
   /**
    * Performs initialization of the list of persistent downloads, before its
@@ -334,24 +343,26 @@ this.DownloadIntegration = {
         }
 
         // Custom application chosen
-        mimeInfo.preferredAction = Ci.nsIMIMEInfo.useHelperApp;
-
         let localHandlerApp = Cc["@mozilla.org/uriloader/local-handler-app;1"]
                                 .createInstance(Ci.nsILocalHandlerApp);
         localHandlerApp.executable = new FileUtils.File(aDownload.launcherPath);
 
+        mimeInfo.preferredApplicationHandler = localHandlerApp;
+        mimeInfo.preferredAction = Ci.nsIMIMEInfo.useHelperApp;
+
+        // In test mode, allow the test to verify the nsIMIMEInfo instance.
         if (this.dontOpenFileAndFolder) {
-          throw new Task.Result("chosen-app");
+          throw new Task.Result(mimeInfo);
         }
 
         mimeInfo.launchWithFile(file);
         return;
       }
 
-      // No custom application chosen, let's launch the file with the
-      // default handler
+      // No custom application chosen, let's launch the file with the default
+      // handler.  In test mode, we indicate this with a null value.
       if (this.dontOpenFileAndFolder) {
-        throw new Task.Result("default-handler");
+        throw new Task.Result(null);
       }
 
       // First let's try to launch it through the MIME service application
@@ -468,5 +479,181 @@ this.DownloadIntegration = {
    */
   _getDirectory: function DI_getDirectory(aName) {
     return Services.dirsvc.get(this.testMode ? "TmpD" : aName, Ci.nsIFile);
+  },
+
+  /**
+   * Register the downloads interruption observers.
+   *
+   * @param aList
+   *        The public or private downloads list.
+   * @param aIsPrivate
+   *        True if the list is private, false otherwise.
+   *
+   * @return {Promise}
+   * @resolves When the views and observers are added.
+   */
+  addListObservers: function DI_addListObservers(aList, aIsPrivate) {
+    DownloadObserver.registerView(aList, aIsPrivate);
+    if (!DownloadObserver.observersAdded) {
+      DownloadObserver.observersAdded = true;
+      Services.obs.addObserver(DownloadObserver, "quit-application-requested", true);
+      Services.obs.addObserver(DownloadObserver, "offline-requested", true);
+      Services.obs.addObserver(DownloadObserver, "last-pb-context-exiting", true);
+    }
+    return Promise.resolve();
   }
+};
+
+let DownloadObserver = {
+  /**
+   * Flag to determine if the observers have been added previously.
+   */
+  observersAdded: false,
+
+  /**
+   * Set that contains the in progress publics downloads.
+   * It's keep updated when a public download is added, removed or change its
+   * properties.
+   */
+  _publicInProgressDownloads: new Set(),
+
+  /**
+   * Set that contains the in progress private downloads.
+   * It's keep updated when a private download is added, removed or change its
+   * properties.
+   */
+  _privateInProgressDownloads: new Set(),
+
+  /**
+   * Registers a view that updates the corresponding downloads state set, based
+   * on the aIsPrivate argument. The set is updated when a download is added,
+   * removed or changed its properties.
+   *
+   * @param aList
+   *        The public or private downloads list.
+   * @param aIsPrivate
+   *        True if the list is private, false otherwise.
+   */
+  registerView: function DO_registerView(aList, aIsPrivate) {
+    let downloadsSet = aIsPrivate ? this._privateInProgressDownloads
+                                  : this._publicInProgressDownloads;
+    let downloadsView = {
+      onDownloadAdded: function DO_V_onDownloadAdded(aDownload) {
+        if (!aDownload.stopped) {
+          downloadsSet.add(aDownload);
+        }
+      },
+      onDownloadChanged: function DO_V_onDownloadChanged(aDownload) {
+        if (aDownload.stopped) {
+          downloadsSet.delete(aDownload);
+        } else {
+          downloadsSet.add(aDownload);
+        }
+      },
+      onDownloadRemoved: function DO_V_onDownloadRemoved(aDownload) {
+        downloadsSet.delete(aDownload);
+      }
+    };
+
+    aList.addView(downloadsView);
+  },
+
+  /**
+   * Shows the confirm cancel downloads dialog.
+   *
+   * @param aCancel
+   *        The observer notification subject.
+   * @param aDownloadsCount
+   *        The current downloads count.
+   * @param aIdTitle
+   *        The string bundle id for the dialog title.
+   * @param aIdMessageSingle
+   *        The string bundle id for the single download message.
+   * @param aIdMessageMultiple
+   *        The string bundle id for the multiple downloads message.
+   * @param aIdButton
+   *        The string bundle id for the don't cancel button text.
+   */
+  _confirmCancelDownloads: function DO_confirmCancelDownload(
+    aCancel, aDownloadsCount, aIdTitle, aIdMessageSingle, aIdMessageMultiple, aIdButton) {
+    // If user has already dismissed the request, then do nothing.
+    if ((aCancel instanceof Ci.nsISupportsPRBool) && aCancel.data) {
+      return;
+    }
+    // If there are no active downloads, then do nothing.
+    if (aDownloadsCount <= 0) {
+      return;
+    }
+
+    let win = Services.wm.getMostRecentWindow("navigator:browser");
+    let buttonFlags = (Ci.nsIPrompt.BUTTON_TITLE_IS_STRING * Ci.nsIPrompt.BUTTON_POS_0) +
+                      (Ci.nsIPrompt.BUTTON_TITLE_IS_STRING * Ci.nsIPrompt.BUTTON_POS_1);
+    let title = gStringBundle.GetStringFromName(aIdTitle);
+    let dontQuitButton = gStringBundle.GetStringFromName(aIdButton);
+    let quitButton;
+    let message;
+
+    if (aDownloadsCount > 1) {
+      message = gStringBundle.formatStringFromName(aIdMessageMultiple,
+                                                   [aDownloadsCount], 1);
+      quitButton = gStringBundle.formatStringFromName("cancelDownloadsOKTextMultiple",
+                                                      [aDownloadsCount], 1);
+    } else {
+      message = gStringBundle.GetStringFromName(aIdMessageSingle);
+      quitButton = gStringBundle.GetStringFromName("cancelDownloadsOKText");
+    }
+
+    let rv = Services.prompt.confirmEx(win, title, message, buttonFlags,
+                                       quitButton, dontQuitButton, null, null, {});
+    aCancel.data = (rv == 1);
+  },
+
+  ////////////////////////////////////////////////////////////////////////////
+  //// nsIObserver
+
+  observe: function DO_observe(aSubject, aTopic, aData) {
+    let downloadsCount;
+    switch (aTopic) {
+      case "quit-application-requested":
+        downloadsCount = this._publicInProgressDownloads.size +
+                         this._privateInProgressDownloads.size;
+#ifndef XP_MACOSX
+        this._confirmCancelDownloads(aSubject, downloadsCount,
+                                     "quitCancelDownloadsAlertTitle",
+                                     "quitCancelDownloadsAlertMsg",
+                                     "quitCancelDownloadsAlertMsgMultiple",
+                                     "dontQuitButtonWin");
+#else
+        this._confirmCancelDownloads(aSubject, downloadsCount,
+                                     "quitCancelDownloadsAlertTitle",
+                                     "quitCancelDownloadsAlertMsgMac",
+                                     "quitCancelDownloadsAlertMsgMacMultiple",
+                                     "dontQuitButtonMac");
+#endif
+        break;
+      case "offline-requested":
+        downloadsCount = this._publicInProgressDownloads.size +
+                         this._privateInProgressDownloads.size;
+        this._confirmCancelDownloads(aSubject, downloadsCount,
+                                     "offlineCancelDownloadsAlertTitle",
+                                     "offlineCancelDownloadsAlertMsg",
+                                     "offlineCancelDownloadsAlertMsgMultiple",
+                                     "dontGoOfflineButton");
+        break;
+      case "last-pb-context-exiting":
+        this._confirmCancelDownloads(aSubject,
+                                     this._privateInProgressDownloads.size,
+                                     "leavePrivateBrowsingCancelDownloadsAlertTitle",
+                                     "leavePrivateBrowsingWindowsCancelDownloadsAlertMsg",
+                                     "leavePrivateBrowsingWindowsCancelDownloadsAlertMsgMultiple",
+                                     "dontLeavePrivateBrowsingButton");
+        break;
+    }
+  },
+
+  ////////////////////////////////////////////////////////////////////////////
+  //// nsISupports
+
+  QueryInterface: XPCOMUtils.generateQI([Ci.nsIObserver,
+                                         Ci.nsISupportsWeakReference])
 };

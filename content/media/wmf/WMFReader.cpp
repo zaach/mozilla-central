@@ -10,11 +10,15 @@
 #include "WMFByteStream.h"
 #include "WMFSourceReaderCallback.h"
 #include "mozilla/dom/TimeRanges.h"
+#include "mozilla/dom/HTMLMediaElement.h"
 #include "mozilla/Preferences.h"
 #include "DXVA2Manager.h"
 #include "ImageContainer.h"
 #include "Layers.h"
 #include "mozilla/layers/LayersTypes.h"
+#include "WinUtils.h"
+
+using namespace mozilla::widget;
 
 #ifndef MOZ_SAMPLE_TYPE_FLOAT32
 #error We expect 32bit float audio samples on desktop for the Windows Media Foundation media backend.
@@ -101,7 +105,10 @@ WMFReader::OnDecodeThreadFinish()
 bool
 WMFReader::InitializeDXVA()
 {
-  if (!Preferences::GetBool("media.windows-media-foundation.use-dxva", false)) {
+  if (!Preferences::GetBool("media.windows-media-foundation.use-dxva", false) ||
+      WinUtils::GetWindowsVersion() == WinUtils::VISTA_VERSION) {
+    // Don't use DXVA on Vista until bug 901944's fix has time to bake on
+    // the release train.
     return false;
   }
 
@@ -116,10 +123,8 @@ WMFReader::InitializeDXVA()
   HTMLMediaElement* element = owner->GetMediaElement();
   NS_ENSURE_TRUE(element, false);
 
-  nsIDocument* doc = element->GetOwnerDocument();
-  NS_ENSURE_TRUE(doc, false);
-
-  nsRefPtr<LayerManager> layerManager = nsContentUtils::LayerManagerForDocument(doc);
+  nsRefPtr<LayerManager> layerManager =
+    nsContentUtils::LayerManagerForDocument(element->OwnerDoc());
   NS_ENSURE_TRUE(layerManager, false);
 
   if (layerManager->GetBackendType() != LayersBackend::LAYERS_D3D9 &&

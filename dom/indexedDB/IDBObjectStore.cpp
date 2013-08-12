@@ -535,7 +535,8 @@ class ThreadLocalJSRuntime
 
     JSAutoRequest ar(mContext);
 
-    mGlobal = JS_NewGlobalObject(mContext, &sGlobalClass, NULL);
+    mGlobal = JS_NewGlobalObject(mContext, &sGlobalClass, NULL,
+                                 JS::FireOnNewGlobalHook);
     NS_ENSURE_TRUE(mGlobal, NS_ERROR_OUT_OF_MEMORY);
 
     js::SetDefaultObjectForContext(mContext, mGlobal);
@@ -952,7 +953,7 @@ IDBObjectStore::AppendIndexUpdateInfo(
 
     for (uint32_t arrayIndex = 0; arrayIndex < arrayLength; arrayIndex++) {
       JS::Rooted<JS::Value> arrayItem(aCx);
-      if (!JS_GetElement(aCx, array, arrayIndex, arrayItem.address())) {
+      if (!JS_GetElement(aCx, array, arrayIndex, &arrayItem)) {
         return NS_ERROR_DOM_INDEXEDDB_UNKNOWN_ERR;
       }
 
@@ -1470,7 +1471,7 @@ IDBObjectStore::StructuredCloneReadCallback(JSContext* aCx,
 }
 
 // static
-JSBool
+bool
 IDBObjectStore::StructuredCloneWriteCallback(JSContext* aCx,
                                              JSStructuredCloneWriter* aWriter,
                                              JS::Handle<JSObject*> aObj,
@@ -2389,6 +2390,8 @@ IDBObjectStore::Index(const nsAString& aName, ErrorResult &aRv)
   return retval.forget();
 }
 
+NS_IMPL_CYCLE_COLLECTION_CLASS(IDBObjectStore)
+
 NS_IMPL_CYCLE_COLLECTION_TRACE_BEGIN(IDBObjectStore)
   NS_IMPL_CYCLE_COLLECTION_TRACE_PRESERVED_WRAPPER
   NS_IMPL_CYCLE_COLLECTION_TRACE_JSVAL_MEMBER_CALLBACK(mCachedKeyPath)
@@ -3256,7 +3259,7 @@ GetHelper::PackArgumentsForParentProcess(ObjectStoreRequestParams& aParams)
                              "GetHelper::PackArgumentsForParentProcess "
                              "[IDBObjectStore.cpp]");
 
-  FIXME_Bug_521898_objectstore::GetParams params;
+  GetParams params;
 
   mKeyRange->ToSerializedKeyRange(params.keyRange());
 
@@ -3711,10 +3714,10 @@ OpenCursorHelper::PackArgumentsForParentProcess(
                              "OpenCursorHelper::PackArgumentsForParentProcess "
                              "[IDBObjectStore.cpp]");
 
-  FIXME_Bug_521898_objectstore::OpenCursorParams params;
+  OpenCursorParams params;
 
   if (mKeyRange) {
-    FIXME_Bug_521898_objectstore::KeyRange keyRange;
+    KeyRange keyRange;
     mKeyRange->ToSerializedKeyRange(keyRange);
     params.optionalKeyRange() = keyRange;
   }
@@ -4173,10 +4176,10 @@ GetAllHelper::PackArgumentsForParentProcess(ObjectStoreRequestParams& aParams)
                              "GetAllHelper::PackArgumentsForParentProcess "
                              "[IDBObjectStore.cpp]");
 
-  FIXME_Bug_521898_objectstore::GetAllParams params;
+  GetAllParams params;
 
   if (mKeyRange) {
-    FIXME_Bug_521898_objectstore::KeyRange keyRange;
+    KeyRange keyRange;
     mKeyRange->ToSerializedKeyRange(keyRange);
     params.optionalKeyRange() = keyRange;
   }
@@ -4386,10 +4389,10 @@ CountHelper::PackArgumentsForParentProcess(ObjectStoreRequestParams& aParams)
                              "CountHelper::PackArgumentsForParentProcess "
                              "[IDBObjectStore.cpp]");
 
-  FIXME_Bug_521898_objectstore::CountParams params;
+  CountParams params;
 
   if (mKeyRange) {
-    FIXME_Bug_521898_objectstore::KeyRange keyRange;
+    KeyRange keyRange;
     mKeyRange->ToSerializedKeyRange(keyRange);
     params.optionalKeyRange() = keyRange;
   }

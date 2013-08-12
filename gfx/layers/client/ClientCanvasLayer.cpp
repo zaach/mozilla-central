@@ -81,9 +81,9 @@ ClientCanvasLayer::RenderLayer()
   }
   
   if (!mCanvasClient) {
-    TextureFlags flags = 0;
+    TextureFlags flags = TEXTURE_IMMEDIATE_UPLOAD;
     if (mNeedsYFlip) {
-      flags |= NeedsYFlip;
+      flags |= TEXTURE_NEEDS_Y_FLIP;
     }
 
     bool isCrossProcess = !(XRE_GetProcessType() == GeckoProcessType_Default);
@@ -94,7 +94,7 @@ ClientCanvasLayer::RenderLayer()
         flags |= TEXTURE_DEALLOCATE_CLIENT;
       }
     }
-    mCanvasClient = CanvasClient::CreateCanvasClient(GetCompositableClientType(),
+    mCanvasClient = CanvasClient::CreateCanvasClient(GetCanvasClientType(),
                                                      ClientManager(), flags);
     if (!mCanvasClient) {
       return;
@@ -112,6 +112,7 @@ ClientCanvasLayer::RenderLayer()
 
   ClientManager()->Hold(this);
   mCanvasClient->Updated();
+  mCanvasClient->OnTransaction();
 }
 
 already_AddRefed<CanvasLayer>

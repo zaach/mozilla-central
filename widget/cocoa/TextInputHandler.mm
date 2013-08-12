@@ -781,7 +781,7 @@ TISInputSourceWrapper::InitKeyEvent(NSEvent *aNativeKeyEvent,
   // call), so there is no need to retain and release this data.
   aKeyEvent.mNativeKeyEvent = aNativeKeyEvent;
 
-  aKeyEvent.refPoint = nsIntPoint(0, 0);
+  aKeyEvent.refPoint = LayoutDeviceIntPoint(0, 0);
 
   // If a keyboard layout override is set, we also need to force the keyboard
   // type to something ANSI to avoid test failures on machines with JIS
@@ -3411,7 +3411,7 @@ IMEInputHandler::IsFocused()
   NSWindow* window = [mView window];
   NS_ENSURE_TRUE(window, false);
   return [window firstResponder] == mView &&
-         ([window isMainWindow] || [window isSheet]) &&
+         [window isKeyWindow] &&
          [[NSApplication sharedApplication] isActive];
 
   NS_OBJC_END_TRY_ABORT_BLOCK_RETURN(false);

@@ -737,7 +737,7 @@ var gBrowserInit = {
     var mustLoadSidebar = false;
 
     if (!gMultiProcessBrowser) {
-      // There is an Content:Click message manually sent from content.
+      // There is a Content:Click message manually sent from content.
       Cc["@mozilla.org/eventlistenerservice;1"]
         .getService(Ci.nsIEventListenerService)
         .addSystemEventListener(gBrowser, "click", contentAreaClick, true);
@@ -766,7 +766,6 @@ var gBrowserInit = {
 
     // initialize observers and listeners
     // and give C++ access to gBrowser
-    gBrowser.init();
     XULBrowserWindow.init();
     window.QueryInterface(Ci.nsIInterfaceRequestor)
           .getInterface(nsIWebNavigation)
@@ -1113,7 +1112,15 @@ var gBrowserInit = {
     // If the user manually opens the download manager before the timeout, the
     // downloads will start right away, and getting the service again won't hurt.
     setTimeout(function() {
-      Services.downloads;
+      let DownloadsCommon =
+        Cu.import("resource:///modules/DownloadsCommon.jsm", {}).DownloadsCommon;
+      if (DownloadsCommon.useJSTransfer) {
+        // Open the data link without initalizing nsIDownloadManager.
+        DownloadsCommon.initializeAllDataLinks();
+      } else {
+        // Initalizing nsIDownloadManager will trigger the data link.
+        Services.downloads;
+      }
       let DownloadTaskbarProgress =
         Cu.import("resource://gre/modules/DownloadTaskbarProgress.jsm", {}).DownloadTaskbarProgress;
       DownloadTaskbarProgress.onBrowserWindowLoad(window);
@@ -1276,6 +1283,12 @@ var gBrowserInit = {
     }, this);
 #endif
 #endif
+
+    if (gMultiProcessBrowser) {
+      // Bug 862519 - Backspace doesn't work in electrolysis builds.
+      // We bypass the problem by disabling the backspace-to-go-back command.
+      document.getElementById("cmd_handleBackspace").setAttribute("disabled", true);
+    }
 
     SessionStore.promiseInitialized.then(() => {
       // Enable the Restore Last Session command if needed
@@ -4387,6 +4400,44 @@ function nsBrowserAccess() { }
 nsBrowserAccess.prototype = {
   QueryInterface: XPCOMUtils.generateQI([Ci.nsIBrowserDOMWindow, Ci.nsISupports]),
 
+  _openURIInNewTab: function(aURI, aOpener, aIsExternal) {
+    let win, needToFocusWin;
+
+    // try the current window.  if we're in a popup, fall back on the most recent browser window
+    if (window.toolbar.visible)
+      win = window;
+    else {
+      let isPrivate = PrivateBrowsingUtils.isWindowPrivate(aOpener || window);
+      win = RecentWindow.getMostRecentBrowserWindow({private: isPrivate});
+      needToFocusWin = true;
+    }
+
+    if (!win) {
+      // we couldn't find a suitable window, a new one needs to be opened.
+      return null;
+    }
+
+    if (aIsExternal && (!aURI || aURI.spec == "about:blank")) {
+      win.BrowserOpenTab(); // this also focuses the location bar
+      win.focus();
+      return win.gBrowser.selectedBrowser;
+    }
+
+    let loadInBackground = gPrefService.getBoolPref("browser.tabs.loadDivertedInBackground");
+    let referrer = aOpener ? makeURI(aOpener.location.href) : null;
+
+    let tab = win.gBrowser.loadOneTab(aURI ? aURI.spec : "about:blank", {
+                                      referrerURI: referrer,
+                                      fromExternal: aIsExternal,
+                                      inBackground: loadInBackground});
+    let browser = win.gBrowser.getBrowserForTab(tab);
+
+    if (needToFocusWin || (!loadInBackground && aIsExternal))
+      win.focus();
+
+    return browser;
+  },
+
   openURI: function (aURI, aOpener, aWhere, aContext) {
     var newWindow = null;
     var isExternal = (aContext == Ci.nsIBrowserDOMWindow.OPEN_EXTERNAL);
@@ -4413,41 +4464,8 @@ nsBrowserAccess.prototype = {
         newWindow = openDialog(getBrowserURL(), "_blank", "all,dialog=no", url, null, null, null);
         break;
       case Ci.nsIBrowserDOMWindow.OPEN_NEWTAB :
-        let win, needToFocusWin;
-
-        // try the current window.  if we're in a popup, fall back on the most recent browser window
-        if (window.toolbar.visible)
-          win = window;
-        else {
-          let isPrivate = PrivateBrowsingUtils.isWindowPrivate(aOpener || window);
-          win = RecentWindow.getMostRecentBrowserWindow({private: isPrivate});
-          needToFocusWin = true;
-        }
-
-        if (!win) {
-          // we couldn't find a suitable window, a new one needs to be opened.
-          return null;
-        }
-
-        if (isExternal && (!aURI || aURI.spec == "about:blank")) {
-          win.BrowserOpenTab(); // this also focuses the location bar
-          win.focus();
-          newWindow = win.content;
-          break;
-        }
-
-        let loadInBackground = gPrefService.getBoolPref("browser.tabs.loadDivertedInBackground");
-        let referrer = aOpener ? makeURI(aOpener.location.href) : null;
-
-        let tab = win.gBrowser.loadOneTab(aURI ? aURI.spec : "about:blank", {
-                                          referrerURI: referrer,
-                                          fromExternal: isExternal,
-                                          inBackground: loadInBackground});
-        let browser = win.gBrowser.getBrowserForTab(tab);
-
+        let browser = this._openURIInNewTab(aURI, aOpener, isExternal);
         newWindow = browser.contentWindow;
-        if (needToFocusWin || (!loadInBackground && isExternal))
-          newWindow.focus();
         break;
       default : // OPEN_CURRENTWINDOW or an illegal value
         newWindow = content;
@@ -4462,6 +4480,17 @@ nsBrowserAccess.prototype = {
           window.focus();
     }
     return newWindow;
+  },
+
+  openURIInFrame: function browser_openURIInFrame(aURI, aOpener, aWhere, aContext) {
+    if (aWhere != Ci.nsIBrowserDOMWindow.OPEN_NEWTAB) {
+      dump("Error: openURIInFrame can only open in new tabs");
+      return null;
+    }
+
+    var isExternal = (aContext == Ci.nsIBrowserDOMWindow.OPEN_EXTERNAL);
+    let browser = this._openURIInNewTab(aURI, aOpener, isExternal);
+    return browser.QueryInterface(Ci.nsIFrameLoaderOwner);
   },
 
   isTabContentWindow: function (aWindow) {
@@ -7160,8 +7189,13 @@ XPCOMUtils.defineLazyModuleGetter(this, "gDevTools",
 XPCOMUtils.defineLazyModuleGetter(this, "gDevToolsBrowser",
                                   "resource:///modules/devtools/gDevTools.jsm");
 
-XPCOMUtils.defineLazyGetter(this, "HUDConsoleUI", function () {
-  return Cu.import("resource:///modules/HUDService.jsm", {}).HUDService.consoleUI;
+Object.defineProperty(this, "HUDService", {
+  get: function HUDService_getter() {
+    let devtools = Cu.import("resource://gre/modules/devtools/Loader.jsm", {}).devtools;
+    return devtools.require("devtools/webconsole/hudservice");
+  },
+  configurable: true,
+  enumerable: true
 });
 
 // Prompt user to restart the browser in safe mode

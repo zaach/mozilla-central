@@ -85,6 +85,8 @@ public:
   // nsWindowBase
   virtual void InitEvent(nsGUIEvent& aEvent, nsIntPoint* aPoint = nullptr) MOZ_OVERRIDE;
   virtual bool DispatchWindowEvent(nsGUIEvent* aEvent) MOZ_OVERRIDE;
+  virtual nsWindowBase* GetParentWindowBase(bool aIncludeOwner) MOZ_OVERRIDE;
+  virtual bool IsTopLevelWidget() MOZ_OVERRIDE { return mIsTopWidgetWindow; }
 
   // nsIWidget interface
   NS_IMETHOD              Create(nsIWidget *aParent,
@@ -227,8 +229,7 @@ public:
    * Misc.
    */
   virtual bool            AutoErase(HDC dc);
-  nsIntPoint*             GetLastPoint() { return &mLastPoint; }
-  bool                    IsTopLevelWidget() { return mIsTopWidgetWindow; }
+
   /**
    * Start allowing Direct3D9 to be used by widgets when GetLayerManager is
    * called.
@@ -274,9 +275,11 @@ public:
 
   bool                    const DestroyCalled() { return mDestroyCalled; }
 
-  virtual mozilla::layers::LayersBackend GetPreferredCompositorBackend() { return mozilla::layers::LAYERS_D3D11; }
+  virtual mozilla::layers::LayersBackend GetPreferredCompositorBackend();
 
 protected:
+
+  virtual void WindowUsesOMTC() MOZ_OVERRIDE;
 
   // A magic number to identify the FAKETRACKPOINTSCROLLABLE window created
   // when the trackpoint hack is enabled.

@@ -9,19 +9,10 @@
 #ifndef jscntxt_h
 #define jscntxt_h
 
-#include "mozilla/LinkedList.h"
 #include "mozilla/MemoryReporting.h"
 
-#include <string.h>
-
-#include "jsapi.h"
-#include "jsfriendapi.h"
-#include "jsprvtd.h"
-
-#include "js/HashTable.h"
 #include "js/Vector.h"
 #include "vm/Runtime.h"
-#include "vm/Stack.h"
 
 #ifdef _MSC_VER
 #pragma warning(push)
@@ -107,10 +98,11 @@ extern void
 TraceCycleDetectionSet(JSTracer *trc, ObjectSet &set);
 
 struct AutoResolving;
-
+class DtoaCache;
 class ForkJoinSlice;
 class RegExpCompartment;
-class DtoaCache;
+class RegExpStatics;
+class ForkJoinSlice;
 
 /*
  * Execution Context Overview:
@@ -289,8 +281,7 @@ class ExclusiveContext : public ThreadSafeContext
     friend class AutoCompartment;
     friend class AutoLockForExclusiveAccess;
     friend struct StackBaseShape;
-    friend void JSScript::initCompartmentAndPrincipals(ExclusiveContext *cx,
-                                                       const JS::CompileOptions &options);
+    friend void JSScript::initCompartment(ExclusiveContext *cx);
 
     // The worker on which this context is running, if this is not a JSContext.
     WorkerThread *workerThread;
@@ -731,10 +722,10 @@ enum ErrorArgumentsType {
 } /* namespace js */
 
 #ifdef va_start
-extern JSBool
+extern bool
 js_ReportErrorVA(JSContext *cx, unsigned flags, const char *format, va_list ap);
 
-extern JSBool
+extern bool
 js_ReportErrorNumberVA(JSContext *cx, unsigned flags, JSErrorCallback callback,
                        void *userRef, const unsigned errorNumber,
                        js::ErrorArgumentsType argumentsType, va_list ap);
@@ -745,7 +736,7 @@ js_ReportErrorNumberUCArray(JSContext *cx, unsigned flags, JSErrorCallback callb
                             const jschar **args);
 #endif
 
-extern JSBool
+extern bool
 js_ExpandErrorArguments(JSContext *cx, JSErrorCallback callback,
                         void *userRef, const unsigned errorNumber,
                         char **message, JSErrorReport *reportp,
@@ -781,7 +772,7 @@ js_ReportIsNotDefined(JSContext *cx, const char *name);
 /*
  * Report an attempt to access the property of a null or undefined value (v).
  */
-extern JSBool
+extern bool
 js_ReportIsNullOrUndefined(JSContext *cx, int spindex, js::HandleValue v,
                            js::HandleString fallback);
 
@@ -793,7 +784,7 @@ js_ReportMissingArg(JSContext *cx, js::HandleValue v, unsigned arg);
  * the first argument for the error message. If the error message has less
  * then 3 arguments, use null for arg1 or arg2.
  */
-extern JSBool
+extern bool
 js_ReportValueErrorFlags(JSContext *cx, unsigned flags, const unsigned errorNumber,
                          int spindex, js::HandleValue v, js::HandleString fallback,
                          const char *arg1, const char *arg2);
@@ -822,7 +813,7 @@ extern const JSErrorFormatString js_ErrorFormatString[JSErr_Limit];
  * Invoke the operation callback and return false if the current execution
  * is to be terminated.
  */
-extern JSBool
+extern bool
 js_InvokeOperationCallback(JSContext *cx);
 
 extern bool
@@ -980,19 +971,19 @@ class ContextAllocPolicy
 };
 
 /* Exposed intrinsics so that Ion may inline them. */
-JSBool intrinsic_ToObject(JSContext *cx, unsigned argc, Value *vp);
-JSBool intrinsic_IsCallable(JSContext *cx, unsigned argc, Value *vp);
-JSBool intrinsic_ThrowError(JSContext *cx, unsigned argc, Value *vp);
-JSBool intrinsic_NewDenseArray(JSContext *cx, unsigned argc, Value *vp);
+bool intrinsic_ToObject(JSContext *cx, unsigned argc, Value *vp);
+bool intrinsic_IsCallable(JSContext *cx, unsigned argc, Value *vp);
+bool intrinsic_ThrowError(JSContext *cx, unsigned argc, Value *vp);
+bool intrinsic_NewDenseArray(JSContext *cx, unsigned argc, Value *vp);
 
-JSBool intrinsic_UnsafePutElements(JSContext *cx, unsigned argc, Value *vp);
-JSBool intrinsic_UnsafeSetReservedSlot(JSContext *cx, unsigned argc, Value *vp);
-JSBool intrinsic_UnsafeGetReservedSlot(JSContext *cx, unsigned argc, Value *vp);
-JSBool intrinsic_NewObjectWithClassPrototype(JSContext *cx, unsigned argc, Value *vp);
-JSBool intrinsic_HaveSameClass(JSContext *cx, unsigned argc, Value *vp);
+bool intrinsic_UnsafePutElements(JSContext *cx, unsigned argc, Value *vp);
+bool intrinsic_UnsafeSetReservedSlot(JSContext *cx, unsigned argc, Value *vp);
+bool intrinsic_UnsafeGetReservedSlot(JSContext *cx, unsigned argc, Value *vp);
+bool intrinsic_NewObjectWithClassPrototype(JSContext *cx, unsigned argc, Value *vp);
+bool intrinsic_HaveSameClass(JSContext *cx, unsigned argc, Value *vp);
 
-JSBool intrinsic_ShouldForceSequential(JSContext *cx, unsigned argc, Value *vp);
-JSBool intrinsic_NewParallelArray(JSContext *cx, unsigned argc, Value *vp);
+bool intrinsic_ShouldForceSequential(JSContext *cx, unsigned argc, Value *vp);
+bool intrinsic_NewParallelArray(JSContext *cx, unsigned argc, Value *vp);
 
 } /* namespace js */
 

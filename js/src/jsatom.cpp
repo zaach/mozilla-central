@@ -23,6 +23,7 @@
 #include "gc/Marking.h"
 #include "vm/Xdr.h"
 
+#include "jscntxtinlines.h"
 #include "jscompartmentinlines.h"
 
 #include "vm/String-inl.h"
@@ -113,7 +114,7 @@ const char js_yield_str[]           = "yield";
  */
 #define JS_STRING_HASH_COUNT   1024
 
-JSBool
+bool
 js::InitAtoms(JSRuntime *rt)
 {
     return rt->atoms.init(JS_STRING_HASH_COUNT);

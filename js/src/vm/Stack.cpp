@@ -12,8 +12,8 @@
 
 #include "gc/Marking.h"
 #ifdef JS_ION
-#include "ion/BaselineFrame.h"
-#include "ion/IonCompartment.h"
+#include "jit/BaselineFrame.h"
+#include "jit/IonCompartment.h"
 #endif
 #include "vm/Interpreter-inl.h"
 #include "vm/Probes-inl.h"
@@ -189,7 +189,11 @@ StackFrame::createRestParameter(JSContext *cx)
     unsigned nformal = fun()->nargs - 1, nactual = numActualArgs();
     unsigned nrest = (nactual > nformal) ? nactual - nformal : 0;
     Value *restvp = argv() + nformal;
-    return NewDenseCopiedArray(cx, nrest, restvp, NULL);
+    JSObject *obj = NewDenseCopiedArray(cx, nrest, restvp, NULL);
+    if (!obj)
+        return NULL;
+    types::FixRestArgumentsType(cx, obj);
+    return obj;
 }
 
 static inline void

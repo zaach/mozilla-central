@@ -2278,6 +2278,16 @@ CSS_PROP_POSITION(
     offsetof(nsStylePosition, mMinWidth),
     eStyleAnimType_Coord)
 CSS_PROP_DISPLAY(
+    mix-blend-mode,
+    mix_blend_mode,
+    MixBlendMode,
+    CSS_PROPERTY_PARSE_VALUE,
+    "layout.css.mix-blend-mode.enabled",
+    VARIANT_HK,
+    kBlendModeKTable,
+    CSS_PROP_NO_OFFSET,
+    eStyleAnimType_None)
+CSS_PROP_DISPLAY(
     opacity,
     opacity,
     Opacity,
@@ -2735,18 +2745,6 @@ CSS_PROP_SHORTHAND(
     TextDecoration,
     CSS_PROPERTY_PARSE_FUNCTION,
     "")
-CSS_PROP_TEXTRESET(
-    -moz-text-blink,
-    text_blink,
-    CSS_PROP_DOMPROP_PREFIXED(TextBlink),
-    CSS_PROPERTY_PARSE_VALUE |
-        CSS_PROPERTY_APPLIES_TO_FIRST_LETTER_AND_FIRST_LINE |
-        CSS_PROPERTY_APPLIES_TO_PLACEHOLDER,
-    "",
-    VARIANT_HK,
-    kTextBlinkKTable,
-    offsetof(nsStyleTextReset, mTextBlink),
-    eStyleAnimType_EnumU8)
 CSS_PROP_TEXTRESET(
     -moz-text-decoration-color,
     text_decoration_color,

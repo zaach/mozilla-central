@@ -104,10 +104,10 @@ XPCJSContextStack::HasJSContext(JSContext *cx)
     return false;
 }
 
-static JSBool
+static bool
 SafeGlobalResolve(JSContext *cx, HandleObject obj, HandleId id)
 {
-    JSBool resolved;
+    bool resolved;
     return JS_ResolveStandardClass(cx, obj, id, &resolved);
 }
 
@@ -176,6 +176,8 @@ XPCJSContextStack::GetSafeJSContext()
     // hook.
     if (NS_FAILED(xpc->InitClasses(mSafeJSContext, glob)))
         MOZ_CRASH();
+
+    JS_FireOnNewGlobalObject(mSafeJSContext, glob);
 
     // Save it off so we can destroy it later.
     mOwnSafeJSContext = mSafeJSContext;

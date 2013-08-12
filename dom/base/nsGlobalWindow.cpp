@@ -502,6 +502,8 @@ nsTimeout::~nsTimeout()
   MOZ_COUNT_DTOR(nsTimeout);
 }
 
+NS_IMPL_CYCLE_COLLECTION_CLASS(nsTimeout)
+
 NS_IMPL_CYCLE_COLLECTION_UNLINK_0(nsTimeout)
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(nsTimeout)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mWindow)
@@ -573,17 +575,17 @@ public:
   virtual bool getPropertyDescriptor(JSContext* cx,
                                      JS::Handle<JSObject*> proxy,
                                      JS::Handle<jsid> id,
-                                     JSPropertyDescriptor* desc,
+                                     JS::MutableHandle<JSPropertyDescriptor> desc,
                                      unsigned flags) MOZ_OVERRIDE;
   virtual bool getOwnPropertyDescriptor(JSContext* cx,
                                         JS::Handle<JSObject*> proxy,
                                         JS::Handle<jsid> id,
-                                        JSPropertyDescriptor* desc,
+                                        JS::MutableHandle<JSPropertyDescriptor> desc,
                                         unsigned flags) MOZ_OVERRIDE;
   virtual bool defineProperty(JSContext* cx,
                               JS::Handle<JSObject*> proxy,
                               JS::Handle<jsid> id,
-                              JSPropertyDescriptor* desc) MOZ_OVERRIDE;
+                              JS::MutableHandle<JSPropertyDescriptor> desc) MOZ_OVERRIDE;
   virtual bool getOwnPropertyNames(JSContext *cx,
                                    JS::Handle<JSObject*> proxy,
                                    JS::AutoIdVector &props) MOZ_OVERRIDE;
@@ -686,18 +688,18 @@ bool
 nsOuterWindowProxy::getPropertyDescriptor(JSContext* cx,
                                           JS::Handle<JSObject*> proxy,
                                           JS::Handle<jsid> id,
-                                          JSPropertyDescriptor* desc,
+                                          JS::MutableHandle<JSPropertyDescriptor> desc,
                                           unsigned flags)
 {
   // The only thing we can do differently from js::Wrapper is shadow stuff with
   // our indexed properties, so we can just try getOwnPropertyDescriptor and if
   // that gives us nothing call on through to js::Wrapper.
-  desc->obj = nullptr;
+  desc.object().set(nullptr);
   if (!getOwnPropertyDescriptor(cx, proxy, id, desc, flags)) {
     return false;
   }
 
-  if (desc->obj) {
+  if (desc.object()) {
     return true;
   }
 
@@ -708,11 +710,11 @@ bool
 nsOuterWindowProxy::getOwnPropertyDescriptor(JSContext* cx,
                                              JS::Handle<JSObject*> proxy,
                                              JS::Handle<jsid> id,
-                                             JSPropertyDescriptor* desc,
+                                             JS::MutableHandle<JSPropertyDescriptor> desc,
                                              unsigned flags)
 {
   bool found;
-  if (!GetSubframeWindow(cx, proxy, id, &desc->value, found)) {
+  if (!GetSubframeWindow(cx, proxy, id, desc.value().address(), found)) {
     return false;
   }
   if (found) {
@@ -728,7 +730,7 @@ bool
 nsOuterWindowProxy::defineProperty(JSContext* cx,
                                    JS::Handle<JSObject*> proxy,
                                    JS::Handle<jsid> id,
-                                   JSPropertyDescriptor* desc)
+                                   JS::MutableHandle<JSPropertyDescriptor> desc)
 {
   int32_t index = GetArrayIndexFromId(cx, id);
   if (IsArrayIndex(index)) {
@@ -1029,6 +1031,10 @@ nsGlobalWindow::nsGlobalWindow(nsGlobalWindow *aOuterWindow)
     mSerial(0),
 #ifdef DEBUG
     mSetOpenerWindowCalled(false),
+#endif
+#ifdef MOZ_B2G
+    mNetworkUploadObserverEnabled(false),
+    mNetworkDownloadObserverEnabled(false),
 #endif
     mCleanedUp(false),
     mDialogAbuseCount(0),
@@ -1612,6 +1618,8 @@ ImplCycleCollectionTraverse(nsCycleCollectionTraversalCallback& aCallback,
   CycleCollectionNoteChild(aCallback, aField.mIdleObserver.get(), aName, aFlags);
 }
 
+NS_IMPL_CYCLE_COLLECTION_CLASS(nsGlobalWindow)
+
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INTERNAL(nsGlobalWindow)
   if (MOZ_UNLIKELY(cb.WantDebugInfo())) {
     char name[512];
@@ -1675,6 +1683,7 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INTERNAL(nsGlobalWindow)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mPersonalbar)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mStatusbar)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mScrollbars)
+  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mCrypto)
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 
 NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(nsGlobalWindow)
@@ -1729,6 +1738,7 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(nsGlobalWindow)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mPersonalbar)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mStatusbar)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mScrollbars)
+  NS_IMPL_CYCLE_COLLECTION_UNLINK(mCrypto)
 NS_IMPL_CYCLE_COLLECTION_UNLINK_END
 
 struct TraceData
@@ -2269,9 +2279,6 @@ nsGlobalWindow::SetNewDocument(nsIDocument* aDocument,
     if (aDocument != oldDoc) {
       JS::Rooted<JSObject*> obj(cx, currentInner->mJSObject);
       xpc_UnmarkGrayObject(obj);
-      if (!nsWindowSH::InvalidateGlobalScopePolluter(cx, obj)) {
-        return NS_ERROR_FAILURE;
-      }
     }
 
     // We're reusing the inner window, but this still counts as a navigation,
@@ -2488,22 +2495,6 @@ nsGlobalWindow::SetNewDocument(nsIDocument* aDocument,
 
   // Add an extra ref in case we release mContext during GC.
   nsCOMPtr<nsIScriptContext> kungFuDeathGrip(mContext);
-
-  // Now that the prototype is all set up, install the global scope
-  // polluter. This must happen after the above prototype fixup. If
-  // the GSP was to be installed on the inner window's real
-  // prototype (as it would be if this was done before the prototype
-  // fixup above) we would end up holding the GSP alive (through
-  // XPConnect's internal marking of wrapper prototypes) as long as
-  // the inner window was around, and if the GSP had properties on
-  // it that held an element alive we'd hold the document alive,
-  // which could hold event handlers alive, which hold the context
-  // alive etc.
-
-  if ((!reUseInnerWindow || aDocument != oldDoc) && !aState) {
-    JS::Rooted<JSObject*> obj(cx, newInnerWindow->mJSObject);
-    nsWindowSH::InstallGlobalScopePolluter(cx, obj);
-  }
 
   aDocument->SetScriptGlobalObject(newInnerWindow);
 
@@ -3385,7 +3376,7 @@ nsGlobalWindow::GetScreen(nsIDOMScreen** aScreen)
 }
 
 NS_IMETHODIMP
-nsGlobalWindow::GetHistory(nsIDOMHistory** aHistory)
+nsGlobalWindow::GetHistory(nsISupports** aHistory)
 {
   FORWARD_TO_INNER(GetHistory, (aHistory), NS_ERROR_NOT_INITIALIZED);
 
@@ -3833,6 +3824,23 @@ nsGlobalWindow::IndexedGetter(uint32_t aIndex, bool& aFound)
   return windows->IndexedGetter(aIndex, aFound);
 }
 
+void
+nsGlobalWindow::GetSupportedNames(nsTArray<nsString>& aNames)
+{
+  FORWARD_TO_OUTER_VOID(GetSupportedNames, (aNames));
+
+  nsDOMWindowList* windows = GetWindowList();
+  if (windows) {
+    uint32_t length = windows->GetLength();
+    nsString* name = aNames.AppendElements(length);
+    for (uint32_t i = 0; i < length; ++i, ++name) {
+      nsCOMPtr<nsIDocShellTreeItem> item =
+        windows->GetDocShellTreeItemAt(i);
+      item->GetName(*name);
+    }
+  }
+}
+
 NS_IMETHODIMP
 nsGlobalWindow::GetApplicationCache(nsIDOMOfflineResourceList **aApplicationCache)
 {
@@ -3874,10 +3882,13 @@ nsGlobalWindow::GetCrypto(nsIDOMCrypto** aCrypto)
 
   if (!mCrypto) {
 #ifndef MOZ_DISABLE_CRYPTOLEGACY
-    mCrypto = do_CreateInstance(NS_CRYPTO_CONTRACTID);
+    nsresult rv;
+    mCrypto = do_CreateInstance(NS_CRYPTO_CONTRACTID, &rv);
+    NS_ENSURE_SUCCESS(rv, rv);
 #else
     mCrypto = new Crypto();
 #endif
+    mCrypto->Init(this);
   }
   NS_IF_ADDREF(*aCrypto = mCrypto);
   return NS_OK;
@@ -5347,7 +5358,10 @@ nsGlobalWindow::CanMoveResizeWindows()
     }
   }
 
-  if (mDocShell) {
+  // The preference is useful for the webapp runtime. Webapps should be able
+  // to resize or move their window.
+  if (mDocShell && !Preferences::GetBool("dom.always_allow_move_resize_window",
+                                         false)) {
     bool allow;
     nsresult rv = mDocShell->GetAllowWindowControl(&allow);
     if (NS_SUCCEEDED(rv) && !allow)
@@ -6720,7 +6734,7 @@ PostMessageReadStructuredClone(JSContext* cx,
   return nullptr;
 }
 
-static JSBool
+static bool
 PostMessageWriteStructuredClone(JSContext* cx,
                                 JSStructuredCloneWriter* writer,
                                 JS::Handle<JSObject*> obj,
@@ -6757,7 +6771,7 @@ PostMessageWriteStructuredClone(JSContext* cx,
     return runtimeCallbacks->write(cx, writer, obj, nullptr);
   }
 
-  return JS_FALSE;
+  return false;
 }
 
 JSStructuredCloneCallbacks kPostMessageCallbacks = {
@@ -11416,6 +11430,8 @@ nsGlobalWindow::SyncGamepadState()
 #endif
 // nsGlobalChromeWindow implementation
 
+NS_IMPL_CYCLE_COLLECTION_CLASS(nsGlobalChromeWindow)
+
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INHERITED(nsGlobalChromeWindow,
                                                   nsGlobalWindow)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mBrowserDOMWindow)
@@ -11789,10 +11805,16 @@ nsGlobalWindow::EnableNetworkEvent(uint32_t aType)
 
   switch (aType) {
     case NS_NETWORK_UPLOAD_EVENT:
-      os->AddObserver(mObserver, NS_NETWORK_ACTIVITY_BLIP_UPLOAD_TOPIC, false);
+      if (!mNetworkUploadObserverEnabled) {
+        mNetworkUploadObserverEnabled = true;
+        os->AddObserver(mObserver, NS_NETWORK_ACTIVITY_BLIP_UPLOAD_TOPIC, false);
+      }
       break;
     case NS_NETWORK_DOWNLOAD_EVENT:
-      os->AddObserver(mObserver, NS_NETWORK_ACTIVITY_BLIP_DOWNLOAD_TOPIC, false);
+      if (!mNetworkDownloadObserverEnabled) {
+        mNetworkDownloadObserverEnabled = true;
+        os->AddObserver(mObserver, NS_NETWORK_ACTIVITY_BLIP_DOWNLOAD_TOPIC, false);
+      }
       break;
   }
 }
@@ -11807,10 +11829,16 @@ nsGlobalWindow::DisableNetworkEvent(uint32_t aType)
 
   switch (aType) {
     case NS_NETWORK_UPLOAD_EVENT:
-      os->RemoveObserver(mObserver, NS_NETWORK_ACTIVITY_BLIP_UPLOAD_TOPIC);
+      if (mNetworkUploadObserverEnabled) {
+        mNetworkUploadObserverEnabled = false;
+        os->RemoveObserver(mObserver, NS_NETWORK_ACTIVITY_BLIP_UPLOAD_TOPIC);
+      }
       break;
     case NS_NETWORK_DOWNLOAD_EVENT:
-      os->RemoveObserver(mObserver, NS_NETWORK_ACTIVITY_BLIP_DOWNLOAD_TOPIC);
+      if (mNetworkDownloadObserverEnabled) {
+        mNetworkDownloadObserverEnabled = false;
+        os->RemoveObserver(mObserver, NS_NETWORK_ACTIVITY_BLIP_DOWNLOAD_TOPIC);
+      }
       break;
   }
 }

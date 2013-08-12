@@ -364,6 +364,12 @@ struct NamedConstructor
  *                  on objects in chrome compartments. This must be null if the
  *                  interface doesn't have any ChromeOnly properties or if the
  *                  object is being created in non-chrome compartment.
+ * defineOnGlobal controls whether properties should be defined on the given
+ *                global for the interface object (if any) and named
+ *                constructors (if any) for this interface.  This can be
+ *                false in situations where we want the properties to only
+ *                appear on privileged Xrays but not on the unprivileged
+ *                underlying global.
  *
  * At least one of protoClass, constructorClass or constructor should be
  * non-null. If constructorClass or constructor are non-null, the resulting
@@ -380,7 +386,7 @@ CreateInterfaceObjects(JSContext* cx, JS::Handle<JSObject*> global,
                        JS::Heap<JSObject*>* constructorCache, const DOMClass* domClass,
                        const NativeProperties* regularProperties,
                        const NativeProperties* chromeOnlyProperties,
-                       const char* name);
+                       const char* name, bool defineOnGlobal);
 
 /*
  * Define the unforgeable attributes on an object.
@@ -978,7 +984,7 @@ TryPreserveWrapper(JSObject* obj);
 
 // Can only be called with the immediate prototype of the instance object. Can
 // only be called on the prototype of an object known to be a DOM instance.
-JSBool
+bool
 InstanceClassHasProtoAtDepth(JS::Handle<JSObject*> protoObject, uint32_t protoID,
                              uint32_t depth);
 
@@ -1386,7 +1392,7 @@ InitIds(JSContext* cx, const Prefable<Spec>* prefableSpecs, jsid* ids)
   return true;
 }
 
-JSBool
+bool
 QueryInterface(JSContext* cx, unsigned argc, JS::Value* vp);
 
 template <class T, bool isISupports=IsBaseOf<nsISupports, T>::value>
@@ -1408,9 +1414,11 @@ WantsQueryInterface<T, true>
   }
 };
 
-JSBool
+bool
 ThrowingConstructor(JSContext* cx, unsigned argc, JS::Value* vp);
 
+// vp is allowed to be null; in that case no get will be attempted,
+// and *found will simply indicate whether the property exists.
 bool
 GetPropertyOnPrototype(JSContext* cx, JS::Handle<JSObject*> proxy,
                        JS::Handle<jsid> id, bool* found,
@@ -1418,8 +1426,17 @@ GetPropertyOnPrototype(JSContext* cx, JS::Handle<JSObject*> proxy,
 
 bool
 HasPropertyOnPrototype(JSContext* cx, JS::Handle<JSObject*> proxy,
-                       DOMProxyHandler* handler,
                        JS::Handle<jsid> id);
+
+
+// Append the property names in "names" to "props". If
+// shadowPrototypeProperties is false then skip properties that are also
+// present on the proto chain of proxy.  If shadowPrototypeProperties is true,
+// then the "proxy" argument is ignored.
+bool
+AppendNamedPropertyIds(JSContext* cx, JS::Handle<JSObject*> proxy,
+                       nsTArray<nsString>& names,
+                       bool shadowPrototypeProperties, JS::AutoIdVector& props);
 
 template<class T>
 class OwningNonNull
@@ -1646,7 +1663,9 @@ public:
 
 // Class used to trace sequences, with specializations for various
 // sequence types.
-template<typename T, bool isDictionary=IsBaseOf<DictionaryBase, T>::value>
+template<typename T,
+         bool isDictionary=IsBaseOf<DictionaryBase, T>::value,
+         bool isTypedArray=IsBaseOf<AllTypedArraysBase, T>::value>
 class SequenceTracer
 {
   explicit SequenceTracer() MOZ_DELETE; // Should never be instantiated
@@ -1654,13 +1673,13 @@ class SequenceTracer
 
 // sequence<object> or sequence<object?>
 template<>
-class SequenceTracer<JSObject*, false>
+class SequenceTracer<JSObject*, false, false>
 {
   explicit SequenceTracer() MOZ_DELETE; // Should never be instantiated
 
 public:
   static void TraceSequence(JSTracer* trc, JSObject** objp, JSObject** end) {
-    for ( ; objp != end; ++objp) {
+    for (; objp != end; ++objp) {
       JS_CallObjectTracer(trc, objp, "sequence<object>");
     }
   }
@@ -1668,13 +1687,13 @@ public:
 
 // sequence<any>
 template<>
-class SequenceTracer<JS::Value, false>
+class SequenceTracer<JS::Value, false, false>
 {
   explicit SequenceTracer() MOZ_DELETE; // Should never be instantiated
 
 public:
   static void TraceSequence(JSTracer* trc, JS::Value* valp, JS::Value* end) {
-    for ( ; valp != end; ++valp) {
+    for (; valp != end; ++valp) {
       JS_CallValueTracer(trc, valp, "sequence<any>");
     }
   }
@@ -1682,13 +1701,13 @@ public:
 
 // sequence<sequence<T>>
 template<typename T>
-class SequenceTracer<Sequence<T>, false>
+class SequenceTracer<Sequence<T>, false, false>
 {
   explicit SequenceTracer() MOZ_DELETE; // Should never be instantiated
 
 public:
   static void TraceSequence(JSTracer* trc, Sequence<T>* seqp, Sequence<T>* end) {
-    for ( ; seqp != end; ++seqp) {
+    for (; seqp != end; ++seqp) {
       DoTraceSequence(trc, *seqp);
     }
   }
@@ -1696,13 +1715,13 @@ public:
 
 // sequence<sequence<T>> as return value
 template<typename T>
-class SequenceTracer<nsTArray<T>, false>
+class SequenceTracer<nsTArray<T>, false, false>
 {
   explicit SequenceTracer() MOZ_DELETE; // Should never be instantiated
 
 public:
   static void TraceSequence(JSTracer* trc, nsTArray<T>* seqp, nsTArray<T>* end) {
-    for ( ; seqp != end; ++seqp) {
+    for (; seqp != end; ++seqp) {
       DoTraceSequence(trc, *seqp);
     }
   }
@@ -1710,30 +1729,48 @@ public:
 
 // sequence<someDictionary>
 template<typename T>
-class SequenceTracer<T, true>
+class SequenceTracer<T, true, false>
 {
   explicit SequenceTracer() MOZ_DELETE; // Should never be instantiated
 
 public:
   static void TraceSequence(JSTracer* trc, T* dictp, T* end) {
-    for ( ; dictp != end; ++dictp) {
+    for (; dictp != end; ++dictp) {
       dictp->TraceDictionary(trc);
     }
   }
 };
 
-// sequence<sequence<T>?>
+// sequence<SomeTypedArray>
 template<typename T>
-class SequenceTracer<Nullable<Sequence<T> >, false>
+class SequenceTracer<T, false, true>
 {
   explicit SequenceTracer() MOZ_DELETE; // Should never be instantiated
 
 public:
-  static void TraceSequence(JSTracer* trc, Nullable<Sequence<T> >* seqp,
-                            Nullable<Sequence<T> >* end) {
-    for ( ; seqp != end; ++seqp) {
+  static void TraceSequence(JSTracer* trc, T* arrayp, T* end) {
+    for (; arrayp != end; ++arrayp) {
+      arrayp->TraceSelf(trc);
+    }
+  }
+};
+
+// sequence<T?> with T? being a Nullable<T>
+template<typename T>
+class SequenceTracer<Nullable<T>, false, false>
+{
+  explicit SequenceTracer() MOZ_DELETE; // Should never be instantiated
+
+public:
+  static void TraceSequence(JSTracer* trc, Nullable<T>* seqp,
+                            Nullable<T>* end) {
+    for (; seqp != end; ++seqp) {
       if (!seqp->IsNull()) {
-        DoTraceSequence(trc, seqp->Value());
+        // Pretend like we actually have a length-one sequence here so
+        // we can do template instantiation correctly for T.
+        T& val = seqp->Value();
+        T* ptr = &val;
+        SequenceTracer<T>::TraceSequence(trc, ptr, ptr+1);
       }
     }
   }
@@ -1875,7 +1912,7 @@ bool
 XrayResolveOwnProperty(JSContext* cx, JS::Handle<JSObject*> wrapper,
                        JS::Handle<JSObject*> obj,
                        JS::Handle<jsid> id,
-                       JSPropertyDescriptor* desc, unsigned flags);
+                       JS::MutableHandle<JSPropertyDescriptor> desc, unsigned flags);
 
 /**
  * This resolves operations, attributes and constants of the interfaces for obj.
@@ -1887,7 +1924,7 @@ XrayResolveOwnProperty(JSContext* cx, JS::Handle<JSObject*> wrapper,
 bool
 XrayResolveNativeProperty(JSContext* cx, JS::Handle<JSObject*> wrapper,
                           JS::Handle<JSObject*> obj,
-                          JS::Handle<jsid> id, JSPropertyDescriptor* desc);
+                          JS::Handle<jsid> id, JS::MutableHandle<JSPropertyDescriptor> desc);
 
 /**
  * Define a property on obj through an Xray wrapper.
@@ -1898,9 +1935,9 @@ XrayResolveNativeProperty(JSContext* cx, JS::Handle<JSObject*> wrapper,
  * defined will be set to true if a property was set as a result of this call.
  */
 bool
-XrayDefineProperty(JSContext* cx, JS::Handle<JSObject*> wrapper, 
+XrayDefineProperty(JSContext* cx, JS::Handle<JSObject*> wrapper,
                    JS::Handle<JSObject*> obj, JS::Handle<jsid> id,
-                   JSPropertyDescriptor* desc, bool* defined);
+                   JS::MutableHandle<JSPropertyDescriptor> desc, bool* defined);
 
 /**
  * This enumerates indexed or named properties of obj and operations, attributes
@@ -1933,7 +1970,7 @@ enum {
   CONSTRUCTOR_XRAY_EXPANDO_SLOT
 };
 
-JSBool
+bool
 Constructor(JSContext* cx, unsigned argc, JS::Value* vp);
 
 inline bool
@@ -2067,13 +2104,17 @@ ReparentWrapper(JSContext* aCx, JS::HandleObject aObj);
  *
  * instance should not be a security wrapper.
  */
-JSBool
+bool
 InterfaceHasInstance(JSContext* cx, JS::Handle<JSObject*> obj,
                      JS::Handle<JSObject*> instance,
-                     JSBool* bp);
-JSBool
+                     bool* bp);
+bool
 InterfaceHasInstance(JSContext* cx, JS::Handle<JSObject*> obj, JS::MutableHandle<JS::Value> vp,
-                     JSBool* bp);
+                     bool* bp);
+bool
+InterfaceHasInstance(JSContext* cx, int prototypeID, int depth,
+                     JS::Handle<JSObject*> instance,
+                     bool* bp);
 
 // Helper for lenient getters/setters to report to console.  If this
 // returns false, we couldn't even get a global.

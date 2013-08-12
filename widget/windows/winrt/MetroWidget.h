@@ -66,9 +66,13 @@ public:
 
   NS_DECL_ISUPPORTS_INHERITED
 
+  static HWND GetICoreWindowHWND() { return sICoreHwnd; }
+
   // nsWindowBase
   virtual void InitEvent(nsGUIEvent& aEvent, nsIntPoint* aPoint = nullptr) MOZ_OVERRIDE;
   virtual bool DispatchWindowEvent(nsGUIEvent* aEvent) MOZ_OVERRIDE;
+  virtual bool IsTopLevelWidget() MOZ_OVERRIDE { return true; }
+  virtual nsWindowBase* GetParentWindowBase(bool aIncludeOwner) MOZ_OVERRIDE { return nullptr; }
 
   // nsBaseWidget
   virtual CompositorParent* NewCompositorParent(int aSurfaceWidth, int aSurfaceHeight);
@@ -121,6 +125,7 @@ public:
   virtual bool  HasPendingInputEvent();
   virtual double GetDefaultScaleInternal();
   float         GetDPI();
+  mozilla::LayoutDeviceIntPoint CSSIntPointToLayoutDeviceIntPoint(const mozilla::CSSIntPoint &aCSSPoint);
   void          ChangedDPI();
   virtual bool  IsVisible() const;
   virtual bool  IsEnabled() const;
@@ -231,6 +236,7 @@ protected:
   nsIntRegion mInvalidatedRegion;
   nsCOMPtr<nsIdleService> mIdleService;
   HWND mWnd;
+  static HWND sICoreHwnd;
   WNDPROC mMetroWndProc;
   bool mTempBasicLayerInUse;
   Microsoft::WRL::ComPtr<mozilla::widget::winrt::MetroInput> mMetroInput;

@@ -84,6 +84,15 @@ namespace mozilla {
 namespace gl {
 typedef uintptr_t SharedTextureHandle;
 
+MOZ_BEGIN_ENUM_CLASS(ContextProfile, uint8_t)
+    Unknown = 0,
+    OpenGL, // only for IsAtLeast's <profile> parameter
+    OpenGLCore,
+    OpenGLCompatibility,
+    OpenGLES
+MOZ_END_ENUM_CLASS(ContextProfile)
+
+
 class GLContext
     : public GLLibraryLoader
     , public GenericAtomicRefCounted
@@ -140,6 +149,96 @@ public:
         return false;
     }
 
+    /**
+     * Return true if we are running on a OpenGL core profile context
+     */
+    inline bool IsCoreProfile() const {
+        MOZ_ASSERT(mProfile != ContextProfile::Unknown, "unknown context profile");
+
+        return mProfile == ContextProfile::OpenGLCore;
+    }
+
+    /**
+     * Return true if we are running on a OpenGL compatibility profile context
+     * (legacy profile 2.1 on Max OS X)
+     */
+    inline bool IsCompatibilityProfile() const {
+        MOZ_ASSERT(mProfile != ContextProfile::Unknown, "unknown context profile");
+
+        return mProfile == ContextProfile::OpenGLCompatibility;
+    }
+
+    /**
+     * Return true if the context is a true OpenGL ES context or an ANGLE context
+     */
+    inline bool IsGLES() const {
+        MOZ_ASSERT(mProfile != ContextProfile::Unknown, "unknown context profile");
+
+        return mProfile == ContextProfile::OpenGLES;
+    }
+
+    static const char* GetProfileName(ContextProfile profile)
+    {
+        switch (profile)
+        {
+            case ContextProfile::OpenGL:
+                return "OpenGL";
+            case ContextProfile::OpenGLCore:
+                return "OpenGL Core";
+            case ContextProfile::OpenGLCompatibility:
+                return "OpenGL Compatibility";
+            case ContextProfile::OpenGLES:
+                return "OpenGL ES";
+            default:
+                break;
+        }
+
+        MOZ_ASSERT(profile != ContextProfile::Unknown, "unknown context profile");
+        return "OpenGL unknown profile";
+    }
+
+    /**
+     * Return true if we are running on a OpenGL core profile context
+     */
+    const char* ProfileString() const {
+        return GetProfileName(mProfile);
+    }
+
+    /**
+     * Return true if the context is compatible with given parameters
+     *
+     * IsAtLeast(ContextProfile::OpenGL, N) is exactly same as
+     * IsAtLeast(ContextProfile::OpenGLCore, N) || IsAtLeast(ContextProfile::OpenGLCompatibility, N)
+     */
+    inline bool IsAtLeast(ContextProfile profile, unsigned int version) const
+    {
+        MOZ_ASSERT(profile != ContextProfile::Unknown, "IsAtLeast: bad <profile> parameter");
+        MOZ_ASSERT(mProfile != ContextProfile::Unknown, "unknown context profile");
+        MOZ_ASSERT(mVersion != 0, "unknown context version");
+
+        if (profile == ContextProfile::OpenGL) {
+            return (profile == ContextProfile::OpenGLCore ||
+                    profile == ContextProfile::OpenGLCompatibility) &&
+                   version >= mVersion;
+        }
+
+        return profile == mProfile &&
+               version >= mVersion;
+    }
+
+    /**
+     * Return the version of the context.
+     * Example :
+     *   If this a OpenGL 2.1, that will return 210
+     */
+    inline unsigned int Version() const {
+        return mVersion;
+    }
+
+    const char* VersionString() const {
+        return mVersionString.get();
+    }
+
     int Vendor() const {
         return mVendor;
     }
@@ -171,7 +270,7 @@ public:
      * extensions).
      */
     inline bool IsGLES2() const {
-        return mIsGLES2;
+        return IsAtLeast(ContextProfile::OpenGLES, 200);
     }
 
     /**
@@ -189,14 +288,25 @@ protected:
     bool mIsOffscreen;
     bool mIsGlobalSharedContext;
     bool mContextLost;
-    bool mIsGLES2;
+
+    /**
+     * mVersion store the OpenGL's version, multiplied by 100. For example, if
+     * the context is an OpenGL 2.1 context, mVersion value will be 210.
+     */
+    unsigned int mVersion;
+    nsCString mVersionString;
+    ContextProfile mProfile;
 
     int32_t mVendor;
     int32_t mRenderer;
 
-    inline void SetIsGLES2(bool isGLES2) {
-        MOZ_ASSERT(!mInitialized, "SetIsGLES2 can only be called before initialization!");
-        mIsGLES2 = isGLES2;
+    inline void SetProfileVersion(ContextProfile profile, unsigned int version) {
+        MOZ_ASSERT(!mInitialized, "SetProfileVersion can only be called before initialization!");
+        MOZ_ASSERT(profile != ContextProfile::Unknown && profile != ContextProfile::OpenGL, "Invalid `profile` for SetProfileVersion");
+        MOZ_ASSERT(version >= 100, "Invalid `version` for SetProfileVersion");
+
+        mVersion = version;
+        mProfile = profile;
     }
 
 
@@ -270,8 +380,12 @@ public:
         ARB_draw_instanced,
         EXT_draw_instanced,
         NV_draw_instanced,
-        ANGLE_instanced_array,
-        Extensions_Max
+        ARB_instanced_arrays,
+        NV_instanced_arrays,
+        ANGLE_instanced_arrays,
+        EXT_occlusion_query_boolean,
+        Extensions_Max,
+        Extensions_End
     };
 
     bool IsExtensionSupported(GLExtensions aKnownExtension) const {
@@ -362,86 +476,34 @@ public:
     /**
      * This enum should be sorted by name.
      */
-    enum GLExtensionPackages {
+    enum GLExtensionGroup {
         XXX_draw_buffers,
         XXX_draw_instanced,
         XXX_framebuffer_blit,
         XXX_framebuffer_multisample,
         XXX_framebuffer_object,
+        XXX_instanced_arrays,
+        XXX_robustness,
         XXX_texture_float,
         XXX_texture_non_power_of_two,
-        XXX_robustness,
         XXX_vertex_array_object,
-        ExtensionPackages_Max
+        ExtensionGroup_Max
     };
 
-    bool IsExtensionSupported(GLExtensionPackages aKnownExtensionPackage) const
-    {
-        switch (aKnownExtensionPackage)
-        {
-            case XXX_draw_buffers:
-                return IsExtensionSupported(ARB_draw_buffers) ||
-                       IsExtensionSupported(EXT_draw_buffers);
+    bool IsExtensionSupported(GLExtensionGroup extensionGroup) const;
 
-            case XXX_draw_instanced:
-                return IsExtensionSupported(ARB_draw_instanced) ||
-                       IsExtensionSupported(EXT_draw_instanced) ||
-                       IsExtensionSupported(NV_draw_instanced) ||
-                       IsExtensionSupported(ANGLE_instanced_array);
-
-            case XXX_framebuffer_blit:
-                return IsExtensionSupported(EXT_framebuffer_blit) ||
-                       IsExtensionSupported(ANGLE_framebuffer_blit);
-
-            case XXX_framebuffer_multisample:
-                return IsExtensionSupported(EXT_framebuffer_multisample) ||
-                       IsExtensionSupported(ANGLE_framebuffer_multisample);
-
-            case XXX_framebuffer_object:
-                return IsExtensionSupported(ARB_framebuffer_object) ||
-                       IsExtensionSupported(EXT_framebuffer_object);
-
-            case XXX_texture_float:
-                return IsExtensionSupported(ARB_texture_float) ||
-                       IsExtensionSupported(OES_texture_float);
-
-            case XXX_robustness:
-                return IsExtensionSupported(ARB_robustness) ||
-                       IsExtensionSupported(EXT_robustness);
-
-            case XXX_texture_non_power_of_two:
-                return IsExtensionSupported(ARB_texture_non_power_of_two) ||
-                       IsExtensionSupported(OES_texture_npot);
-
-            case XXX_vertex_array_object:
-                return IsExtensionSupported(ARB_vertex_array_object) ||
-                       IsExtensionSupported(OES_vertex_array_object) ||
-                       IsExtensionSupported(APPLE_vertex_array_object);
-
-            default:
-                break;
-        }
-
-        MOZ_ASSERT(false, "GLContext::IsExtensionSupported : unknown <aKnownExtensionPackage>");
-        return false;
-    }
+    static const char* GetExtensionGroupName(GLExtensionGroup extensionGroup);
 
 
-// -----------------------------------------------------------------------------
-// Deprecated extension group queries (use XXX_* instead)
-public:
+private:
 
-    bool SupportsFramebufferMultisample() const {
-        return IsExtensionSupported(XXX_framebuffer_multisample);
-    }
-
-    bool HasExt_FramebufferBlit() const {
-        return IsExtensionSupported(XXX_framebuffer_blit);
-    }
-
-    bool SupportsSplitFramebuffer() const {
-        return IsExtensionSupported(XXX_framebuffer_blit);
-    }
+    /**
+     * Mark all extensions of this group as unsupported.
+     *
+     * Returns false if marking this extension group as unsupported contradicts
+     * the OpenGL version and profile. Returns true otherwise.
+     */
+    bool MarkExtensionGroupUnsupported(GLExtensionGroup extensionGroup);
 
 
 // -----------------------------------------------------------------------------
@@ -467,8 +529,7 @@ private:
 // Error handling
 public:
 
-    // TODO: this function should be a static
-    const char* GLErrorToString(GLenum aError) const
+    static const char* GLErrorToString(GLenum aError)
     {
         switch (aError) {
             case LOCAL_GL_INVALID_ENUM:
@@ -675,6 +736,7 @@ public:
 
     void fBeginQuery(GLenum target, GLuint id) {
         BEFORE_GL_CALL;
+        ASSERT_SYMBOL_PRESENT(fBeginQuery);
         mSymbols.fBeginQuery(target, id);
         AFTER_GL_CALL;
     }
@@ -934,6 +996,7 @@ public:
 
     void fEndQuery(GLenum target) {
         BEFORE_GL_CALL;
+        ASSERT_SYMBOL_PRESENT(fEndQuery);
         mSymbols.fEndQuery(target);
         AFTER_GL_CALL;
     }
@@ -983,18 +1046,21 @@ public:
 
     void fGetQueryiv(GLenum target, GLenum pname, GLint* params) {
         BEFORE_GL_CALL;
+        ASSERT_SYMBOL_PRESENT(fGetQueryiv);
         mSymbols.fGetQueryiv(target, pname, params);
         AFTER_GL_CALL;
     }
 
     void fGetQueryObjectiv(GLuint id, GLenum pname, GLint* params) {
         BEFORE_GL_CALL;
+        ASSERT_SYMBOL_PRESENT(fGetQueryObjectiv);
         mSymbols.fGetQueryObjectiv(id, pname, params);
         AFTER_GL_CALL;
     }
 
     void fGetQueryObjectuiv(GLuint id, GLenum pname, GLuint* params) {
         BEFORE_GL_CALL;
+        ASSERT_SYMBOL_PRESENT(fGetQueryObjectuiv);
         mSymbols.fGetQueryObjectuiv(id, pname, params);
         AFTER_GL_CALL;
     }
@@ -1203,6 +1269,14 @@ public:
     realGLboolean fIsProgram(GLuint program) {
         BEFORE_GL_CALL;
         realGLboolean retval = mSymbols.fIsProgram(program);
+        AFTER_GL_CALL;
+        return retval;
+    }
+
+    realGLboolean fIsQuery(GLuint query) {
+        BEFORE_GL_CALL;
+        ASSERT_SYMBOL_PRESENT(fIsQuery);
+        realGLboolean retval = mSymbols.fIsQuery(query);
         AFTER_GL_CALL;
         return retval;
     }
@@ -1769,6 +1843,7 @@ private:
 
     void GLAPIENTRY raw_fGenQueries(GLsizei n, GLuint* names) {
         BEFORE_GL_CALL;
+        ASSERT_SYMBOL_PRESENT(fGenQueries);
         mSymbols.fGenQueries(n, names);
         AFTER_GL_CALL;
     }
@@ -1862,6 +1937,7 @@ private:
 
     void GLAPIENTRY raw_fDeleteQueries(GLsizei n, GLuint* names) {
         BEFORE_GL_CALL;
+        ASSERT_SYMBOL_PRESENT(fDeleteQueries);
         mSymbols.fDeleteQueries(n, names);
         AFTER_GL_CALL;
     }
@@ -2015,18 +2091,22 @@ public:
 public:
     void fDrawArraysInstanced(GLenum mode, GLint first, GLsizei count, GLsizei primcount)
     {
+        BeforeGLDrawCall();
         BEFORE_GL_CALL;
         ASSERT_SYMBOL_PRESENT(fDrawArraysInstanced);
         mSymbols.fDrawArraysInstanced(mode, first, count, primcount);
         AFTER_GL_CALL;
+        AfterGLDrawCall();
     }
 
     void fDrawElementsInstanced(GLenum mode, GLsizei count, GLenum type, const GLvoid* indices, GLsizei primcount)
     {
+        BeforeGLDrawCall();
         BEFORE_GL_CALL;
         ASSERT_SYMBOL_PRESENT(fDrawElementsInstanced);
         mSymbols.fDrawElementsInstanced(mode, count, type, indices, primcount);
         AFTER_GL_CALL;
+        AfterGLDrawCall();
     }
 
 
@@ -2059,6 +2139,18 @@ public:
         BEFORE_GL_CALL;
         ASSERT_SYMBOL_PRESENT(fRenderbufferStorageMultisample);
         mSymbols.fRenderbufferStorageMultisample(target, samples, internalFormat, width, height);
+        AFTER_GL_CALL;
+    }
+
+
+// -----------------------------------------------------------------------------
+// Package XXX_instanced_arrays
+public:
+    void fVertexAttribDivisor(GLuint index, GLuint divisor)
+    {
+        BEFORE_GL_CALL;
+        ASSERT_SYMBOL_PRESENT(fVertexAttribDivisor);
+        mSymbols.fVertexAttribDivisor(index, divisor);
         AFTER_GL_CALL;
     }
 
@@ -2115,7 +2207,8 @@ protected:
         mIsOffscreen(isOffscreen),
         mIsGlobalSharedContext(false),
         mContextLost(false),
-        mIsGLES2(false),
+        mVersion(0),
+        mProfile(ContextProfile::Unknown),
         mVendor(-1),
         mRenderer(-1),
         mHasRobustness(false),
@@ -2489,8 +2582,9 @@ public:
         if (mScreen)
             return mScreen->GetReadFB();
 
-        GLenum bindEnum = SupportsSplitFramebuffer() ? LOCAL_GL_READ_FRAMEBUFFER_BINDING_EXT
-                                                     : LOCAL_GL_FRAMEBUFFER_BINDING;
+        GLenum bindEnum = IsExtensionSupported(XXX_framebuffer_blit)
+                            ? LOCAL_GL_READ_FRAMEBUFFER_BINDING_EXT
+                            : LOCAL_GL_FRAMEBUFFER_BINDING;
 
         GLuint ret = 0;
         GetUIntegerv(bindEnum, &ret);
@@ -2548,8 +2642,10 @@ public:
 
     /**
      * Return a valid, allocated TextureImage of |aSize| with
-     * |aContentType|.  The TextureImage's texture is configured to
-     * use |aWrapMode| (usually GL_CLAMP_TO_EDGE or GL_REPEAT) and by
+     * |aContentType|.  If |aContentType| is COLOR, |aImageFormat| can be used
+     * to hint at the preferred RGB format, however it is not necessarily
+     * respected.  The TextureImage's texture is configured to use
+     * |aWrapMode| (usually GL_CLAMP_TO_EDGE or GL_REPEAT) and by
      * default, GL_LINEAR filtering.  Specify
      * |aFlags=UseNearestFilter| for GL_NEAREST filtering. Specify
      * |aFlags=NeedsYFlip| if the image is flipped. Return
@@ -2564,7 +2660,8 @@ public:
     CreateTextureImage(const nsIntSize& aSize,
                        TextureImage::ContentType aContentType,
                        GLenum aWrapMode,
-                       TextureImage::Flags aFlags = TextureImage::NoFlags);
+                       TextureImage::Flags aFlags = TextureImage::NoFlags,
+                       TextureImage::ImageFormat aImageFormat = gfxASurface::ImageFormatUnknown);
 
     /**
      * In EGL we want to use Tiled Texture Images, which we return
@@ -2576,7 +2673,8 @@ public:
     virtual already_AddRefed<TextureImage>
     TileGenFunc(const nsIntSize& aSize,
                 TextureImage::ContentType aContentType,
-                TextureImage::Flags aFlags = TextureImage::NoFlags)
+                TextureImage::Flags aFlags = TextureImage::NoFlags,
+                TextureImage::ImageFormat aImageFormat = gfxASurface::ImageFormatUnknown)
     {
         return nullptr;
     }

@@ -1756,7 +1756,7 @@ nsContentUtils::IsImageSrcSetDisabled()
 // static
 bool
 nsContentUtils::LookupBindingMember(JSContext* aCx, nsIContent *aContent,
-                                    JS::HandleId aId, JSPropertyDescriptor* aDesc)
+                                    JS::HandleId aId, JS::MutableHandle<JSPropertyDescriptor> aDesc)
 {
   nsXBLBinding* binding = aContent->GetXBLBinding();
   if (!binding)
@@ -2967,7 +2967,7 @@ nsresult nsContentUtils::FormatLocalizedString(PropertiesFile aFile,
 
 /* static */ nsresult
 nsContentUtils::ReportToConsole(uint32_t aErrorFlags,
-                                const char *aCategory,
+                                const nsACString& aCategory,
                                 nsIDocument* aDocument,
                                 PropertiesFile aFile,
                                 const char *aMessageName,
@@ -3002,7 +3002,7 @@ nsContentUtils::ReportToConsole(uint32_t aErrorFlags,
 /* static */ nsresult
 nsContentUtils::ReportToConsoleNonLocalized(const nsAString& aErrorText,
                                             uint32_t aErrorFlags,
-                                            const char *aCategory,
+                                            const nsACString& aCategory,
                                             nsIDocument* aDocument,
                                             nsIURI* aURI,
                                             const nsAFlatString& aSourceLine,
@@ -4379,7 +4379,8 @@ nsIPrincipal*
 nsContentUtils::GetSystemPrincipal()
 {
   nsCOMPtr<nsIPrincipal> sysPrin;
-  nsresult rv = sSecurityManager->GetSystemPrincipal(getter_AddRefs(sysPrin));
+  DebugOnly<nsresult> rv =
+    sSecurityManager->GetSystemPrincipal(getter_AddRefs(sysPrin));
   MOZ_ASSERT(NS_SUCCEEDED(rv) && sysPrin);
   return sysPrin;
 }
@@ -4959,7 +4960,7 @@ nsContentUtils::SetDataTransferInEvent(nsDragEvent* aDragEvent)
     // means, for instance calling the drag service directly, or a drag
     // from another application. In either case, a new dataTransfer should
     // be created that reflects the data.
-    initialDataTransfer = new nsDOMDataTransfer(aDragEvent->message, true);
+    initialDataTransfer = new nsDOMDataTransfer(aDragEvent->message, true, -1);
 
     NS_ENSURE_TRUE(initialDataTransfer, NS_ERROR_OUT_OF_MEMORY);
 
@@ -6025,6 +6026,34 @@ nsContentUtils::FindInternalContentViewer(const char* aType,
   return nullptr;
 }
 
+bool
+nsContentUtils::GetContentSecurityPolicy(JSContext* aCx,
+                                         nsIContentSecurityPolicy** aCSP)
+{
+  NS_ASSERTION(NS_IsMainThread(), "Wrong thread!");
+
+  // Get the security manager
+  nsCOMPtr<nsIScriptSecurityManager> ssm = nsContentUtils::GetSecurityManager();
+
+  if (!ssm) {
+    NS_ERROR("Failed to get security manager service");
+    return false;
+  }
+
+  nsCOMPtr<nsIPrincipal> subjectPrincipal = ssm->GetCxSubjectPrincipal(aCx);
+  NS_ASSERTION(subjectPrincipal, "Failed to get subjectPrincipal");
+
+  nsCOMPtr<nsIContentSecurityPolicy> csp;
+  nsresult rv = subjectPrincipal->GetCsp(getter_AddRefs(csp));
+  if (NS_FAILED(rv)) {
+    NS_ERROR("CSP: Failed to get CSP from principal.");
+    return false;
+  }
+
+  csp.forget(aCSP);
+  return true;
+}
+
 // static
 bool
 nsContentUtils::IsPatternMatching(nsAString& aValue, nsAString& aPattern,
@@ -6288,24 +6317,6 @@ nsContentUtils::IsInPointerLockContext(nsIDOMWindow* aWin)
   aWin->GetScriptableTop(getter_AddRefs(top));
 
   return top == lockTop;
-}
-
-// static
-void
-nsContentUtils::ReleaseWrapper(void* aScriptObjectHolder,
-                               nsWrapperCache* aCache)
-{
-  if (aCache->PreservingWrapper()) {
-    // PreserveWrapper puts new DOM bindings in the JS holders hash, but they
-    // can also be in the DOM expando hash, so we need to try to remove them
-    // from both here.
-    JSObject* obj = aCache->GetWrapperPreserveColor();
-    if (aCache->IsDOMBinding() && obj && js::IsProxy(obj)) {
-        DOMProxyHandler::GetAndClearExpandoObject(obj);
-    }
-    aCache->SetPreservingWrapper(false);
-    DropJSObjects(aScriptObjectHolder);
-  }
 }
 
 // static

@@ -843,6 +843,7 @@ var WifiManager = (function() {
     if (ok === 0) {
       // Tell the event worker to start waiting for events.
       retryTimer = null;
+      connectTries = 0;
       didConnectSupplicant(function(){});
       return;
     }
@@ -858,6 +859,7 @@ var WifiManager = (function() {
     }
 
     retryTimer = null;
+    connectTries = 0;
     notify("supplicantlost", { success: false });
   }
 
@@ -1225,35 +1227,44 @@ var WifiManager = (function() {
 
         prepareForStartup(function() {
           loadDriver(function (status) {
-            if (status < 0) {
+            if (status) {
               callback(status);
               manager.state = "UNINITIALIZED";
               return;
             }
+            gNetworkManager.setWifiOperationMode(ifname,
+                                                 WIFI_FIRMWARE_STATION,
+                                                 function (status) {
+              if (status < 0) {
+                callback(status);
+                manager.state = "UNINITIALIZED";
+                return;
+              }
 
-            function doStartSupplicant() {
-              cancelWaitForDriverReadyTimer();
-              startSupplicant(function (status) {
-                if (status < 0) {
-                  unloadDriver(function() {
-                    callback(status);
+              function doStartSupplicant() {
+                cancelWaitForDriverReadyTimer();
+                startSupplicant(function (status) {
+                  if (status < 0) {
+                    unloadDriver(function() {
+                      callback(status);
+                    });
+                    manager.state = "UNINITIALIZED";
+                    return;
+                  }
+
+                  manager.supplicantStarted = true;
+                  enableInterface(ifname, function (ok) {
+                    callback(ok ? 0 : -1);
                   });
-                  manager.state = "UNINITIALIZED";
-                  return;
-                }
-
-                manager.supplicantStarted = true;
-                enableInterface(ifname, function (ok) {
-                  callback(ok ? 0 : -1);
                 });
-              });
-            }
+              }
 
-            // Driver startup on certain platforms takes longer than it takes for us
-            // to return from loadDriver, so wait 2 seconds before starting
-            // the supplicant to give it a chance to start.
-            createWaitForDriverReadyTimer(doStartSupplicant);
-         });
+              // Driver startup on certain platforms takes longer than it takes for us
+              // to return from loadDriver, so wait 2 seconds before starting
+              // the supplicant to give it a chance to start.
+              createWaitForDriverReadyTimer(doStartSupplicant);
+            });
+          });
         });
       });
     } else {
@@ -1340,7 +1351,8 @@ var WifiManager = (function() {
   var networkConfigurationFields = [
     "ssid", "bssid", "psk", "wep_key0", "wep_key1", "wep_key2", "wep_key3",
     "wep_tx_keyidx", "priority", "key_mgmt", "scan_ssid", "disabled",
-    "identity", "password", "auth_alg", "phase1", "phase2", "eap"
+    "identity", "password", "auth_alg", "phase1", "phase2", "eap", "pin",
+    "pcsc"
   ];
 
   manager.getNetworkConfiguration = function(config, callback) {
@@ -1714,6 +1726,7 @@ Network.api = {
   wep: "rw",
   hidden: "rw",
   eap: "rw",
+  pin: "rw",
   phase1: "rw",
   phase2: "rw"
 };
@@ -1975,6 +1988,11 @@ function WifiWorker() {
     if (wep && net.wep && net.wep != '*') {
       configured.wep_key0 = net.wep_key0 = isWepHexKey(net.wep) ? net.wep : quote(net.wep);
       configured.auth_alg = net.auth_alg = "OPEN SHARED";
+    }
+
+    if ("pin" in net) {
+      net.pin = quote(net.pin);
+      net.pcsc = quote("");
     }
 
     if ("phase1" in net)

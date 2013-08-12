@@ -787,6 +787,8 @@ IDBIndex::OpenCursorFromChildProcess(
   return NS_OK;
 }
 
+NS_IMPL_CYCLE_COLLECTION_CLASS(IDBIndex)
+
 NS_IMPL_CYCLE_COLLECTION_TRACE_BEGIN(IDBIndex)
   NS_IMPL_CYCLE_COLLECTION_TRACE_PRESERVED_WRAPPER
   NS_IMPL_CYCLE_COLLECTION_TRACE_JSVAL_MEMBER_CALLBACK(mCachedKeyPath)
@@ -1279,7 +1281,7 @@ GetHelper::PackArgumentsForParentProcess(IndexRequestParams& aParams)
                              "GetHelper::PackArgumentsForParentProcess "
                              "[IDBIndex.cpp]");
 
-  FIXME_Bug_521898_index::GetParams params;
+  GetParams params;
 
   mKeyRange->ToSerializedKeyRange(params.keyRange());
 
@@ -1460,7 +1462,7 @@ GetAllKeysHelper::GetSuccessResult(JSContext* aCx,
         return rv;
       }
 
-      if (!JS_SetElement(aCx, array, index, value.address())) {
+      if (!JS_SetElement(aCx, array, index, &value)) {
         NS_WARNING("Failed to set array element!");
         return NS_ERROR_DOM_INDEXEDDB_UNKNOWN_ERR;
       }
@@ -1483,7 +1485,7 @@ GetAllKeysHelper::PackArgumentsForParentProcess(IndexRequestParams& aParams)
   GetAllKeysParams params;
 
   if (mKeyRange) {
-    FIXME_Bug_521898_index::KeyRange keyRange;
+    KeyRange keyRange;
     mKeyRange->ToSerializedKeyRange(keyRange);
     params.optionalKeyRange() = keyRange;
   }
@@ -1639,10 +1641,10 @@ GetAllHelper::PackArgumentsForParentProcess(IndexRequestParams& aParams)
                              "GetAllHelper::PackArgumentsForParentProcess "
                              "[IDBIndex.cpp]");
 
-  FIXME_Bug_521898_index::GetAllParams params;
+  GetAllParams params;
 
   if (mKeyRange) {
-    FIXME_Bug_521898_index::KeyRange keyRange;
+    KeyRange keyRange;
     mKeyRange->ToSerializedKeyRange(keyRange);
     params.optionalKeyRange() = keyRange;
   }
@@ -1984,7 +1986,7 @@ OpenKeyCursorHelper::PackArgumentsForParentProcess(IndexRequestParams& aParams)
   OpenKeyCursorParams params;
 
   if (mKeyRange) {
-    FIXME_Bug_521898_index::KeyRange keyRange;
+    KeyRange keyRange;
     mKeyRange->ToSerializedKeyRange(keyRange);
     params.optionalKeyRange() = keyRange;
   }
@@ -2325,10 +2327,10 @@ OpenCursorHelper::PackArgumentsForParentProcess(IndexRequestParams& aParams)
                              "OpenCursorHelper::PackArgumentsForParentProcess "
                              "[IDBIndex.cpp]");
 
-  FIXME_Bug_521898_index::OpenCursorParams params;
+  OpenCursorParams params;
 
   if (mKeyRange) {
-    FIXME_Bug_521898_index::KeyRange keyRange;
+    KeyRange keyRange;
     mKeyRange->ToSerializedKeyRange(keyRange);
     params.optionalKeyRange() = keyRange;
   }
@@ -2519,10 +2521,10 @@ CountHelper::PackArgumentsForParentProcess(IndexRequestParams& aParams)
                              "CountHelper::PackArgumentsForParentProcess "
                              "[IDBIndex.cpp]");
 
-  FIXME_Bug_521898_index::CountParams params;
+  CountParams params;
 
   if (mKeyRange) {
-    FIXME_Bug_521898_index::KeyRange keyRange;
+    KeyRange keyRange;
     mKeyRange->ToSerializedKeyRange(keyRange);
     params.optionalKeyRange() = keyRange;
   }

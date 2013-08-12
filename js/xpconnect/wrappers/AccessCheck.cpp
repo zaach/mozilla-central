@@ -306,7 +306,7 @@ ExposedPropertiesOnly::check(JSContext *cx, JSObject *wrapperArg, jsid idArg, Wr
     // Unfortunately, |cx| can be in either compartment when we call ::check. :-(
     JSAutoCompartment ac(cx, wrappedObject);
 
-    JSBool found = false;
+    bool found = false;
     if (!JS_HasPropertyById(cx, wrappedObject, exposedPropsId, &found))
         return false;
 
@@ -327,7 +327,7 @@ ExposedPropertiesOnly::check(JSContext *cx, JSObject *wrapperArg, jsid idArg, Wr
         return true;
 
     RootedValue exposedProps(cx);
-    if (!JS_LookupPropertyById(cx, wrappedObject, exposedPropsId, exposedProps.address()))
+    if (!JS_LookupPropertyById(cx, wrappedObject, exposedPropsId, &exposedProps))
         return false;
 
     if (exposedProps.isNullOrUndefined())
@@ -348,7 +348,7 @@ ExposedPropertiesOnly::check(JSContext *cx, JSObject *wrapperArg, jsid idArg, Wr
     Access access = NO_ACCESS;
 
     Rooted<JSPropertyDescriptor> desc(cx);
-    if (!JS_GetPropertyDescriptorById(cx, hallpass, id, 0, desc.address())) {
+    if (!JS_GetPropertyDescriptorById(cx, hallpass, id, 0, &desc)) {
         return false; // Error
     }
     if (!desc.object() || !desc.isEnumerable())

@@ -86,6 +86,7 @@ LayerManagerComposite::ClearCachedResources(Layer* aSubtree)
 LayerManagerComposite::LayerManagerComposite(Compositor* aCompositor)
 : mCompositor(aCompositor)
 {
+  MOZ_ASSERT(aCompositor);
 }
 
 LayerManagerComposite::~LayerManagerComposite()
@@ -659,6 +660,21 @@ LayerManagerComposite::AddMaskEffect(Layer* aMaskLayer, EffectChain& aEffects, b
   gfx::Matrix4x4 transform;
   ToMatrix4x4(aMaskLayer->GetEffectiveTransform(), transform);
   return maskLayerComposite->GetCompositableHost()->AddMaskEffect(aEffects, transform, aIs3D);
+}
+
+/* static */ void
+LayerManagerComposite::RemoveMaskEffect(Layer* aMaskLayer)
+{
+  if (!aMaskLayer) {
+    return;
+  }
+  LayerComposite* maskLayerComposite = static_cast<LayerComposite*>(aMaskLayer->ImplData());
+  if (!maskLayerComposite->GetCompositableHost()) {
+    NS_WARNING("Mask layer with no compositable host");
+    return;
+  }
+
+  maskLayerComposite->GetCompositableHost()->RemoveMaskEffect();
 }
 
 TemporaryRef<DrawTarget>

@@ -118,7 +118,7 @@ xpc_FastGetCachedWrapper(nsWrapperCache *cache, JSObject *scope, jsval *vp)
 // The JS GC marks objects gray that are held alive directly or
 // indirectly by an XPConnect root. The cycle collector explores only
 // this subset of the JS heap.
-inline JSBool
+inline bool
 xpc_IsGrayGCThing(void *thing)
 {
     return JS::GCThingIsMarkedGray(thing);
@@ -126,7 +126,7 @@ xpc_IsGrayGCThing(void *thing)
 
 // The cycle collector only cares about some kinds of GCthings that are
 // reachable from an XPConnect root. Implemented in nsXPConnect.cpp.
-extern JSBool
+extern bool
 xpc_GCThingIsGrayCCThing(void *thing);
 
 // Unmark gray for known-nonnull cases
@@ -321,8 +321,6 @@ nsIPrincipal *GetObjectPrincipal(JSObject *obj);
 
 bool IsXBLScope(JSCompartment *compartment);
 
-void DumpJSHeap(FILE* file);
-
 void SetLocationForGlobal(JSObject *global, const nsACString& location);
 void SetLocationForGlobal(JSObject *global, nsIURI *locationURI);
 
@@ -459,7 +457,7 @@ inline bool IsDOMProxy(JSObject *obj)
 
 typedef JSObject*
 (*DefineInterface)(JSContext *cx, JS::Handle<JSObject*> global,
-                   JS::Handle<jsid> id, bool *enabled);
+                   JS::Handle<jsid> id, bool defineOnGlobal);
 
 typedef JSObject*
 (*ConstructNavigatorProperty)(JSContext *cx, JS::Handle<JSObject*> naviObj);

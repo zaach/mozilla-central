@@ -77,11 +77,16 @@ public:
     return aType == TEXTURE_CONTENT;
   }
 
-  virtual void EnsureAllocated(gfx::IntSize aSize,
+  virtual bool EnsureAllocated(gfx::IntSize aSize,
                                gfxASurface::gfxContentType aType) MOZ_OVERRIDE;
 
   virtual gfxASurface* LockSurface() MOZ_OVERRIDE;
   virtual gfx::DrawTarget* LockDrawTarget() MOZ_OVERRIDE;
+  virtual gfx::BackendType BackendType() MOZ_OVERRIDE
+  {
+    return gfx::BACKEND_DIRECT2D;
+  }
+
   virtual void Unlock() MOZ_OVERRIDE;
 
   virtual void SetDescriptor(const SurfaceDescriptor& aDescriptor) MOZ_OVERRIDE;

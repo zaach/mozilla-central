@@ -10,13 +10,15 @@
 #include "mozilla/MemoryReporting.h"
 
 #include "jsautooplen.h"
+#include "jsdbgapi.h"
 #include "jsfun.h"
 #include "jsscript.h"
 
-#include "ion/IonFrameIterator.h"
+#include "jit/IonFrameIterator.h"
 
 struct JSContext;
 struct JSCompartment;
+struct JSGenerator;
 
 namespace js {
 

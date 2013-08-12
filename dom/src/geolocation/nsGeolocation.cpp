@@ -723,8 +723,8 @@ nsGeolocationService::HandleMozsettingChanged(const PRUnichar* aData)
       return;
     }
 
-    JSBool match;
-    if (!JS_StringEqualsAscii(cx, key.toString(), GEO_SETINGS_ENABLED, &match) || (match != JS_TRUE)) {
+    bool match;
+    if (!JS_StringEqualsAscii(cx, key.toString(), GEO_SETINGS_ENABLED, &match) || !match) {
       return;
     }
 
@@ -1000,6 +1000,8 @@ NS_INTERFACE_MAP_END
 
 NS_IMPL_CYCLE_COLLECTING_ADDREF(Geolocation)
 NS_IMPL_CYCLE_COLLECTING_RELEASE(Geolocation)
+
+NS_IMPL_CYCLE_COLLECTION_CLASS(Geolocation)
 
 NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(Geolocation)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mCachedPosition)

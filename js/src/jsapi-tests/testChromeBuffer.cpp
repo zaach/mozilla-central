@@ -23,13 +23,13 @@ JSClass global_class = {
 JSObject *trusted_glob = NULL;
 JSObject *trusted_fun = NULL;
 
-JSBool
+bool
 CallTrusted(JSContext *cx, unsigned argc, jsval *vp)
 {
     if (!JS_SaveFrameChain(cx))
-        return JS_FALSE;
+        return false;
 
-    JSBool ok = JS_FALSE;
+    bool ok = false;
     {
         JSAutoCompartment ac(cx, trusted_glob);
         ok = JS_CallFunctionValue(cx, NULL, JS::ObjectValue(*trusted_fun),
@@ -43,7 +43,7 @@ BEGIN_TEST(testChromeBuffer)
 {
     JS_SetTrustedPrincipals(rt, &system_principals);
 
-    trusted_glob = JS_NewGlobalObject(cx, &global_class, &system_principals);
+    trusted_glob = JS_NewGlobalObject(cx, &global_class, &system_principals, JS::FireOnNewGlobalHook);
     CHECK(trusted_glob);
 
     if (!JS_AddNamedObjectRoot(cx, &trusted_glob, "trusted-global"))
@@ -121,7 +121,7 @@ BEGIN_TEST(testChromeBuffer)
 
         JS::RootedValue rval(cx);
         CHECK(JS_CallFunction(cx, NULL, fun, 1, v.address(), rval.address()));
-        JSBool match;
+        bool match;
         CHECK(JS_StringEqualsAscii(cx, JSVAL_TO_STRING(rval), "From trusted: InternalError: too much recursion", &match));
         CHECK(match);
     }

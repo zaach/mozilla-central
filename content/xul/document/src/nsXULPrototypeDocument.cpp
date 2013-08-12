@@ -98,10 +98,10 @@ nsXULPDGlobalObject_finalize(JSFreeOp *fop, JSObject *obj)
 }
 
 
-JSBool
+bool
 nsXULPDGlobalObject_resolve(JSContext *cx, JS::Handle<JSObject*> obj, JS::Handle<jsid> id)
 {
-    JSBool did_resolve = JS_FALSE;
+    bool did_resolve = false;
 
     return JS_ResolveStandardClass(cx, obj, id, &did_resolve);
 }
@@ -158,6 +158,8 @@ nsXULPrototypeDocument::~nsXULPrototypeDocument()
         NS_IF_RELEASE(gSystemGlobal);
     }
 }
+
+NS_IMPL_CYCLE_COLLECTION_CLASS(nsXULPrototypeDocument)
 
 NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(nsXULPrototypeDocument)
     tmp->mPrototypeWaiters.Clear();
@@ -718,6 +720,8 @@ nsXULPDGlobalObject::~nsXULPDGlobalObject()
 {
 }
 
+NS_IMPL_CYCLE_COLLECTION_CLASS(nsXULPDGlobalObject)
+
 NS_IMPL_CYCLE_COLLECTION_UNLINK_0(nsXULPDGlobalObject)
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(nsXULPDGlobalObject)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mContext)
@@ -759,10 +763,12 @@ nsXULPDGlobalObject::EnsureScriptEnvironment()
   {
     AutoPushJSContext cx(ctxNew->GetNativeContext());
     JS::CompartmentOptions options;
-    options.setZone(JS::SystemZone);
+    options.setZone(JS::SystemZone)
+           .setInvisibleToDebugger(true);
     JS::Rooted<JSObject*> newGlob(cx,
       JS_NewGlobalObject(cx, &gSharedGlobalClass,
-                         nsJSPrincipals::get(GetPrincipal()), options));
+                         nsJSPrincipals::get(GetPrincipal()), JS::DontFireOnNewGlobalHook,
+                         options));
     if (!newGlob)
         return NS_OK;
 

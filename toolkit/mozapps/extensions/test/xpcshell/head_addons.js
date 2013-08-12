@@ -344,6 +344,10 @@ function do_check_icons(aActual, aExpected) {
   }
 }
 
+// Record the error (if any) from trying to save the XPI
+// database at shutdown time
+let gXPISaveError = null;
+
 /**
  * Starts up the add-on manager as if it was started by the application.
  *
@@ -396,26 +400,24 @@ function shutdownManager() {
   if (!gInternalManager)
     return;
 
-  let obs = AM_Cc["@mozilla.org/observer-service;1"].
-            getService(AM_Ci.nsIObserverService);
-
   let xpiShutdown = false;
-  obs.addObserver({
+  Services.obs.addObserver({
     observe: function(aSubject, aTopic, aData) {
       xpiShutdown = true;
-      obs.removeObserver(this, "xpi-provider-shutdown");
+      gXPISaveError = aData;
+      Services.obs.removeObserver(this, "xpi-provider-shutdown");
     }
   }, "xpi-provider-shutdown", false);
 
   let repositoryShutdown = false;
-  obs.addObserver({
+  Services.obs.addObserver({
     observe: function(aSubject, aTopic, aData) {
       repositoryShutdown = true;
-      obs.removeObserver(this, "addon-repository-shutdown");
+      Services.obs.removeObserver(this, "addon-repository-shutdown");
     }
   }, "addon-repository-shutdown", false);
 
-  obs.notifyObservers(null, "quit-application-granted", null);
+  Services.obs.notifyObservers(null, "quit-application-granted", null);
   let scope = Components.utils.import("resource://gre/modules/AddonManager.jsm");
   scope.AddonManagerInternal.shutdown();
   gInternalManager = null;
@@ -428,14 +430,11 @@ function shutdownManager() {
   // Clear any crash report annotations
   gAppInfo.annotations = {};
 
-  let thr = AM_Cc["@mozilla.org/thread-manager;1"].
-            getService(AM_Ci.nsIThreadManager).
-            mainThread;
+  let thr = Services.tm.mainThread;
 
   // Wait until we observe the shutdown notifications
   while (!repositoryShutdown || !xpiShutdown) {
-    if (thr.hasPendingEvents())
-      thr.processNextEvent(false);
+    thr.processNextEvent(true);
   }
 
   // Force the XPIProvider provider to reload to better
@@ -615,7 +614,7 @@ function createInstallRDF(aData) {
 function writeInstallRDFToDir(aData, aDir, aExtraFile) {
   var rdf = createInstallRDF(aData);
   if (!aDir.exists())
-    aDir.create(AM_Ci.nsIFile.DIRECTORY_TYPE, 0755);
+    aDir.create(AM_Ci.nsIFile.DIRECTORY_TYPE, FileUtils.PERMS_DIRECTORY);
   var file = aDir.clone();
   file.append("install.rdf");
   if (file.exists())
@@ -633,7 +632,7 @@ function writeInstallRDFToDir(aData, aDir, aExtraFile) {
 
   file = aDir.clone();
   file.append(aExtraFile);
-  file.create(AM_Ci.nsIFile.NORMAL_FILE_TYPE, 0644);
+  file.create(AM_Ci.nsIFile.NORMAL_FILE_TYPE, FileUtils.PERMS_FILE);
 }
 
 /**
@@ -665,7 +664,7 @@ function writeInstallRDFForExtension(aData, aDir, aId, aExtraFile) {
   }
 
   if (!dir.exists())
-    dir.create(AM_Ci.nsIFile.DIRECTORY_TYPE, 0755);
+    dir.create(AM_Ci.nsIFile.DIRECTORY_TYPE, FileUtils.PERMS_DIRECTORY);
   dir.append(id + ".xpi");
   var rdf = createInstallRDF(aData);
   var stream = AM_Cc["@mozilla.org/io/string-input-stream;1"].
@@ -718,7 +717,7 @@ function manuallyInstall(aXPIFile, aInstallLocation, aID) {
   if (TEST_UNPACKED) {
     let dir = aInstallLocation.clone();
     dir.append(aID);
-    dir.create(AM_Ci.nsIFile.DIRECTORY_TYPE, 0755);
+    dir.create(AM_Ci.nsIFile.DIRECTORY_TYPE, FileUtils.PERMS_DIRECTORY);
     let zip = AM_Cc["@mozilla.org/libjar/zip-reader;1"].
               createInstance(AM_Ci.nsIZipReader);
     zip.open(aXPIFile);
@@ -1392,6 +1391,60 @@ function do_exception_wrap(func) {
       do_report_unexpected_exception(e);
     }
   };
+}
+
+const EXTENSIONS_DB = "extensions.json";
+let gExtensionsJSON = gProfD.clone();
+gExtensionsJSON.append(EXTENSIONS_DB);
+
+/**
+ * Change the schema version of the JSON extensions database
+ */
+function changeXPIDBVersion(aNewVersion) {
+  let jData = loadJSON(gExtensionsJSON);
+  jData.schemaVersion = aNewVersion;
+  saveJSON(jData, gExtensionsJSON);
+}
+
+/**
+ * Raw load of a JSON file
+ */
+function loadJSON(aFile) {
+  let data = "";
+  let fstream = Components.classes["@mozilla.org/network/file-input-stream;1"].
+          createInstance(Components.interfaces.nsIFileInputStream);
+  let cstream = Components.classes["@mozilla.org/intl/converter-input-stream;1"].
+          createInstance(Components.interfaces.nsIConverterInputStream);
+  fstream.init(aFile, -1, 0, 0);
+  cstream.init(fstream, "UTF-8", 0, 0);
+  let (str = {}) {
+    let read = 0;
+    do {
+      read = cstream.readString(0xffffffff, str); // read as much as we can and put it in str.value
+      data += str.value;
+    } while (read != 0);
+  }
+  cstream.close();
+  do_print("Loaded JSON file " + aFile.path);
+  return(JSON.parse(data));
+}
+
+/**
+ * Raw save of a JSON blob to file
+ */
+function saveJSON(aData, aFile) {
+  do_print("Starting to save JSON file " + aFile.path);
+  let stream = FileUtils.openSafeFileOutputStream(aFile);
+  let converter = AM_Cc["@mozilla.org/intl/converter-output-stream;1"].
+    createInstance(AM_Ci.nsIConverterOutputStream);
+  converter.init(stream, "UTF-8", 0, 0x0000);
+  // XXX pretty print the JSON while debugging
+  converter.writeString(JSON.stringify(aData, null, 2));
+  converter.flush();
+  // nsConverterOutputStream doesn't finish() safe output streams on close()
+  FileUtils.closeSafeFileOutputStream(stream);
+  converter.close();
+  do_print("Done saving JSON file " + aFile.path);
 }
 
 /**

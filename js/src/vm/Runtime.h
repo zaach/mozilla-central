@@ -11,28 +11,27 @@
 #include "mozilla/LinkedList.h"
 #include "mozilla/MemoryReporting.h"
 #include "mozilla/PodOperations.h"
-#include "mozilla/TemplateLib.h"
 #include "mozilla/ThreadLocal.h"
 
 #include <setjmp.h>
-#include <string.h>
 
-#include "jsapi.h"
 #include "jsatom.h"
 #include "jsclist.h"
-#include "jsfriendapi.h"
 #include "jsgc.h"
-#include "jsprvtd.h"
+#include "jsproxy.h"
+#include "jsscript.h"
 
 #include "ds/FixedSizeHash.h"
-#include "ds/LifoAlloc.h"
 #include "frontend/ParseMaps.h"
 #include "gc/Nursery.h"
 #include "gc/Statistics.h"
 #include "gc/StoreBuffer.h"
-#include "ion/AsmJSSignalHandlers.h"
+#ifdef XP_MACOSX
+#include "jit/AsmJSSignalHandlers.h"
+#endif
 #include "js/HashTable.h"
 #include "js/Vector.h"
+#include "vm/CommonPropertyNames.h"
 #include "vm/DateTime.h"
 #include "vm/SPSProfiler.h"
 #include "vm/Stack.h"
@@ -46,6 +45,9 @@
 #endif
 
 namespace js {
+
+class PerThreadData;
+class ThreadSafeContext;
 
 /* Thread Local Storage slot for storing the runtime for a thread. */
 extern mozilla::ThreadLocal<PerThreadData*> TlsPerThreadData;
@@ -63,20 +65,26 @@ js_ReportAllocationOverflow(js::ThreadSafeContext *cx);
 extern void
 js_ReportOverRecursed(js::ThreadSafeContext *cx);
 
+namespace JSC { class ExecutableAllocator; }
+
+namespace WTF { class BumpPointerAllocator; }
+
 namespace js {
 
 typedef Rooted<JSLinearString*> RootedLinearString;
 
+class Activation;
+class ActivationIterator;
+class AsmJSActivation;
+class InterpreterFrames;
 class MathCache;
+class WorkerThreadState;
 
 namespace ion {
 class IonRuntime;
+class JitActivation;
 struct PcScriptCache;
 }
-
-class AsmJSActivation;
-class InterpreterFrames;
-class WorkerThreadState;
 
 /*
  * GetSrcNote cache to avoid O(n^2) growth in finding a source note for a
@@ -465,7 +473,7 @@ class PerThreadData : public PerThreadDataFriendFields,
      * thread is associated.  This is private because accessing the
      * fields of this runtime can provoke race conditions, so the
      * intention is that access will be mediated through safe
-     * functions like |associatedWith()| below.
+     * functions like |runtimeFromMainThread| and |associatedWith()| below.
      */
     JSRuntime *runtime_;
 
@@ -571,6 +579,7 @@ class PerThreadData : public PerThreadDataFriendFields,
     void removeFromThreadList();
 
     bool associatedWith(const JSRuntime *rt) { return runtime_ == rt; }
+    inline JSRuntime *runtimeFromMainThread();
 };
 
 template<class Client>
@@ -764,6 +773,14 @@ struct JSRuntime : public JS::shadow::Runtime,
 #endif
     }
 
+    bool exclusiveThreadsPresent() const {
+#ifdef JS_THREADSAFE
+        return numExclusiveThreads > 0;
+#else
+        return false;
+#endif
+    }
+
     /* Default compartment. */
     JSCompartment       *atomsCompartment;
 
@@ -791,19 +808,10 @@ struct JSRuntime : public JS::shadow::Runtime,
     void *ownerThread() const { return ownerThread_; }
     void clearOwnerThread();
     void setOwnerThread();
-    JS_FRIEND_API(void) abortIfWrongThread() const;
-#ifdef DEBUG
-    JS_FRIEND_API(void) assertValidThread() const;
-#else
-    void assertValidThread() const {}
-#endif
   private:
-    void                *ownerThread_;
+    void *ownerThread_;
+    friend bool js::CurrentThreadCanAccessRuntime(JSRuntime *rt);
   public:
-#else
-  public:
-    void abortIfWrongThread() const {}
-    void assertValidThread() const {}
 #endif
 
     /* Temporary arena pool used while compiling and decompiling. */
@@ -914,6 +922,7 @@ struct JSRuntime : public JS::shadow::Runtime,
 
     /* Context create/destroy callback. */
     JSContextCallback   cxCallback;
+    void               *cxCallbackData;
 
     /* Compartment destroy callback. */
     JSDestroyCompartmentCallback destroyCompartmentCallback;
@@ -1258,7 +1267,7 @@ struct JSRuntime : public JS::shadow::Runtime,
 
     JS_SourceHook       sourceHook;
 
-    /* Per runtime debug hooks -- see jsprvtd.h and jsdbgapi.h. */
+    /* Per runtime debug hooks -- see jsdbgapi.h. */
     JSDebugHooks        debugHooks;
 
     /* If true, new compartments are initially in debug mode. */
@@ -1681,6 +1690,13 @@ PerThreadData::setIonStackLimit(uintptr_t limit)
 {
     JS_ASSERT(runtime_->currentThreadOwnsOperationCallbackLock());
     ionStackLimit = limit;
+}
+
+inline JSRuntime *
+PerThreadData::runtimeFromMainThread()
+{
+    JS_ASSERT(js::CurrentThreadCanAccessRuntime(runtime_));
+    return runtime_;
 }
 
 /************************************************************************/

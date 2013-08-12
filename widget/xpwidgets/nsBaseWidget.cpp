@@ -947,10 +947,20 @@ void nsBaseWidget::CreateCompositor(int aWidth, int aHeight)
   PLayerTransactionChild* shadowManager;
   mozilla::layers::LayersBackend backendHint = GetPreferredCompositorBackend();
 
-  shadowManager = mCompositorChild->SendPLayerTransactionConstructor(
-    backendHint, 0, &textureFactoryIdentifier);
+  if (backendHint == LAYERS_BASIC &&
+      !Preferences::GetBool("layers.offmainthreadcomposition.force-basic", false) &&
+      !Preferences::GetBool("browser.tabs.remote", false)) {
+    // basic compositor is not stable enough for regular use
+    backendHint = LAYERS_NONE;
+  }
 
-  if (shadowManager) {
+  bool success = false;
+  if (backendHint) {
+    shadowManager = mCompositorChild->SendPLayerTransactionConstructor(
+      backendHint, 0, &textureFactoryIdentifier, &success);
+  }
+
+  if (success) {
     ShadowLayerForwarder* lf = lm->AsShadowForwarder();
     if (!lf) {
       delete lm;
@@ -960,12 +970,12 @@ void nsBaseWidget::CreateCompositor(int aWidth, int aHeight)
     lf->SetShadowManager(shadowManager);
     lf->IdentifyTextureHost(textureFactoryIdentifier);
     ImageBridgeChild::IdentifyCompositorTextureHost(textureFactoryIdentifier);
+    WindowUsesOMTC();
 
     mLayerManager = lm;
     return;
   }
 
-  // Failed to create a compositor!
   NS_WARNING("Failed to create an OMT compositor.");
   DestroyCompositor();
   // Compositor child had the only reference to LayerManager and will have

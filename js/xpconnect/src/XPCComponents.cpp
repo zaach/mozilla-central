@@ -54,7 +54,7 @@ static nsresult ThrowAndFail(nsresult errNum, JSContext* cx, bool* retval)
     return NS_OK;
 }
 
-static JSBool
+static bool
 JSValIsInterfaceOfType(JSContext *cx, HandleValue v, REFNSIID iid)
 {
 
@@ -1905,7 +1905,7 @@ struct MOZ_STACK_CLASS ExceptionArgParser
 
     bool getOption(HandleObject obj, const char *name, MutableHandleValue rv) {
         // Look for the property.
-        JSBool found;
+        bool found;
         if (!JS_HasProperty(cx, obj, name, &found))
             return false;
 
@@ -2693,7 +2693,7 @@ nsXPCComponents_Utils::LookupMethod(const JS::Value& object,
         // Alright, now do the lookup.
         *retval = UndefinedValue();
         Rooted<JSPropertyDescriptor> desc(cx);
-        if (!JS_GetPropertyDescriptorById(cx, xray, methodId, 0, desc.address()))
+        if (!JS_GetPropertyDescriptorById(cx, xray, methodId, 0, &desc))
             return NS_ERROR_FAILURE;
 
         // First look for a method value. If that's not there, try a getter,
@@ -2800,7 +2800,7 @@ NS_IMPL_ISUPPORTS3(SandboxPrivate,
                    nsIGlobalObject,
                    nsISupportsWeakReference)
 
-static JSBool
+static bool
 SandboxDump(JSContext *cx, unsigned argc, jsval *vp)
 {
     JSString *str;
@@ -2838,7 +2838,7 @@ SandboxDump(JSContext *cx, unsigned argc, jsval *vp)
     return true;
 }
 
-static JSBool
+static bool
 SandboxDebug(JSContext *cx, unsigned argc, jsval *vp)
 {
 #ifdef DEBUG
@@ -2848,7 +2848,7 @@ SandboxDebug(JSContext *cx, unsigned argc, jsval *vp)
 #endif
 }
 
-static JSBool
+static bool
 SandboxImport(JSContext *cx, unsigned argc, Value *vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
@@ -2905,7 +2905,7 @@ SandboxImport(JSContext *cx, unsigned argc, Value *vp)
     return true;
 }
 
-static JSBool
+static bool
 CreateXMLHttpRequest(JSContext *cx, unsigned argc, jsval *vp)
 {
     nsIScriptSecurityManager *ssm = XPCWrapper::GetSecurityManager();
@@ -2935,16 +2935,16 @@ CreateXMLHttpRequest(JSContext *cx, unsigned argc, jsval *vp)
     return true;
 }
 
-static JSBool
+static bool
 sandbox_enumerate(JSContext *cx, HandleObject obj)
 {
     return JS_EnumerateStandardClasses(cx, obj);
 }
 
-static JSBool
+static bool
 sandbox_resolve(JSContext *cx, HandleObject obj, HandleId id)
 {
-    JSBool resolved;
+    bool resolved;
     return JS_ResolveStandardClass(cx, obj, id, &resolved);
 }
 
@@ -2959,7 +2959,7 @@ sandbox_finalize(JSFreeOp *fop, JSObject *obj)
     DestroyProtoAndIfaceCache(obj);
 }
 
-static JSBool
+static bool
 sandbox_convert(JSContext *cx, HandleObject obj, JSType type, MutableHandleValue vp)
 {
     if (type == JSTYPE_OBJECT) {
@@ -3097,7 +3097,7 @@ WrapCallable(JSContext *cx, JSObject *callable, JSObject *sandboxProtoProxy)
 }
 
 template<typename Op>
-bool BindPropertyOp(JSContext *cx, Op &op, PropertyDescriptor *desc, HandleId id,
+bool BindPropertyOp(JSContext *cx, Op &op, JSPropertyDescriptor *desc, HandleId id,
                     unsigned attrFlag, HandleObject sandboxProtoProxy)
 {
     if (!op) {
@@ -3125,16 +3125,16 @@ bool BindPropertyOp(JSContext *cx, Op &op, PropertyDescriptor *desc, HandleId id
     return true;
 }
 
-extern JSBool
+extern bool
 XPC_WN_Helper_GetProperty(JSContext *cx, HandleObject obj, HandleId id, MutableHandleValue vp);
-extern JSBool
-XPC_WN_Helper_SetProperty(JSContext *cx, HandleObject obj, HandleId id, JSBool strict, MutableHandleValue vp);
+extern bool
+XPC_WN_Helper_SetProperty(JSContext *cx, HandleObject obj, HandleId id, bool strict, MutableHandleValue vp);
 
 bool
 xpc::SandboxProxyHandler::getPropertyDescriptor(JSContext *cx,
                                                 JS::Handle<JSObject*> proxy,
                                                 JS::Handle<jsid> id,
-                                                PropertyDescriptor *desc,
+                                                JS::MutableHandle<JSPropertyDescriptor> desc,
                                                 unsigned flags)
 {
     JS::RootedObject obj(cx, wrappedObject(proxy));
@@ -3144,7 +3144,7 @@ xpc::SandboxProxyHandler::getPropertyDescriptor(JSContext *cx,
                                       flags, desc))
         return false;
 
-    if (!desc->obj)
+    if (!desc.object())
         return true; // No property, nothing to do
 
     // Now fix up the getter/setter/value as needed to be bound to desc->obj
@@ -3157,21 +3157,21 @@ xpc::SandboxProxyHandler::getPropertyDescriptor(JSContext *cx,
     // Similarly, don't mess with XPC_WN_Helper_GetProperty and
     // XPC_WN_Helper_SetProperty, for the same reasons: that could confuse our
     // access to expandos when we're not doing Xrays.
-    if (desc->getter != xpc::holder_get &&
-        desc->getter != XPC_WN_Helper_GetProperty &&
-        !BindPropertyOp(cx, desc->getter, desc, id, JSPROP_GETTER, proxy))
+    if (desc.getter() != xpc::holder_get &&
+        desc.getter() != XPC_WN_Helper_GetProperty &&
+        !BindPropertyOp(cx, desc.getter(), desc.address(), id, JSPROP_GETTER, proxy))
         return false;
-    if (desc->setter != xpc::holder_set &&
-        desc->setter != XPC_WN_Helper_SetProperty &&
-        !BindPropertyOp(cx, desc->setter, desc, id, JSPROP_SETTER, proxy))
+    if (desc.setter() != xpc::holder_set &&
+        desc.setter() != XPC_WN_Helper_SetProperty &&
+        !BindPropertyOp(cx, desc.setter(), desc.address(), id, JSPROP_SETTER, proxy))
         return false;
-    if (desc->value.isObject()) {
-        JSObject* val = &desc->value.toObject();
+    if (desc.value().isObject()) {
+        JSObject* val = &desc.value().toObject();
         if (JS_ObjectIsCallable(cx, val)) {
             val = WrapCallable(cx, val, proxy);
             if (!val)
                 return false;
-            desc->value = ObjectValue(*val);
+            desc.value().setObject(*val);
         }
     }
 
@@ -3182,14 +3182,14 @@ bool
 xpc::SandboxProxyHandler::getOwnPropertyDescriptor(JSContext *cx,
                                                    JS::Handle<JSObject*> proxy,
                                                    JS::Handle<jsid> id,
-                                                   PropertyDescriptor *desc,
+                                                   JS::MutableHandle<JSPropertyDescriptor> desc,
                                                    unsigned flags)
 {
     if (!getPropertyDescriptor(cx, proxy, id, desc, flags))
         return false;
 
-    if (desc->obj != wrappedObject(proxy))
-        desc->obj = nullptr;
+    if (desc.object() != wrappedObject(proxy))
+        desc.object().set(nullptr);
 
     return true;
 }
@@ -3368,6 +3368,8 @@ xpc_CreateSandboxObject(JSContext *cx, jsval *vp, nsISupports *prinOrSop, Sandbo
     // about:memory may use that information
     xpc::SetLocationForGlobal(sandbox, options.sandboxName);
 
+    JS_FireOnNewGlobalObject(cx, sandbox);
+
     return NS_OK;
 }
 
@@ -3480,7 +3482,7 @@ GetExpandedPrincipal(JSContext *cx, HandleObject arrayObj, nsIExpandedPrincipal 
 
     for (uint32_t i = 0; i < length; ++i) {
         RootedValue allowed(cx);
-        if (!JS_GetElement(cx, arrayObj, i, allowed.address()))
+        if (!JS_GetElement(cx, arrayObj, i, &allowed))
             return NS_ERROR_INVALID_ARG;
 
         nsresult rv;
@@ -3521,7 +3523,7 @@ GetExpandedPrincipal(JSContext *cx, HandleObject arrayObj, nsIExpandedPrincipal 
 // helper that tries to get a property form the options object
 nsresult
 GetPropFromOptions(JSContext *cx, HandleObject from, const char *name, MutableHandleValue prop,
-                   JSBool *found)
+                   bool *found)
 {
     if (!JS_HasProperty(cx, from, name, found))
         return NS_ERROR_INVALID_ARG;
@@ -3540,7 +3542,7 @@ GetBoolPropFromOptions(JSContext *cx, HandleObject from, const char *name, bool 
 
 
     RootedValue value(cx);
-    JSBool found;
+    bool found;
     if (NS_FAILED(GetPropFromOptions(cx, from, name, &value, &found)))
         return NS_ERROR_INVALID_ARG;
 
@@ -3561,7 +3563,7 @@ GetObjPropFromOptions(JSContext *cx, HandleObject from, const char *name, JSObje
     MOZ_ASSERT(prop);
 
     RootedValue value(cx);
-    JSBool found;
+    bool found;
     if (NS_FAILED(GetPropFromOptions(cx, from, name, &value, &found)))
         return NS_ERROR_INVALID_ARG;
 
@@ -3582,7 +3584,7 @@ nsresult
 GetStringPropFromOptions(JSContext *cx, HandleObject from, const char *name, nsCString &prop)
 {
     RootedValue value(cx);
-    JSBool found;
+    bool found;
     nsresult rv = GetPropFromOptions(cx, from, name, &value, &found);
     NS_ENSURE_SUCCESS(rv, rv);
 
@@ -3735,7 +3737,7 @@ public:
     NS_DECL_ISUPPORTS
 
 private:
-    static JSBool ContextHolderOperationCallback(JSContext *cx);
+    static bool ContextHolderOperationCallback(JSContext *cx);
 
     JSContext* mJSContext;
     JSContext* mOrigCx;
@@ -3773,7 +3775,7 @@ ContextHolder::~ContextHolder()
         JS_DestroyContextNoGC(mJSContext);
 }
 
-JSBool
+bool
 ContextHolder::ContextHolderOperationCallback(JSContext *cx)
 {
     ContextHolder* thisObject =
@@ -3782,7 +3784,7 @@ ContextHolder::ContextHolderOperationCallback(JSContext *cx)
 
     JSContext *origCx = thisObject->mOrigCx;
     JSOperationCallback callback = JS_GetOperationCallback(origCx);
-    JSBool ok = true;
+    bool ok = true;
     if (callback)
         ok = callback(origCx);
     return ok;
@@ -4223,7 +4225,7 @@ nsXPCComponents_Utils::CreateDateIn(const Value &vobj, int64_t msec, JSContext *
     return NS_OK;
 }
 
-JSBool
+bool
 FunctionWrapper(JSContext *cx, unsigned argc, Value *vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
@@ -4233,12 +4235,12 @@ FunctionWrapper(JSContext *cx, unsigned argc, Value *vp)
 
     JSObject *obj = JS_THIS_OBJECT(cx, vp);
     if (!obj) {
-        return JS_FALSE;
+        return false;
     }
     return JS_CallFunctionValue(cx, obj, v, args.length(), args.array(), vp);
 }
 
-JSBool
+bool
 WrapCallable(JSContext *cx, HandleObject obj, HandleId id, HandleObject propobj,
              MutableHandleValue vp)
 {
@@ -4854,7 +4856,7 @@ nsXPCComponents::SetProperty(nsIXPConnectWrappedNative *wrapper,
     return NS_ERROR_XPC_CANT_MODIFY_PROP_ON_WN;
 }
 
-static JSBool
+static bool
 ContentComponentsGetterOp(JSContext *cx, HandleObject obj, HandleId id,
                           MutableHandleValue vp)
 {
@@ -4884,7 +4886,7 @@ ContentComponentsGetterOp(JSContext *cx, HandleObject obj, HandleId id,
 }
 
 // static
-JSBool
+bool
 nsXPCComponents::AttachComponentsObject(JSContext* aCx,
                                         XPCWrappedNativeScope* aScope)
 {

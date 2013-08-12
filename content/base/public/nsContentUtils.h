@@ -44,6 +44,7 @@ class nsIChannel;
 class nsIConsoleService;
 class nsIContent;
 class nsIContentPolicy;
+class nsIContentSecurityPolicy;
 class nsIDocShell;
 class nsIDocument;
 class nsIDocumentLoaderFactory;
@@ -193,7 +194,7 @@ public:
   static bool     IsImageSrcSetDisabled();
 
   static bool LookupBindingMember(JSContext* aCx, nsIContent *aContent,
-                                  JS::HandleId aId, JSPropertyDescriptor* aDesc);
+                                  JS::HandleId aId, JS::MutableHandle<JSPropertyDescriptor> aDesc);
 
   /**
    * Returns the parent node of aChild crossing document boundaries.
@@ -470,6 +471,12 @@ public:
   {
     return sSecurityManager;
   }
+
+  /**
+   * Get the ContentSecurityPolicy for a JS context.
+   **/
+  static bool GetContentSecurityPolicy(JSContext* aCx,
+                                       nsIContentSecurityPolicy** aCSP);
 
   // Returns the subject principal. Guaranteed to return non-null. May only
   // be called when nsContentUtils is initialized.
@@ -750,7 +757,7 @@ public:
    */
   static nsresult ReportToConsoleNonLocalized(const nsAString& aErrorText,
                                               uint32_t aErrorFlags,
-                                              const char *aCategory,
+                                              const nsACString& aCategory,
                                               nsIDocument* aDocument,
                                               nsIURI* aURI = nullptr,
                                               const nsAFlatString& aSourceLine
@@ -794,7 +801,7 @@ public:
     PropertiesFile_COUNT
   };
   static nsresult ReportToConsole(uint32_t aErrorFlags,
-                                  const char *aCategory,
+                                  const nsACString& aCategory,
                                   nsIDocument* aDocument,
                                   PropertiesFile aFile,
                                   const char *aMessageName,
@@ -805,6 +812,26 @@ public:
                                     = EmptyString(),
                                   uint32_t aLineNumber = 0,
                                   uint32_t aColumnNumber = 0);
+  // This overload allows passing a literal string for aCategory.
+  template<uint32_t N>
+  static nsresult ReportToConsole(uint32_t aErrorFlags,
+                                  const char (&aCategory)[N],
+                                  nsIDocument* aDocument,
+                                  PropertiesFile aFile,
+                                  const char *aMessageName,
+                                  const PRUnichar **aParams = nullptr,
+                                  uint32_t aParamsLength = 0,
+                                  nsIURI* aURI = nullptr,
+                                  const nsAFlatString& aSourceLine
+                                    = EmptyString(),
+                                  uint32_t aLineNumber = 0,
+                                  uint32_t aColumnNumber = 0)
+  {
+      nsDependentCString category(aCategory, N - 1);
+      return ReportToConsole(aErrorFlags, category, aDocument, aFile,
+                             aMessageName, aParams, aParamsLength, aURI,
+                             aSourceLine, aLineNumber, aColumnNumber);
+  }
 
   /**
    * Get the localized string named |aKey| in properties file |aFile|.
@@ -1277,9 +1304,6 @@ public:
   static void DeferredFinalize(mozilla::DeferredFinalizeAppendFunction aAppendFunc,
                                mozilla::DeferredFinalizeFunction aFunc,
                                void* aThing);
-
-  static void ReleaseWrapper(void* aScriptObjectHolder,
-                             nsWrapperCache* aCache);
 
   /*
    * Notify when the first XUL menu is opened and when the all XUL menus are

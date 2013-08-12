@@ -667,7 +667,8 @@ struct MaskLayerUserData : public LayerUserData
     return mRoundedClipRects == aOther.mRoundedClipRects &&
            mScaleX == aOther.mScaleX &&
            mScaleY == aOther.mScaleY &&
-           mOffset == aOther.mOffset;
+           mOffset == aOther.mOffset &&
+           mAppUnitsPerDevPixel == aOther.mAppUnitsPerDevPixel;
   }
 
   nsRefPtr<const MaskLayerImageCache::MaskLayerImageKey> mImageKey;
@@ -678,6 +679,7 @@ struct MaskLayerUserData : public LayerUserData
   float mScaleX, mScaleY;
   // The ContainerParameters offset which is applied to the mask's transform.
   nsIntPoint mOffset;
+  int32_t mAppUnitsPerDevPixel;
 };
 
 /**
@@ -1230,7 +1232,7 @@ ContainerState::CreateOrRecycleMaskImageLayerFor(Layer* aLayer)
     if (!result)
       return nullptr;
     result->SetUserData(&gMaskLayerUserData, new MaskLayerUserData());
-    result->SetForceSingleTile(true);
+    result->SetDisallowBigImage(true);
   }
   
   return result.forget();
@@ -2041,6 +2043,9 @@ ContainerState::ProcessDisplayItems(const nsDisplayList& aList,
     topLeft = lastActiveScrolledRoot->GetOffsetToCrossDoc(mContainerReferenceFrame);
   }
 
+  int32_t maxLayers = nsDisplayItem::MaxActiveLayers();
+  int layerCount = 0;
+
   for (nsDisplayItem* item = aList.GetBottom(); item; item = item->GetAbove()) {
     NS_ASSERTION(mAppUnitsPerDevPixel == AppUnitsPerDevPixel(item),
       "items in a container layer should all have the same app units per dev pixel");
@@ -2083,12 +2088,18 @@ ContainerState::ProcessDisplayItems(const nsDisplayList& aList,
       }
     }
 
+    if (maxLayers != -1 && layerCount >= maxLayers) {
+      forceInactive = true;
+    }
+
     // Assign the item to a layer
     if (layerState == LAYER_ACTIVE_FORCE ||
         (layerState == LAYER_INACTIVE && !mManager->IsWidgetLayerManager()) ||
         (!forceInactive &&
          (layerState == LAYER_ACTIVE_EMPTY ||
           layerState == LAYER_ACTIVE))) {
+
+      layerCount++;
 
       // LAYER_ACTIVE_EMPTY means the layer is created just for its metadata.
       // We should never see an empty layer with any visible content!
@@ -3405,6 +3416,7 @@ ContainerState::SetupMaskLayer(Layer *aLayer, const DisplayItemClip& aClip,
   newData.mScaleX = mParameters.mXScale;
   newData.mScaleY = mParameters.mYScale;
   newData.mOffset = mParameters.mOffset;
+  newData.mAppUnitsPerDevPixel = mContainerFrame->PresContext()->AppUnitsPerDevPixel();
 
   if (*userData == newData) {
     aLayer->SetMaskLayer(maskLayer);
@@ -3413,8 +3425,8 @@ ContainerState::SetupMaskLayer(Layer *aLayer, const DisplayItemClip& aClip,
   }
 
   // calculate a more precise bounding rect
-  const int32_t A2D = mContainerFrame->PresContext()->AppUnitsPerDevPixel();
-  gfxRect boundingRect = CalculateBounds(newData.mRoundedClipRects, A2D);
+  gfxRect boundingRect = CalculateBounds(newData.mRoundedClipRects,
+                                         newData.mAppUnitsPerDevPixel);
   boundingRect.Scale(mParameters.mXScale, mParameters.mYScale);
 
   uint32_t maxSize = mManager->GetMaxTextureSize();
@@ -3470,7 +3482,10 @@ ContainerState::SetupMaskLayer(Layer *aLayer, const DisplayItemClip& aClip,
 
     // paint the clipping rects with alpha to create the mask
     context->SetColor(gfxRGBA(1, 1, 1, 1));
-    aClip.DrawRoundedRectsTo(context, A2D, 0, aRoundedRectClipCount);
+    aClip.DrawRoundedRectsTo(context,
+                             newData.mAppUnitsPerDevPixel,
+                             0,
+                             aRoundedRectClipCount);
 
     // build the image and container
     container = aLayer->Manager()->CreateImageContainer();

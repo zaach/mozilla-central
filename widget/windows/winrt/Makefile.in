@@ -11,8 +11,6 @@ include $(DEPTH)/config/autoconf.mk
 
 LIBRARY_NAME		= widget_winrt
 EXPORT_LIBRARY	= 1
-IS_COMPONENT		= 1
-MODULE_NAME			= WidgetWinRTModule
 LIBXUL_LIBRARY	= 1
 
 DEFINES		+= -DMOZ_UNICODE
@@ -43,10 +41,6 @@ MIDL_GENERATED_FILES = \
 	UIABridge_i.c \
 	UIABridge_p.c \
 	dlldata.c \
-	$(NULL)
-
-EXTRA_COMPONENTS = MetroUIUtils.js \
-	MetroUIUtils.manifest \
 	$(NULL)
 
 GARBAGE += $(MIDL_GENERATED_FILES) done_gen

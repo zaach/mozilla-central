@@ -181,6 +181,8 @@ ImplCycleCollectionTraverse(nsCycleCollectionTraversalCallback& aCallback,
   }
 }
 
+NS_IMPL_CYCLE_COLLECTION_CLASS(nsEventListenerManager)
+
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(nsEventListenerManager)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mListeners)
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
@@ -1198,7 +1200,6 @@ nsEventListenerManager::GetListenerInfo(nsCOMArray<nsIEventListenerInfo>* aList)
                               ls.mFlags.mCapture,
                               ls.mFlags.mAllowUntrustedEvents,
                               ls.mFlags.mInSystemGroup);
-    NS_ENSURE_TRUE(info, NS_ERROR_OUT_OF_MEMORY);
     aList->AppendObject(info);
   }
   return NS_OK;

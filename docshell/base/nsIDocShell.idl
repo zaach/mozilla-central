@@ -156,7 +156,7 @@ interface nsIDocShell : nsIDocShellTreeItem
    * depending on the value of aReplace.
    */
   [implicit_jscontext]
-  void addState(in nsIVariant aData, in DOMString aTitle,
+  void addState(in jsval aData, in DOMString aTitle,
                 in DOMString aURL, in boolean aReplace);
 
   /**

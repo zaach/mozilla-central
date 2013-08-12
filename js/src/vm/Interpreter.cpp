@@ -25,6 +25,7 @@
 #include "jsfun.h"
 #include "jsgc.h"
 #include "jsiter.h"
+#include "jslibmath.h"
 #include "jsnum.h"
 #include "jsobj.h"
 #include "jsopcode.h"
@@ -36,18 +37,20 @@
 #endif
 
 #include "builtin/Eval.h"
-#include "ion/BaselineJIT.h"
-#include "ion/Ion.h"
+#include "jit/BaselineJIT.h"
+#include "jit/Ion.h"
 #include "vm/Debugger.h"
 #include "vm/Shape.h"
 
 #include "jsatominlines.h"
 #include "jsboolinlines.h"
+#include "jsfuninlines.h"
 #include "jsinferinlines.h"
 #include "jsscriptinlines.h"
 
-#include "ion/IonFrames-inl.h"
+#include "jit/IonFrames-inl.h"
 #include "vm/Probes-inl.h"
+#include "vm/ScopeObject-inl.h"
 #include "vm/Stack-inl.h"
 
 using namespace js;
@@ -173,10 +176,10 @@ js::BoxNonStrictThis(JSContext *cx, const CallReceiver &call)
 
 #if JS_HAS_NO_SUCH_METHOD
 
-const uint32_t JSSLOT_FOUND_FUNCTION  = 0;
-const uint32_t JSSLOT_SAVED_ID        = 1;
+static const uint32_t JSSLOT_FOUND_FUNCTION = 0;
+static const uint32_t JSSLOT_SAVED_ID = 1;
 
-Class js_NoSuchMethodClass = {
+static Class js_NoSuchMethodClass = {
     "NoSuchMethod",
     JSCLASS_HAS_RESERVED_SLOTS(2) | JSCLASS_IS_ANONYMOUS,
     JS_PropertyStub, JS_DeletePropertyStub, JS_PropertyStub, JS_StrictPropertyStub,
@@ -220,12 +223,12 @@ js::OnUnknownMethod(JSContext *cx, HandleObject obj, Value idval_, MutableHandle
     return true;
 }
 
-static JSBool
+static bool
 NoSuchMethod(JSContext *cx, unsigned argc, Value *vp)
 {
     InvokeArgs args(cx);
     if (!args.init(2))
-        return JS_FALSE;
+        return false;
 
     JS_ASSERT(vp[0].isObject());
     JS_ASSERT(vp[1].isObject());
@@ -237,9 +240,9 @@ NoSuchMethod(JSContext *cx, unsigned argc, Value *vp)
     args[0].set(obj->getReservedSlot(JSSLOT_SAVED_ID));
     JSObject *argsobj = NewDenseCopiedArray(cx, argc, vp + 2);
     if (!argsobj)
-        return JS_FALSE;
+        return false;
     args[1].setObject(*argsobj);
-    JSBool ok = Invoke(cx, args);
+    bool ok = Invoke(cx, args);
     vp[0] = args.rval();
     return ok;
 }
@@ -502,7 +505,7 @@ js::Invoke(JSContext *cx, CallArgs args, MaybeConstruct construct)
         }
     }
 
-    JSBool ok = RunScript(cx, state);
+    bool ok = RunScript(cx, state);
 
     JS_ASSERT_IF(ok && construct, !args.rval().isPrimitive());
     return ok;
@@ -669,13 +672,8 @@ js::HasInstance(JSContext *cx, HandleObject obj, HandleValue v, bool *bp)
 {
     Class *clasp = obj->getClass();
     RootedValue local(cx, v);
-    if (clasp->hasInstance) {
-        JSBool b;
-        if (!clasp->hasInstance(cx, obj, &local, &b))
-            return false;
-        *bp = b;
-        return true;
-    }
+    if (clasp->hasInstance)
+        return clasp->hasInstance(cx, obj, &local, bp);
 
     RootedValue val(cx, ObjectValue(*obj));
     js_ReportValueError(cx, JSMSG_BAD_INSTANCEOF_RHS,
@@ -1263,17 +1261,10 @@ SetObjectElementOperation(JSContext *cx, Handle<JSObject*> obj, HandleId id, con
         uint32_t length = obj->getDenseInitializedLength();
         int32_t i = JSID_TO_INT(id);
         if ((uint32_t)i >= length) {
-            // In an Ion activation, GetPcScript won't work.  For non-baseline activations,
-            // that's ok, because optimized ion doesn't generate analysis info.  However,
-            // baseline must generate this information, so it passes the script and pc in
-            // as arguments.
-            if (script || cx->currentlyRunningInInterpreter()) {
-                JS_ASSERT(!!script == !!pc);
-                if (!script)
-                    types::TypeScript::GetPcScript(cx, script.address(), &pc);
-
-                if (script->hasAnalysis())
-                    script->analysis()->getCode(pc).arrayWriteHole = true;
+            // Annotate script if provided with information (e.g. baseline)
+            if (script && script->hasAnalysis()) {
+                JS_ASSERT(pc);
+                script->analysis()->getCode(pc).arrayWriteHole = true;
             }
         }
     }
@@ -1994,9 +1985,9 @@ END_CASE(JSOP_BINDNAME)
 #define BITWISE_OP(OP)                                                        \
     JS_BEGIN_MACRO                                                            \
         int32_t i, j;                                                         \
-        if (!ToInt32(cx, regs.sp[-2], &i))                                    \
+        if (!ToInt32(cx, regs.stackHandleAt(-2), &i))                         \
             goto error;                                                       \
-        if (!ToInt32(cx, regs.sp[-1], &j))                                    \
+        if (!ToInt32(cx, regs.stackHandleAt(-1), &j))                         \
             goto error;                                                       \
         i = i OP j;                                                           \
         regs.sp--;                                                            \
@@ -2034,7 +2025,7 @@ END_CASE(JSOP_NE)
         bool equal;                                                           \
         if (!StrictlyEqual(cx, lref, rref, &equal))                           \
             goto error;                                                       \
-        COND = equal OP JS_TRUE;                                              \
+        COND = equal OP true;                                                 \
         regs.sp--;                                                            \
     JS_END_MACRO
 
@@ -2123,9 +2114,9 @@ END_CASE(JSOP_GE)
 #define SIGNED_SHIFT_OP(OP)                                                   \
     JS_BEGIN_MACRO                                                            \
         int32_t i, j;                                                         \
-        if (!ToInt32(cx, regs.sp[-2], &i))                                    \
+        if (!ToInt32(cx, regs.stackHandleAt(-2), &i))                         \
             goto error;                                                       \
-        if (!ToInt32(cx, regs.sp[-1], &j))                                    \
+        if (!ToInt32(cx, regs.stackHandleAt(-1), &j))                         \
             goto error;                                                       \
         i = i OP (j & 31);                                                    \
         regs.sp--;                                                            \
@@ -2267,7 +2258,7 @@ BEGIN_CASE(JSOP_DELPROP)
     RootedObject &obj = rootObject0;
     FETCH_OBJECT(cx, -1, obj);
 
-    JSBool succeeded;
+    bool succeeded;
     if (!JSObject::deleteProperty(cx, obj, name, &succeeded))
         goto error;
     if (!succeeded && script->strict) {
@@ -2288,7 +2279,7 @@ BEGIN_CASE(JSOP_DELELEM)
     RootedValue &propval = rootValue0;
     propval = regs.sp[-1];
 
-    JSBool succeeded;
+    bool succeeded;
     if (!JSObject::deleteByValue(cx, obj, propval, &succeeded))
         goto error;
     if (!succeeded && script->strict) {
@@ -3676,10 +3667,8 @@ js::DeleteProperty(JSContext *cx, HandleValue v, HandlePropertyName name, bool *
     if (!obj)
         return false;
 
-    JSBool b;
-    if (!JSObject::deleteProperty(cx, obj, name, &b))
+    if (!JSObject::deleteProperty(cx, obj, name, bp))
         return false;
-    *bp = b;
 
     if (strict && !*bp) {
         obj->reportNotConfigurable(cx, NameToId(name));
@@ -3699,10 +3688,9 @@ js::DeleteElement(JSContext *cx, HandleValue val, HandleValue index, bool *bp)
     if (!obj)
         return false;
 
-    JSBool b;
-    if (!JSObject::deleteByValue(cx, obj, index, &b))
+    if (!JSObject::deleteByValue(cx, obj, index, bp))
         return false;
-    *bp = b;
+
     if (strict && !*bp) {
         // XXX This observably calls ToString(propval).  We should convert to
         //     PropertyKey and use that to delete, and to report an error if
@@ -3821,7 +3809,7 @@ js::DeleteNameOperation(JSContext *cx, HandlePropertyName name, HandleObject sco
         return true;
     }
 
-    JSBool succeeded;
+    bool succeeded;
     if (!JSObject::deleteProperty(cx, scope, name, &succeeded))
         return false;
     res.setBoolean(succeeded);

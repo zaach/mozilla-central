@@ -6,19 +6,21 @@
 
 #include "frontend/BytecodeCompiler.h"
 
+#include "jscntxt.h"
 #include "jsscript.h"
 
 #include "frontend/BytecodeEmitter.h"
 #include "frontend/FoldConstants.h"
 #include "frontend/NameFunctions.h"
 #include "frontend/Parser.h"
-#include "ion/AsmJSLink.h"
+#include "jit/AsmJSLink.h"
 #include "vm/GlobalObject.h"
 
 #include "jsobjinlines.h"
 #include "jsscriptinlines.h"
 
 #include "frontend/ParseMaps-inl.h"
+#include "frontend/Parser-inl.h"
 
 using namespace js;
 using namespace js::frontend;
@@ -160,6 +162,13 @@ frontend::CompileScript(ExclusiveContext *cx, LifoAlloc *alloc, HandleObject sco
     RootedString source(cx, source_);
     SkipRoot skip(cx, &chars);
 
+#if JS_TRACE_LOGGING
+        js::AutoTraceLog logger(js::TraceLogging::defaultLogger(),
+                                js::TraceLogging::PARSER_COMPILE_SCRIPT_START,
+                                js::TraceLogging::PARSER_COMPILE_SCRIPT_STOP,
+                                options);
+#endif
+
     if (cx->isJSContext())
         MaybeCallSourceHandler(cx->asJSContext(), options, chars, length);
 
@@ -174,7 +183,7 @@ frontend::CompileScript(ExclusiveContext *cx, LifoAlloc *alloc, HandleObject sco
     if (!CheckLength(cx, length))
         return NULL;
     JS_ASSERT_IF(staticLevel != 0, options.sourcePolicy != CompileOptions::LAZY_SOURCE);
-    ScriptSource *ss = cx->new_<ScriptSource>();
+    ScriptSource *ss = cx->new_<ScriptSource>(options.originPrincipals());
     if (!ss)
         return NULL;
     if (options.filename && !ss->setFilename(cx, options.filename))
@@ -293,7 +302,7 @@ frontend::CompileScript(ExclusiveContext *cx, LifoAlloc *alloc, HandleObject sco
 
     bool canHaveDirectives = true;
     for (;;) {
-        TokenKind tt = parser.tokenStream.peekToken(TSF_OPERAND);
+        TokenKind tt = parser.tokenStream.peekToken(TokenStream::Operand);
         if (tt <= TOK_EOF) {
             if (tt == TOK_EOF)
                 break;
@@ -391,6 +400,13 @@ frontend::CompileLazyFunction(JSContext *cx, LazyScript *lazy, const jschar *cha
            .setNoScriptRval(false)
            .setSelfHostingMode(false);
 
+#if JS_TRACE_LOGGING
+        js::AutoTraceLog logger(js::TraceLogging::defaultLogger(),
+                                js::TraceLogging::PARSER_COMPILE_LAZY_START,
+                                js::TraceLogging::PARSER_COMPILE_LAZY_STOP,
+                                options);
+#endif
+
     Parser<FullParseHandler> parser(cx, &cx->tempLifoAlloc(), options, chars, length,
                                     /* foldConstants = */ true, NULL, lazy);
 
@@ -436,6 +452,13 @@ bool
 frontend::CompileFunctionBody(JSContext *cx, MutableHandleFunction fun, CompileOptions options,
                               const AutoNameVector &formals, const jschar *chars, size_t length)
 {
+#if JS_TRACE_LOGGING
+        js::AutoTraceLog logger(js::TraceLogging::defaultLogger(),
+                                js::TraceLogging::PARSER_COMPILE_FUNCTION_START,
+                                js::TraceLogging::PARSER_COMPILE_FUNCTION_STOP,
+                                options);
+#endif
+
     // FIXME: make Function pass in two strings and parse them as arguments and
     // ProgramElements respectively.
     SkipRoot skip(cx, &chars);
@@ -444,7 +467,7 @@ frontend::CompileFunctionBody(JSContext *cx, MutableHandleFunction fun, CompileO
 
     if (!CheckLength(cx, length))
         return false;
-    ScriptSource *ss = cx->new_<ScriptSource>();
+    ScriptSource *ss = cx->new_<ScriptSource>(options.originPrincipals());
     if (!ss)
         return false;
     if (options.filename && !ss->setFilename(cx, options.filename))

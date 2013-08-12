@@ -33,6 +33,7 @@
 #include "mozilla/css/ImageLoader.h"
 #include "FramePropertyTable.h"
 #include "mozilla/TypedEnum.h"
+#include "nsDirection.h"
 #include <algorithm>
 
 #ifdef ACCESSIBILITY
@@ -353,11 +354,6 @@ enum nsSelectionAmount {
   eSelectWordNoSpace = 8 // select a "word" without selecting the following
                          // space, no matter what the default platform
                          // behavior is
-};
-
-enum nsDirection {
-  eDirNext    = 0,
-  eDirPrevious= 1
 };
 
 enum nsSpread {
@@ -751,12 +747,9 @@ public:
     if (aContext != mStyleContext) {
       nsStyleContext* oldStyleContext = mStyleContext;
       mStyleContext = aContext;
-      if (aContext) {
-        aContext->AddRef();
-        DidSetStyleContext(oldStyleContext);
-      }
-      if (oldStyleContext)
-        oldStyleContext->Release();
+      aContext->AddRef();
+      DidSetStyleContext(oldStyleContext);
+      oldStyleContext->Release();
     }
   }
 
@@ -769,12 +762,9 @@ public:
   void SetStyleContextWithoutNotification(nsStyleContext* aContext)
   {
     if (aContext != mStyleContext) {
-      if (mStyleContext)
-        mStyleContext->Release();
+      mStyleContext->Release();
       mStyleContext = aContext;
-      if (aContext) {
-        aContext->AddRef();
-      }
+      aContext->AddRef();
     }
   }
 
@@ -802,7 +792,7 @@ public:
   #include "nsStyleStructList.h"
   #undef STYLE_STRUCT
 
-#ifdef _IMPL_NS_LAYOUT
+#ifdef MOZILLA_INTERNAL_API
   /** Also forward GetVisitedDependentColor to the style context */
   nscolor GetVisitedDependentColor(nsCSSProperty aProperty)
     { return mStyleContext->GetVisitedDependentColor(aProperty); }
@@ -863,9 +853,9 @@ public:
   void SetPosition(const nsPoint& aPt) { mRect.MoveTo(aPt); }
 
   /**
-   * Return frame's computed offset due to relative positioning
+   * Return frame's position without relative positioning
    */
-  nsPoint GetRelativeOffset(const nsStyleDisplay* aDisplay = nullptr) const;
+  nsPoint GetNormalPosition() const;
 
   virtual nsPoint GetPositionOfChildIgnoringScrolling(nsIFrame* aChild)
   { return aChild->GetPosition(); }
@@ -928,7 +918,7 @@ public:
   NS_DECLARE_FRAME_PROPERTY(IBSplitSpecialSibling, nullptr)
   NS_DECLARE_FRAME_PROPERTY(IBSplitSpecialPrevSibling, nullptr)
 
-  NS_DECLARE_FRAME_PROPERTY(ComputedOffsetProperty, DestroyPoint)
+  NS_DECLARE_FRAME_PROPERTY(NormalPositionProperty, DestroyPoint)
 
   NS_DECLARE_FRAME_PROPERTY(OutlineInnerRectProperty, DestroyRect)
   NS_DECLARE_FRAME_PROPERTY(PreEffectsBBoxProperty, DestroyRect)
@@ -3269,7 +3259,7 @@ private:
   }
 
   void Init(nsIFrame* aFrame) {
-#ifdef _IMPL_NS_LAYOUT
+#ifdef MOZILLA_INTERNAL_API
     InitInternal(aFrame);
 #else
     InitExternal(aFrame);

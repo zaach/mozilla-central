@@ -88,8 +88,9 @@ ShmemTextureClient::GetBufferSize() const
 }
 
 ShmemTextureClient::ShmemTextureClient(CompositableClient* aCompositable,
-                                       gfx::SurfaceFormat aFormat)
-  : BufferTextureClient(aCompositable, aFormat)
+                                       gfx::SurfaceFormat aFormat,
+                                       TextureFlags aFlags)
+  : BufferTextureClient(aCompositable, aFormat, aFlags)
   , mAllocated(false)
 {
   MOZ_COUNT_CTOR(ShmemTextureClient);
@@ -125,8 +126,10 @@ MemoryTextureClient::Allocate(uint32_t aSize)
   return true;
 }
 
-MemoryTextureClient::MemoryTextureClient(CompositableClient* aCompositable, gfx::SurfaceFormat aFormat)
-  : BufferTextureClient(aCompositable, aFormat)
+MemoryTextureClient::MemoryTextureClient(CompositableClient* aCompositable,
+                                         gfx::SurfaceFormat aFormat,
+                                         TextureFlags aFlags)
+  : BufferTextureClient(aCompositable, aFormat, aFlags)
   , mBuffer(nullptr)
   , mBufSize(0)
 {
@@ -144,8 +147,9 @@ MemoryTextureClient::~MemoryTextureClient()
 }
 
 BufferTextureClient::BufferTextureClient(CompositableClient* aCompositable,
-                                         gfx::SurfaceFormat aFormat)
-  : TextureClient()
+                                         gfx::SurfaceFormat aFormat,
+                                         TextureFlags aFlags)
+  : TextureClient(aFlags)
   , mCompositable(aCompositable)
   , mFormat(aFormat)
 {}
@@ -172,7 +176,26 @@ BufferTextureClient::UpdateSurface(gfxASurface* aSurface)
   tmpCtx->SetOperator(gfxContext::OPERATOR_SOURCE);
   tmpCtx->DrawSurface(aSurface, gfxSize(serializer.GetSize().width,
                                         serializer.GetSize().height));
+
+  if (TextureRequiresLocking(mFlags)) {
+    // We don't have support for proper locking yet, so we'll
+    // have to be immutable instead.
+    MarkImmutable();
+  }
   return true;
+}
+
+already_AddRefed<gfxASurface>
+BufferTextureClient::GetAsSurface()
+{
+  ImageDataSerializer serializer(GetBuffer());
+  if (!serializer.IsValid()) {
+    return nullptr;
+  }
+
+  RefPtr<gfxImageSurface> surf = serializer.GetAsThebesSurface();
+  nsRefPtr<gfxASurface> result = surf.get();
+  return result.forget();
 }
 
 bool
@@ -187,6 +210,7 @@ BufferTextureClient::AllocateForSurface(gfx::IntSize aSize)
   }
   ImageDataSerializer serializer(GetBuffer());
   serializer.InitializeBufferInfo(aSize, mFormat);
+  mSize = aSize;
   return true;
 }
 
@@ -206,11 +230,19 @@ BufferTextureClient::UpdateYCbCr(const PlanarYCbCrImage::Data& aData)
     NS_WARNING("Failed to copy image data!");
     return false;
   }
+
+  if (TextureRequiresLocking(mFlags)) {
+    // We don't have support for proper locking yet, so we'll
+    // have to be immutable instead.
+    MarkImmutable();
+  }
   return true;
 }
 
 bool
-BufferTextureClient::AllocateForYCbCr(gfx::IntSize aYSize, gfx::IntSize aCbCrSize)
+BufferTextureClient::AllocateForYCbCr(gfx::IntSize aYSize,
+                                      gfx::IntSize aCbCrSize,
+                                      StereoMode aStereoMode)
 {
   size_t bufSize = YCbCrImageDataSerializer::ComputeMinBufferSize(aYSize,
                                                                   aCbCrSize);
@@ -219,7 +251,9 @@ BufferTextureClient::AllocateForYCbCr(gfx::IntSize aYSize, gfx::IntSize aCbCrSiz
   }
   YCbCrImageDataSerializer serializer(GetBuffer());
   serializer.InitializeBufferInfo(aYSize,
-                                  aCbCrSize);
+                                  aCbCrSize,
+                                  aStereoMode);
+  mSize = aYSize;
   return true;
 }
 
@@ -249,8 +283,6 @@ DeprecatedTextureClient::~DeprecatedTextureClient()
 DeprecatedTextureClientShmem::DeprecatedTextureClientShmem(CompositableForwarder* aForwarder,
                                        const TextureInfo& aTextureInfo)
   : DeprecatedTextureClient(aForwarder, aTextureInfo)
-  , mSurface(nullptr)
-  , mSurfaceAsImage(nullptr)
 {
 }
 
@@ -259,6 +291,8 @@ DeprecatedTextureClientShmem::ReleaseResources()
 {
   if (mSurface) {
     mSurface = nullptr;
+    mSurfaceAsImage = nullptr;
+
     ShadowLayerForwarder::CloseDescriptor(mDescriptor);
   }
 
@@ -273,7 +307,7 @@ DeprecatedTextureClientShmem::ReleaseResources()
   }
 }
 
-void
+bool
 DeprecatedTextureClientShmem::EnsureAllocated(gfx::IntSize aSize,
                                     gfxASurface::gfxContentType aContentType)
 {
@@ -289,7 +323,14 @@ DeprecatedTextureClientShmem::EnsureAllocated(gfx::IntSize aSize,
                                             mContentType, &mDescriptor)) {
       NS_WARNING("creating SurfaceDescriptor failed!");
     }
+    if (mContentType == gfxASurface::CONTENT_COLOR_ALPHA) {
+      nsRefPtr<gfxContext> context = new gfxContext(GetSurface());
+      context->SetColor(gfxRGBA(0, 0, 0, 0));
+      context->SetOperator(gfxContext::OPERATOR_SOURCE);
+      context->Paint();
+    }
   }
+  return true;
 }
 
 void
@@ -302,7 +343,7 @@ DeprecatedTextureClientShmem::SetDescriptor(const SurfaceDescriptor& aDescriptor
     EnsureAllocated(mSize, mContentType);
   }
 
-  mSurface = nullptr;
+  MOZ_ASSERT(!mSurface);
 
   NS_ASSERTION(mDescriptor.type() == SurfaceDescriptor::TSurfaceDescriptorGralloc ||
                mDescriptor.type() == SurfaceDescriptor::TShmem ||
@@ -323,6 +364,7 @@ DeprecatedTextureClientShmem::GetSurface()
                     ? OPEN_READ_WRITE
                     : OPEN_READ_ONLY;
     mSurface = ShadowLayerForwarder::OpenDescriptor(mode, mDescriptor);
+    MOZ_ASSERT(!mSurface || mSurface->GetContentType() == mContentType);
   }
 
   return mSurface.get();
@@ -401,11 +443,12 @@ DeprecatedTextureClientShmemYCbCr::SetDescriptorFromReply(const SurfaceDescripto
   }
 }
 
-void
+bool
 DeprecatedTextureClientShmemYCbCr::EnsureAllocated(gfx::IntSize aSize,
                                          gfxASurface::gfxContentType aType)
 {
   NS_RUNTIMEABORT("not enough arguments to do this (need both Y and CbCr sizes)");
+  return false;
 }
 
 
@@ -417,7 +460,7 @@ DeprecatedTextureClientTile::DeprecatedTextureClientTile(CompositableForwarder* 
   mTextureInfo.mDeprecatedTextureHostFlags = TEXTURE_HOST_TILED;
 }
 
-void
+bool
 DeprecatedTextureClientTile::EnsureAllocated(gfx::IntSize aSize, gfxASurface::gfxContentType aType)
 {
   if (!mSurface ||
@@ -428,6 +471,7 @@ DeprecatedTextureClientTile::EnsureAllocated(gfx::IntSize aSize, gfxASurface::gf
     mSurface = new gfxReusableSurfaceWrapper(tmpTile);
     mContentType = aType;
   }
+  return true;
 }
 
 gfxImageSurface*
@@ -549,7 +593,8 @@ bool AutoLockYCbCrClient::EnsureDeprecatedTextureClient(PlanarYCbCrImage* aImage
 
   YCbCrImageDataSerializer serializer(shmem.get<uint8_t>());
   serializer.InitializeBufferInfo(data->mYSize,
-                                  data->mCbCrSize);
+                                  data->mCbCrSize,
+                                  data->mStereoMode);
 
   *mDescriptor = YCbCrImage(shmem, 0);
 

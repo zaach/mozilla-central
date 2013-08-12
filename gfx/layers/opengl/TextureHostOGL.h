@@ -72,11 +72,7 @@ public:
 
   virtual void BindTexture(GLenum aTextureUnit) = 0;
 
-  /**
-   * Unbind this texture
-   * XXX - "Release" is confusing, should be called UnbindTexture instead.
-   */
-  virtual void ReleaseTexture() = 0;
+  virtual void UnbindTexture() = 0;
 
   virtual gfx::IntSize GetSize() const = 0;
 
@@ -105,9 +101,9 @@ class TextureImageTextureSourceOGL : public DataTextureSource
                                    , public TileIterator
 {
 public:
-  TextureImageTextureSourceOGL(gl::GLContext* aGL, bool aAllowTiling = true)
+  TextureImageTextureSourceOGL(gl::GLContext* aGL, bool aAllowBiImage = true)
     : mGL(aGL)
-    , mAllowTiling(aAllowTiling)
+    , mAllowBigImage(aAllowBiImage)
     , mIterating(false)
   {}
 
@@ -136,7 +132,7 @@ public:
 
   virtual bool IsValid() const MOZ_OVERRIDE { return !!mTexImage; }
 
-  virtual void ReleaseTexture() MOZ_OVERRIDE
+  virtual void UnbindTexture() MOZ_OVERRIDE
   {
     mTexImage->ReleaseTexture();
   }
@@ -179,7 +175,7 @@ public:
 protected:
   nsRefPtr<gl::TextureImage> mTexImage;
   gl::GLContext* mGL;
-  bool mAllowTiling;
+  bool mAllowBigImage;
   bool mIterating;
 };
 
@@ -220,7 +216,7 @@ public:
 
   virtual GLenum GetWrapMode() const MOZ_OVERRIDE { return mWrapMode; }
 
-  virtual void ReleaseTexture() MOZ_OVERRIDE {}
+  virtual void UnbindTexture() MOZ_OVERRIDE {}
 
   // SharedTextureSource doesn't own any gl texture
   virtual void DeallocateDeviceData() {}
@@ -361,7 +357,7 @@ public:
     mTexture->BindTexture(aTextureUnit);
   }
 
-  void ReleaseTexture() MOZ_OVERRIDE
+  void UnbindTexture() MOZ_OVERRIDE
   {
     mTexture->ReleaseTexture();
   }
@@ -488,7 +484,7 @@ public:
     {
       mTexImage->BindTexture(aUnit);
     }
-    void ReleaseTexture() MOZ_OVERRIDE
+    void UnbindTexture() MOZ_OVERRIDE
     {
       mTexImage->ReleaseTexture();
     }
@@ -612,7 +608,7 @@ public:
     // Lock already bound us!
     MOZ_ASSERT(activetex == LOCAL_GL_TEXTURE0);
   }
-  void ReleaseTexture() MOZ_OVERRIDE {}
+  void UnbindTexture() MOZ_OVERRIDE {}
   GLuint GetTextureID() { return mTextureHandle; }
   ContentType GetContentType()
   {
@@ -652,7 +648,6 @@ public:
   virtual ~SurfaceStreamHostOGL()
   {
     DeleteTextures();
-    *mBuffer = SurfaceDescriptor();
   }
 
   virtual void SetCompositor(Compositor* aCompositor) MOZ_OVERRIDE;
@@ -672,8 +667,9 @@ public:
   bool IsValid() const MOZ_OVERRIDE { return true; }
 
   // override from DeprecatedTextureHost
-  virtual void SwapTexturesImpl(const SurfaceDescriptor& aImage,
-                                nsIntRegion* aRegion = nullptr) MOZ_OVERRIDE;
+  virtual void UpdateImpl(const SurfaceDescriptor& aImage,
+                          nsIntRegion* aRegion,
+                          nsIntPoint* aOffset);
   virtual bool Lock() MOZ_OVERRIDE;
   virtual void Unlock() MOZ_OVERRIDE;
 
@@ -699,7 +695,7 @@ public:
     mGL->fBindTexture(mTextureTarget, mTextureHandle);
   }
 
-  void ReleaseTexture() MOZ_OVERRIDE {}
+  void UnbindTexture() MOZ_OVERRIDE {}
 
   GLuint GetTextureID() { return mTextureHandle; }
   ContentType GetContentType() {
@@ -720,6 +716,7 @@ public:
     , mTextureTarget(LOCAL_GL_TEXTURE_2D)
     , mUploadTexture(0)
     , mWrapMode(LOCAL_GL_CLAMP_TO_EDGE)
+    , mStream(nullptr)
   {}
 
 protected:
@@ -732,6 +729,7 @@ protected:
   GLuint mUploadTexture;
   GLenum mWrapMode;
   nsRefPtr<GLContext> mStreamGL;
+  gfx::SurfaceStream *mStream;
 };
 
 class TiledDeprecatedTextureHostOGL : public DeprecatedTextureHost
@@ -764,7 +762,7 @@ public:
     mGL->fActiveTexture(aTextureUnit);
     mGL->fBindTexture(LOCAL_GL_TEXTURE_2D, mTextureHandle);
   }
-  virtual void ReleaseTexture() MOZ_OVERRIDE {}
+  virtual void UnbindTexture() MOZ_OVERRIDE {}
   virtual gfx::IntSize GetSize() const MOZ_OVERRIDE
   {
     return mSize;
@@ -851,7 +849,7 @@ public:
 #endif
 
   void BindTexture(GLenum aTextureUnit) MOZ_OVERRIDE;
-  void ReleaseTexture() MOZ_OVERRIDE {}
+  void UnbindTexture() MOZ_OVERRIDE {}
 
   virtual TextureSourceOGL* AsSourceOGL() MOZ_OVERRIDE
   {

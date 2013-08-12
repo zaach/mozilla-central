@@ -79,6 +79,8 @@ XPCTraceableVariant::GetTraceName(JSTracer* trc, char *buf, size_t bufsize)
     JS_snprintf(buf, bufsize, "XPCVariant[0x%p].mJSVal", trc->debugPrintArg);
 }
 
+NS_IMPL_CYCLE_COLLECTION_CLASS(XPCVariant)
+
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(XPCVariant)
     JS::Value val = tmp->GetJSValPreserveColor();
     if (val.isObjectOrNull()) {
@@ -151,9 +153,9 @@ private:
     static const Type StateTable[tTypeCount][tTypeCount-1];
 
 public:
-    static JSBool GetTypeForArray(JSContext* cx, HandleObject array,
-                                  uint32_t length,
-                                  nsXPTType* resultType, nsID* resultID);
+    static bool GetTypeForArray(JSContext* cx, HandleObject array,
+                                uint32_t length,
+                                nsXPTType* resultType, nsID* resultID);
 };
 
 
@@ -175,7 +177,7 @@ XPCArrayHomogenizer::StateTable[tTypeCount][tTypeCount-1] = {
 /* tUnk  */{tNull,tInt ,tDbl ,tBool,tStr ,tID  ,tVar ,tISup }};
 
 // static
-JSBool
+bool
 XPCArrayHomogenizer::GetTypeForArray(JSContext* cx, HandleObject array,
                                      uint32_t length,
                                      nsXPTType* resultType, nsID* resultID)
@@ -186,7 +188,7 @@ XPCArrayHomogenizer::GetTypeForArray(JSContext* cx, HandleObject array,
     RootedValue val(cx);
     RootedObject jsobj(cx);
     for (uint32_t i = 0; i < length; i++) {
-        if (!JS_GetElement(cx, array, i, val.address()))
+        if (!JS_GetElement(cx, array, i, &val))
             return false;
 
         if (val.isInt32()) {
@@ -266,7 +268,7 @@ XPCArrayHomogenizer::GetTypeForArray(JSContext* cx, HandleObject array,
     return true;
 }
 
-JSBool XPCVariant::InitializeData(JSContext* cx)
+bool XPCVariant::InitializeData(JSContext* cx)
 {
     JS_CHECK_RECURSION(cx, return false);
 
@@ -370,7 +372,7 @@ XPCVariant::GetAsJSVal(jsval* result)
 }
 
 // static
-JSBool
+bool
 XPCVariant::VariantDataToJS(nsIVariant* variant,
                             nsresult* pErr, jsval* pJSVal)
 {

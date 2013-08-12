@@ -607,6 +607,7 @@ protected:
   /* Functions for filter parsing */
   bool ParseFilter();
   bool ParseSingleFilter(nsCSSValue* aValue);
+  bool ParseDropShadow(nsCSSValue* aValue);
 
   /* Find and return the namespace ID associated with aPrefix.
      If aPrefix has not been declared in an @namespace rule, returns
@@ -9554,7 +9555,7 @@ CSSParserImpl::ParseTextDecoration()
     return false;
   }
 
-  nsCSSValue blink, line, style, color;
+  nsCSSValue line, style, color;
   switch (value.GetUnit()) {
     case eCSSUnit_Enumerated: {
       // We shouldn't accept decoration line style and color via
@@ -9566,7 +9567,6 @@ CSSParserImpl::ParseTextDecoration()
 
       int32_t intValue = value.GetIntValue();
       if (intValue == eDecorationNone) {
-        blink.SetIntValue(NS_STYLE_TEXT_BLINK_NONE, eCSSUnit_Enumerated);
         line.SetIntValue(NS_STYLE_TEXT_DECORATION_LINE_NONE,
                          eCSSUnit_Enumerated);
         break;
@@ -9588,18 +9588,14 @@ CSSParserImpl::ParseTextDecoration()
         intValue |= newValue;
       }
 
-      blink.SetIntValue((intValue & eDecorationBlink) != 0 ?
-                          NS_STYLE_TEXT_BLINK_BLINK : NS_STYLE_TEXT_BLINK_NONE,
-                        eCSSUnit_Enumerated);
-      line.SetIntValue((intValue & ~eDecorationBlink), eCSSUnit_Enumerated);
+      line.SetIntValue(intValue, eCSSUnit_Enumerated);
       break;
     }
     default:
-      blink = line = color = style = value;
+      line = color = style = value;
       break;
   }
 
-  AppendValue(eCSSProperty_text_blink, blink);
   AppendValue(eCSSProperty_text_decoration_line, line);
   AppendValue(eCSSProperty_text_decoration_color, color);
   AppendValue(eCSSProperty_text_decoration_style, style);
@@ -9617,7 +9613,7 @@ CSSParserImpl::ParseTextDecorationLine(nsCSSValue& aValue)
         // look for more keywords
         nsCSSValue  keyword;
         int32_t index;
-        for (index = 0; index < 2; index++) {
+        for (index = 0; index < 3; index++) {
           if (ParseEnum(keyword, nsCSSProps::kTextDecorationLineKTable)) {
             int32_t newValue = keyword.GetIntValue();
             if (newValue == NS_STYLE_TEXT_DECORATION_LINE_NONE ||
@@ -10052,6 +10048,32 @@ bool CSSParserImpl::ParseTransformOrigin(bool aPerspective)
 }
 
 /**
+ * Reads a drop-shadow value. At the moment the Filter Effects specification
+ * just expects one shadow item. Should this ever change to a list of shadow
+ * items, use ParseShadowList instead.
+ */
+bool
+CSSParserImpl::ParseDropShadow(nsCSSValue* aValue)
+{
+  // Use nsCSSValueList to reuse the shadow resolving code in
+  // nsRuleNode and nsComputedDOMStyle.
+  nsCSSValue shadow;
+  nsCSSValueList* cur = shadow.SetListValue();
+  if (!ParseShadowItem(cur->mValue, false))
+    return false;
+
+  if (!ExpectSymbol(')', true))
+    return false;
+
+  nsCSSValue::Array* dropShadow = aValue->InitFunction(eCSSKeyword_drop_shadow, 1);
+
+  // Copy things over.
+  dropShadow->Item(1) = shadow;
+
+  return true;
+}
+
+/**
  * Reads a single url or filter function from the tokenizer stream, reporting an
  * error if something goes wrong.
  */
@@ -10078,11 +10100,24 @@ CSSParserImpl::ParseSingleFilter(nsCSSValue* aValue)
     return false;
   }
 
+  nsCSSKeyword functionName = nsCSSKeywords::LookupKeyword(mToken.mIdent);
+  // Parse drop-shadow independently of the other filter functions
+  // because of its more complex characteristics.
+  if (functionName == eCSSKeyword_drop_shadow) {
+    if (ParseDropShadow(aValue)) {
+      return true;
+    } else {
+      // Unrecognized filter function.
+      REPORT_UNEXPECTED_TOKEN(PEExpectedNoneOrURLOrFilterFunction);
+      SkipUntil(')');
+      return false;
+    }
+  }
+
   // Set up the parsing rules based on the filter function.
   int32_t variantMask = VARIANT_PN;
   bool rejectNegativeArgument = true;
   bool clampArgumentToOne = false;
-  nsCSSKeyword functionName = nsCSSKeywords::LookupKeyword(mToken.mIdent);
   switch (functionName) {
     case eCSSKeyword_blur:
       variantMask = VARIANT_LCALC | VARIANT_NONNEGATIVE_DIMENSION;

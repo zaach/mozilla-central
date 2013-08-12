@@ -128,6 +128,8 @@ nsSVGElement::EnumInfo SVGSVGElement::sEnumInfo[1] =
 //----------------------------------------------------------------------
 // nsISupports methods
 
+NS_IMPL_CYCLE_COLLECTION_CLASS(SVGSVGElement)
+
 NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN_INHERITED(SVGSVGElement,
                                                 SVGSVGElementBase)
   if (tmp->mTimedDocumentRoot) {
@@ -742,7 +744,6 @@ SVGSVGElement::BindToTree(nsIDocument* aDocument,
         // We'll be the outermost <svg> element.  We'll need a time container.
         if (!mTimedDocumentRoot) {
           mTimedDocumentRoot = new nsSMILTimeContainer();
-          NS_ENSURE_TRUE(mTimedDocumentRoot, NS_ERROR_OUT_OF_MEMORY);
         }
       } else {
         // We're a child of some other <svg> element, so we don't need our own

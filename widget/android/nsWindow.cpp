@@ -1158,21 +1158,6 @@ nsWindow::OnMouseEvent(AndroidGeckoEvent *ae)
 {
     uint32_t msg;
     switch (ae->Action()) {
-#ifndef MOZ_ONLY_TOUCH_EVENTS
-        case AndroidMotionEvent::ACTION_DOWN:
-            msg = NS_MOUSE_BUTTON_DOWN;
-            break;
-
-        case AndroidMotionEvent::ACTION_MOVE:
-            msg = NS_MOUSE_MOVE;
-            break;
-
-        case AndroidMotionEvent::ACTION_UP:
-        case AndroidMotionEvent::ACTION_CANCEL:
-            msg = NS_MOUSE_BUTTON_UP;
-            break;
-#endif
-
         case AndroidMotionEvent::ACTION_HOVER_MOVE:
             msg = NS_MOUSE_MOVE;
             break;
@@ -1310,7 +1295,7 @@ nsWindow::DispatchGestureEvent(uint32_t msg, uint32_t direction, double delta,
 
     event.modifiers = 0;
     event.time = time;
-    event.refPoint = refPoint;
+    event.refPoint = LayoutDeviceIntPoint::FromUntyped(refPoint);
 
     DispatchEvent(&event);
 }
@@ -1327,7 +1312,7 @@ nsWindow::DispatchMotionEvent(nsInputEvent &event, AndroidGeckoEvent *ae,
 
     // XXX possibly bound the range of event.refPoint here.
     //     some code may get confused.
-    event.refPoint = refPoint - offset;
+    event.refPoint = LayoutDeviceIntPoint::FromUntyped(refPoint - offset);
 
     DispatchEvent(&event);
 }

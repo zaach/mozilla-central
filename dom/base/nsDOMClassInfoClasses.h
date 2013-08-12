@@ -5,7 +5,6 @@
 
 DOMCI_CLASS(Window)
 DOMCI_CLASS(Location)
-DOMCI_CLASS(History)
 DOMCI_CLASS(DOMPrototype)
 DOMCI_CLASS(DOMConstructor)
 
@@ -45,7 +44,6 @@ DOMCI_CLASS(TreeContentView)
 #ifndef MOZ_DISABLE_CRYPTOLEGACY
 DOMCI_CLASS(CRMFObject)
 #endif
-DOMCI_CLASS(Crypto)
 
 // DOM Chrome Window class, almost identical to Window
 DOMCI_CLASS(ChromeWindow)
@@ -129,8 +127,6 @@ DOMCI_CLASS(CSSPageRule)
 DOMCI_CLASS(MediaQueryList)
 
 #ifdef MOZ_B2G_RIL
-DOMCI_CLASS(Telephony)
-DOMCI_CLASS(TelephonyCall)
 DOMCI_CLASS(MozVoicemail)
 DOMCI_CLASS(MozIccManager)
 #endif
@@ -159,6 +155,8 @@ DOMCI_CLASS(UserDataHandler)
 DOMCI_CLASS(GeoPositionError)
 DOMCI_CLASS(LoadStatus)
 DOMCI_CLASS(XPathNamespace)
+DOMCI_CLASS(XULControlElement)
+DOMCI_CLASS(XULLabeledControlElement)
 DOMCI_CLASS(XULButtonElement)
 DOMCI_CLASS(XULCheckboxElement)
 DOMCI_CLASS(XULPopupElement)

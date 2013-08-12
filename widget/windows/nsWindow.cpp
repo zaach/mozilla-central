@@ -334,8 +334,6 @@ nsWindow::nsWindow() : nsWindowBase()
   mBorderStyle          = eBorderStyle_default;
   mOldSizeMode          = nsSizeMode_Normal;
   mLastSizeMode         = nsSizeMode_Normal;
-  mLastPoint.x          = 0;
-  mLastPoint.y          = 0;
   mLastSize.width       = 0;
   mLastSize.height      = 0;
   mOldStyle             = 0;
@@ -888,7 +886,7 @@ void nsWindow::SubclassWindow(BOOL bState)
     }
     NS_ASSERTION(mPrevWndProc, "Null standard window procedure");
     // connect the this pointer to the nsWindow handle
-    WinUtils::SetNSWindowPtr(mWnd, this);
+    WinUtils::SetNSWindowBasePtr(mWnd, this);
   } else {
     if (IsWindow(mWnd)) {
       if (mUnicodeWidget) {
@@ -901,7 +899,7 @@ void nsWindow::SubclassWindow(BOOL bState)
                           reinterpret_cast<LONG_PTR>(mPrevWndProc));
       }
     }
-    WinUtils::SetNSWindowPtr(mWnd, NULL);
+    WinUtils::SetNSWindowBasePtr(mWnd, NULL);
     mPrevWndProc = NULL;
   }
 }
@@ -980,7 +978,14 @@ double nsWindow::GetDefaultScaleInternal()
   return gfxWindowsPlatform::GetPlatform()->GetDPIScale();
 }
 
-nsWindow* nsWindow::GetParentWindow(bool aIncludeOwner)
+nsWindow*
+nsWindow::GetParentWindow(bool aIncludeOwner)
+{
+  return static_cast<nsWindow*>(GetParentWindowBase(aIncludeOwner));
+}
+
+nsWindowBase*
+nsWindow::GetParentWindowBase(bool aIncludeOwner)
 {
   if (mIsTopWidgetWindow) {
     // Must use a flag instead of mWindowType to tell if the window is the
@@ -1019,7 +1024,7 @@ nsWindow* nsWindow::GetParentWindow(bool aIncludeOwner)
     }
   }
 
-  return widget;
+  return static_cast<nsWindowBase*>(widget);
 }
  
 BOOL CALLBACK
@@ -3570,7 +3575,6 @@ void nsWindow::InitEvent(nsGUIEvent& event, nsIntPoint* aPoint)
   }
 
   event.time = ::GetMessageTime();
-  mLastPoint = event.refPoint;
 }
 
 /**************************************************************
@@ -3966,7 +3970,7 @@ bool nsWindow::DispatchMouseEvent(uint32_t aEventType, WPARAM wParam,
       rect.x = 0;
       rect.y = 0;
 
-      if (rect.Contains(event.refPoint)) {
+      if (rect.Contains(LayoutDeviceIntPoint::ToUntyped(event.refPoint))) {
         if (sCurrentWindow == NULL || sCurrentWindow != this) {
           if ((nullptr != sCurrentWindow) && (!sCurrentWindow->mInDtor)) {
             LPARAM pos = sCurrentWindow->lParamToClient(lParamToScreen(lParam));
@@ -4889,7 +4893,7 @@ nsWindow::ProcessMessage(UINT msg, WPARAM& wParam, LPARAM& lParam,
       if (lParam != -1 && !result && mCustomNonClient) {
         nsMouseEvent event(true, NS_MOUSE_MOZHITTEST, this, nsMouseEvent::eReal,
                            nsMouseEvent::eNormal);
-        event.refPoint = nsIntPoint(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+        event.refPoint = LayoutDeviceIntPoint(GET_X_LPARAM(pos), GET_Y_LPARAM(pos));
         event.inputSource = MOUSE_INPUT_SOURCE();
         event.mFlags.mOnlyChromeDispatch = true;
         if (DispatchWindowEvent(&event)) {
@@ -5292,7 +5296,7 @@ nsWindow::ProcessMessage(UINT msg, WPARAM& wParam, LPARAM& lParam,
         touchPoint = gestureinfo->ptsLocation;
         touchPoint.ScreenToClient(mWnd);
         nsGestureNotifyEvent gestureNotifyEvent(true, NS_GESTURENOTIFY_EVENT_START, this);
-        gestureNotifyEvent.refPoint = touchPoint;
+        gestureNotifyEvent.refPoint = LayoutDeviceIntPoint::FromUntyped(touchPoint);
         nsEventStatus status;
         DispatchEvent(&gestureNotifyEvent, status);
         mDisplayPanFeedback = gestureNotifyEvent.displayPanFeedback;
@@ -5574,7 +5578,7 @@ nsWindow::ClientMarginHitTestPoint(int32_t mx, int32_t my)
     } else {
       nsMouseEvent event(true, NS_MOUSE_MOZHITTEST, this, nsMouseEvent::eReal,
                          nsMouseEvent::eNormal);
-      event.refPoint = nsIntPoint(pt.x, pt.y);
+      event.refPoint = LayoutDeviceIntPoint(pt.x, pt.y);
       event.inputSource = MOUSE_INPUT_SOURCE();
       event.mFlags.mOnlyChromeDispatch = true;
       bool result = DispatchWindowEvent(&event);
@@ -6552,6 +6556,33 @@ nsWindow::StartAllowingD3D9(bool aReinitialize)
   } else {
     EnumAllWindows(AllowD3D9Callback);
   }
+}
+
+mozilla::layers::LayersBackend
+nsWindow::GetPreferredCompositorBackend()
+{
+  LayerManagerPrefs prefs;
+  GetLayerManagerPrefs(&prefs);
+  if (prefs.mDisableAcceleration) {
+    return mozilla::layers::LAYERS_BASIC;
+  }
+  if (prefs.mPreferD3D9) {
+    return mozilla::layers::LAYERS_D3D9;
+  }
+  return mozilla::layers::LAYERS_D3D11;
+}
+
+void
+nsWindow::WindowUsesOMTC()
+{
+  ULONG_PTR style = ::GetClassLongPtr(mWnd, GCL_STYLE);
+  if (!style) {
+    NS_WARNING("Could not get window class style");
+    return;
+  }
+  style |= CS_HREDRAW | CS_VREDRAW;
+  DebugOnly<ULONG_PTR> result = ::SetClassLongPtr(mWnd, GCL_STYLE, style);
+  NS_WARN_IF_FALSE(result, "Could not reset window class style");
 }
 
 bool

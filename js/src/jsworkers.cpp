@@ -6,27 +6,21 @@
 
 #include "jsworkers.h"
 
+#ifdef JS_WORKER_THREADS
 #include "mozilla/DebugOnly.h"
 
 #include "prmjtime.h"
 
 #include "frontend/BytecodeCompiler.h"
-
-#ifdef JS_WORKER_THREADS
-# include "ion/ExecutionModeInlines.h"
-# include "ion/IonBuilder.h"
-#endif
+#include "jit/ExecutionModeInlines.h"
+#include "jit/IonBuilder.h"
 
 #include "jscntxtinlines.h"
 #include "jscompartmentinlines.h"
 
-#include "vm/ObjectImpl-inl.h"
-
 using namespace js;
 
 using mozilla::DebugOnly;
-
-#ifdef JS_WORKER_THREADS
 
 bool
 js::EnsureWorkerThreadsInitialized(JSRuntime *rt)
@@ -99,8 +93,8 @@ static void
 FinishOffThreadIonCompile(ion::IonBuilder *builder)
 {
     JSCompartment *compartment = builder->script()->compartment();
-    JS_ASSERT(compartment->rt->workerThreadState);
-    JS_ASSERT(compartment->rt->workerThreadState->isLocked());
+    JS_ASSERT(compartment->runtimeFromAnyThread()->workerThreadState);
+    JS_ASSERT(compartment->runtimeFromAnyThread()->workerThreadState->isLocked());
 
     compartment->ionCompartment()->finishedOffThreadCompilations().append(builder);
 }
@@ -116,16 +110,18 @@ CompiledScriptMatches(JSCompartment *compartment, JSScript *script, JSScript *ta
 void
 js::CancelOffThreadIonCompile(JSCompartment *compartment, JSScript *script)
 {
-    if (!compartment->rt->workerThreadState)
+    JSRuntime *rt = compartment->runtimeFromMainThread();
+
+    if (!rt->workerThreadState)
         return;
 
-    WorkerThreadState &state = *compartment->rt->workerThreadState;
+    WorkerThreadState &state = *rt->workerThreadState;
 
     ion::IonCompartment *ion = compartment->ionCompartment();
     if (!ion)
         return;
 
-    AutoLockWorkerThreadState lock(compartment->rt);
+    AutoLockWorkerThreadState lock(rt);
 
     /* Cancel any pending entries for which processing hasn't started. */
     for (size_t i = 0; i < state.ionWorklist.length(); i++) {
@@ -174,18 +170,18 @@ ParseTask::ParseTask(JSRuntime *rt, ExclusiveContext *cx, const CompileOptions &
   : runtime(rt), cx(cx), options(options), chars(chars), length(length),
     alloc(JSRuntime::TEMP_LIFO_ALLOC_PRIMARY_CHUNK_SIZE), script(NULL)
 {
-    if (options.principals)
-        JS_HoldPrincipals(options.principals);
-    if (options.originPrincipals)
-        JS_HoldPrincipals(options.originPrincipals);
+    if (options.principals())
+        JS_HoldPrincipals(options.principals());
+    if (options.originPrincipals())
+        JS_HoldPrincipals(options.originPrincipals());
 }
 
 ParseTask::~ParseTask()
 {
-    if (options.principals)
-        JS_DropPrincipals(runtime, options.principals);
-    if (options.originPrincipals)
-        JS_DropPrincipals(runtime, options.originPrincipals);
+    if (options.principals())
+        JS_DropPrincipals(runtime, options.principals());
+    if (options.originPrincipals())
+        JS_DropPrincipals(runtime, options.originPrincipals());
 
     // ParseTask takes over ownership of its input exclusive context.
     js_delete(cx);
@@ -204,7 +200,8 @@ js::StartOffThreadParseScript(JSContext *cx, const CompileOptions &options,
     JS::CompartmentOptions compartmentOptions(cx->compartment()->options());
     compartmentOptions.setZone(JS::FreshZone);
 
-    JSObject *global = JS_NewGlobalObject(cx, &workerGlobalClass, NULL, compartmentOptions);
+    JSObject *global = JS_NewGlobalObject(cx, &workerGlobalClass, NULL,
+                                          JS::FireOnNewGlobalHook, compartmentOptions);
     if (!global)
         return false;
 
@@ -474,7 +471,7 @@ WorkerThread::handleAsmJSWorkload(WorkerThreadState &state)
 
     state.unlock();
     do {
-        ion::IonContext icx(asmData->mir->compartment, &asmData->mir->temp());
+        ion::IonContext icx(runtime, asmData->mir->compartment, &asmData->mir->temp());
 
         int64_t before = PRMJ_Now();
 
@@ -522,7 +519,7 @@ WorkerThread::handleIonWorkload(WorkerThreadState &state)
 
     state.unlock();
     {
-        ion::IonContext ictx(ionBuilder->script()->compartment(), &ionBuilder->temp());
+        ion::IonContext ictx(runtime, ionBuilder->script()->compartment(), &ionBuilder->temp());
         ionBuilder->setBackgroundCodegen(ion::CompileBackEnd(ionBuilder));
     }
     state.lock();
@@ -611,7 +608,7 @@ AutoPauseWorkersForGC::AutoPauseWorkersForGC(JSRuntime *rt MOZ_GUARD_OBJECT_NOTI
     if (!runtime->workerThreadState)
         return;
 
-    runtime->assertValidThread();
+    JS_ASSERT(CurrentThreadCanAccessRuntime(runtime));
 
     WorkerThreadState &state = *runtime->workerThreadState;
     if (!state.numThreads)
@@ -670,6 +667,8 @@ WorkerThread::pause()
 }
 
 #else /* JS_WORKER_THREADS */
+
+using namespace js;
 
 bool
 js::StartOffThreadAsmJSCompile(JSContext *cx, AsmJSParallelTask *asmData)

@@ -127,6 +127,7 @@ documenttab[closing] > .documenttab-container {
   margin: @metro_spacing_normal@ @metro_spacing_snormal@;
   background: white none center top no-repeat;
   background-size: cover;
+  min-width: @thumbnail_width@;
   width: @thumbnail_width@;
   height: @thumbnail_height@;
 }
@@ -187,11 +188,6 @@ documenttab[selected] .documenttab-selection {
 /* Start UI ----------------------------------------------------------------- */
 
 #start-container {
-  display: none;
-}
-
-#start-container[startpage],
-#start-container[filtering] {
   display: -moz-box;
 }
 
@@ -199,12 +195,6 @@ documenttab[selected] .documenttab-selection {
   overflow-x: scroll;
 }
 
-/* if autocomplete is set, hide both start pages,
- *  else hide the autocomplete screen */
-#start-container[filtering] > .start-page,
-#start-container:not([filtering]) > #start-autocomplete {
-  visibility: collapse;
-}
 /* startUI sections, grids */
 #start-scrollbox > .meta-section {
   /* allot space for at least a single column */
@@ -212,13 +202,16 @@ documenttab[selected] .documenttab-selection {
   /* leave margin for horizontal scollbar */
   margin-bottom: 30px;
 }
+
 #start-scrollbox[input="precise"] > .meta-section {
   margin-bottom: 5px;
 }
+
 #start-topsites {
   /* allot space for 3 tile columns for the topsites grid */
   min-width: calc(3 * @grid_double_column_width@);
 }
+
 #start-scrollbox {
   -moz-box-orient: horizontal;
   /* Move scrollbar above toolbar,
@@ -234,17 +227,18 @@ documenttab[selected] .documenttab-selection {
 #start-autocomplete[viewstate="snapped"] .richgrid-item-content {
   -moz-box-orient: horizontal;
 }
+
 #start-container,
 #start-autocomplete {
   padding-left: 0;
   padding-right: 0;
 }
+
 #start-container[viewstate="snapped"] #start-scrollbox > .meta-section {
-  margin: 0;
+  margin: 0 @metro_spacing_xnormal@;
   min-width: @grid_double_column_width@;
-  -moz-box-flex: 1;
-  -moz-box-align: center;
 }
+
 #start-container[viewstate="snapped"] richgrid {
   visibility: collapse;
 }
@@ -444,8 +438,20 @@ documenttab[selected] .documenttab-selection {
 
 /* Navigation bar ========================================================== */
 
-#navbar[startpage] {
-  transform: none;
+/* Most appbars are hidden by default, but we want to keep #navbar visible so
+ * we can show the progress bar at all times.  Instead, we hide only the
+ * toolbar portion of the navbar. */
+#navbar {
+  visibility: visible;
+}
+#navbar:not([hiding]):not([visible]) > #toolbar-overlay {
+  visibility: hidden;
+}
+
+.circularprogressindicator-progressRing {
+  margin: -2px 18px;
+  pointer-events:none;
+  position: absolute;
 }
 
 /* Progress meter ---------------------------------------------------------- */
@@ -483,9 +489,11 @@ documenttab[selected] .documenttab-selection {
 
 /* Toolbar ----------------------------------------------------------------- */
 
-#toolbar-autocomplete {
+#toolbar-overlay {
   background-color: @panel_light_color@;
 }
+
+/* Combined back/forward buttons */
 
 #back-button {
   list-style-image: url(chrome://browser/skin/images/navbar-back.png);
@@ -542,7 +550,7 @@ documenttab[selected] .documenttab-selection {
   overflow: hidden;
 }
 
-#urlbar[mode="edit"] {
+#urlbar[editing] {
   border-color: @metro_orange@;
 }
 
@@ -584,6 +592,7 @@ documenttab[selected] .documenttab-selection {
 
 /* Combined stop-reload button */
 .urlbar-button {
+  margin: 0;
   -moz-image-region: rect(0px, 30px, 30px, 0px);
 }
 
@@ -666,26 +675,50 @@ documenttab[selected] .documenttab-selection {
   }
 }
 
-#urlbar:-moz-any([mode="loading"], [mode="view"]) > #go-button,
-#urlbar:-moz-any([mode="edit"], [mode="loading"]) > #reload-button,
-#urlbar:-moz-any([mode="edit"], [mode="view"]) > #stop-button,
+/* navbar edit button: one button out of three - when editing: go, when !editing,
+   loading: stop, when !editing, !loading: reload */ 
+
+#go-button, #reload-button, #stop-button  {
+  visibility: collapse;
+}
+
+#urlbar[editing] > #go-button,
+#urlbar:not([editing])[loading] > #stop-button,
+#urlbar:not([editing]):not([loading]) > #reload-button {
+  visibility: visible;
+}
+
 #toolbar[viewstate="snapped"] > #urlbar ~ toolbarbutton {
   visibility: collapse;
 }
 
-/* Application-Specific */
+/* Contextual toolbar controls */
 
-#download-button {
+#toolbar-context-autocomplete,
+#toolbar-context-page {
+  transition-property: opacity, visibility;
+  transition-duration: @forward_transition_length@;
+  transition-timing-function: @metro_animation_easing@;
+}
+
+#toolbar-contextual:not([autocomplete]) #toolbar-context-autocomplete,
+#toolbar-contextual[startpage] #toolbar-context-page,
+#toolbar-contextual[autocomplete] #toolbar-context-page {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.circularprogressindicator-progressButton {
+  margin: 0 @toolbar_horizontal_spacing@;
   -moz-image-region: rect(0px, 40px, 40px, 0px) !important;
 }
-#download-button:hover {
+.circularprogressindicator-progressButton:hover {
   -moz-image-region: rect(40px, 40px, 80px, 0px) !important;
 }
-#download-button:active {
+.circularprogressindicator-progressButton:active {
   -moz-image-region: rect(80px, 40px, 120px, 0px) !important;
 }
-
-/* Page-Specific */
 
 #pin-button {
   list-style-image: url(chrome://browser/skin/images/navbar-pin.png);
@@ -725,6 +758,18 @@ documenttab[selected] .documenttab-selection {
   #menu-button {
     list-style-image: url(chrome://browser/skin/images/navbar-menu@1.8x.png);
   }
+}
+
+#close-button {
+  -moz-image-region: rect(0px, 480px, 40px, 440px);
+}
+
+#close-button:hover:not(:active) {
+  -moz-image-region: rect(40px, 480px, 80px, 440px);
+}
+
+#close-button:active {
+  -moz-image-region: rect(80px, 480px, 120px, 440px);
 }
 
 /* Panel UI ================================================================ */
@@ -802,76 +847,15 @@ documenttab[selected] .documenttab-selection {
 #findbar {
   background-color: @metro_orange@;
   padding: 0;
-  pointer-events: none;
 }
 
 #findbar > toolbar {
   min-height: @findbar_height@ !important;
 }
 
-#findbar > .previous-button,
-#findbar > .next-button,
-#findbar > .close-button {
-  list-style-image: url(chrome://browser/skin/images/appbar-icons.png);
-  min-width: @touch_button_small@ !important; /* button size */
-  min-height: @touch_button_small@ !important; /* button size */
-  border: none !important;
-  background-image: none !important;
-  background-color: inherit !important;
-  pointer-events: auto;
-  -moz-user-focus: ignore !important;
-  margin: 0 @margin_normal@ !important;
-}
-
-#findbar > .close-button {
-  -moz-margin-start: 0;
-  -moz-image-region: rect(0px, 480px, 40px, 440px);
-}
-
-#findbar > .close-button:hover {
-  -moz-image-region: rect(40px, 480px, 80px, 440px);
-}
-
-#findbar > .close-button:active {
-  -moz-image-region: rect(80px, 480px, 120px, 440px);
-}
-
-#findbar > .previous-button {
-  -moz-margin-end: 0;
-  -moz-image-region: rect(0px, 400px, 40px, 360px);
-}
-
-#findbar > .previous-button:hover {
-  -moz-image-region: rect(40px, 400px, 80px, 360px);
-}
-
-#findbar > .previous-button:active{
-  -moz-image-region: rect(80px, 400px, 120px, 360px);
-}
-
-#findbar > .next-button {
-  -moz-margin-start: 0;
-  -moz-image-region: rect(0px, 440px, 40px, 400px);
-}
-
-#findbar > .next-button:hover {
-  -moz-image-region: rect(40px, 440px, 80px, 400px);
-}
-
-#findbar > .next-button:active {
-  -moz-image-region: rect(80px, 440px, 120px, 400px);
-}
-
 #findbar-textbox {
-  pointer-events: auto;
-  -moz-margin-end: 0;
   border: none !important;
   width: 20em;
-}
-
-.textbox-search-icon {
-  list-style-image: url("chrome://browser/skin/images/search-glass-30.png");
-  -moz-image-region: auto;
 }
 
 /* Override the default box ordering and make the find textbox appear to the
@@ -880,16 +864,53 @@ documenttab[selected] .documenttab-selection {
   -moz-box-ordinal-group: 2
 }
 
-#findbar-textbox deck {
-  margin-right: @margin_normal@;
-}
-
 #findbar-textbox[status="1"] { /* Ci.nsITypeAheadFind.FIND_NOTFOUND */
   background: rgb(255,200,200);
 }
 
 #findbar-textbox:hover:active {
   background: #8db8d8;
+}
+
+.textbox-search-icon {
+  list-style-image: url("chrome://browser/skin/images/search-glass-30.png");
+  -moz-image-region: auto;
+}
+
+#findbar-previous-button {
+  -moz-image-region: rect(0px, 400px, 40px, 360px);
+}
+
+#findbar-previous-button:hover:not(:active) {
+  -moz-image-region: rect(40px, 400px, 80px, 360px);
+}
+
+#findbar-previous-button:active {
+  -moz-image-region: rect(80px, 400px, 120px, 360px);
+}
+
+#findbar-next-button {
+  -moz-image-region: rect(0px, 440px, 40px, 400px);
+}
+
+#findbar-next-button:hover:not(:active) {
+  -moz-image-region: rect(40px, 440px, 80px, 400px);
+}
+
+#findbar-next-button:active {
+  -moz-image-region: rect(80px, 440px, 120px, 400px);
+}
+
+#findbar-close-button {
+  -moz-image-region: rect(0px, 480px, 40px, 440px);
+}
+
+#findbar-close-button:hover:not(:active) {
+  -moz-image-region: rect(40px, 480px, 80px, 440px);
+}
+
+#findbar-close-button:active {
+  -moz-image-region: rect(80px, 480px, 120px, 440px);
 }
 
 /* Contextual appbar ======================================================= */
@@ -1229,36 +1250,3 @@ setting[type="radio"] > vbox {
 #clear-notification-done {
   font-weight: bold;
 }
-
-/* Alert Popup ============================================================= */
-
-#alerts-container {
-  color: white;
-  background-color: #5e6166;
-  border: @border_width_small@ solid #767973;
-  border-radius: @border_radius_normal@;
-  box-shadow: black 0 @border_radius_tiny@ @border_radius_tiny@;
-  padding: @padding_normal@; /* core spacing on top/bottom */
-  margin-bottom: @margin_large@;
-  transition-property: opacity;
-  transition-duration: 0.5s;
-  opacity: 0;
-}
-
-#alerts-container.showing {
-  opacity: 1;
-}
-
-#alerts-title {
-  font-size: @font_small@ !important;
-}
-
-#alerts-text {
-  font-size: @font_xsmall@ !important;
-  white-space: pre;
-}
-
-#alerts-container {
-  -moz-margin-end: @margin_large@;
-}
-

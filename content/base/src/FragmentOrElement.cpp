@@ -106,7 +106,6 @@
 #include "nsIXULDocument.h"
 #endif /* MOZ_XUL */
 
-#include "nsCycleCollectionParticipant.h"
 #include "nsCCUncollectableMarker.h"
 
 #include "mozAutoDocUpdate.h"
@@ -989,7 +988,7 @@ FragmentOrElement::DestroyContent()
 
   // XXX We really should let cycle collection do this, but that currently still
   //     leaks (see https://bugzilla.mozilla.org/show_bug.cgi?id=406684).
-  nsContentUtils::ReleaseWrapper(this, this);
+  ReleaseWrapper(this);
 
   uint32_t i, count = mAttrsAndChildren.ChildCount();
   for (i = 0; i < count; ++i) {
@@ -1147,6 +1146,8 @@ FragmentOrElement::ClearContentUnbinder()
 {
   ContentUnbinder::UnbindAll();
 }
+
+NS_IMPL_CYCLE_COLLECTION_CLASS(FragmentOrElement)
 
 NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(FragmentOrElement)
   nsINode::Unlink(tmp);
@@ -1747,13 +1748,6 @@ NS_INTERFACE_MAP_END
 NS_IMPL_CYCLE_COLLECTING_ADDREF(FragmentOrElement)
 NS_IMPL_CYCLE_COLLECTING_RELEASE_WITH_LAST_RELEASE(FragmentOrElement,
                                                    nsNodeUtils::LastRelease(this))
-
-nsresult
-FragmentOrElement::PostQueryInterface(REFNSIID aIID, void** aInstancePtr)
-{
-  return OwnerDoc()->BindingManager()->GetBindingImplementation(this, aIID,
-                                                                aInstancePtr);
-}
 
 //----------------------------------------------------------------------
 

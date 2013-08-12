@@ -142,10 +142,10 @@ nsXULPopupListener::HandleEvent(nsIDOMEvent* aEvent)
   }
   if (targetContent->Tag() == nsGkAtoms::browser &&
       targetContent->IsXUL() &&
-      targetContent->AttrValueIs(kNameSpaceID_None, nsGkAtoms::Remote,
-                                 nsGkAtoms::_true, eIgnoreCase)) {
+      nsEventStateManager::IsRemoteTarget(targetContent)) {
     return NS_OK;
   }
+
 
   bool preventDefault;
   mouseEvent->GetDefaultPrevented(&preventDefault);

@@ -28,7 +28,7 @@
 
 #include "frontend/Parser.h"
 #include "frontend/TokenStream.h"
-#include "ion/AsmJSLink.h"
+#include "jit/AsmJSLink.h"
 #include "vm/Debugger.h"
 
 #include "jsatominlines.h"
@@ -38,6 +38,7 @@
 
 #include "frontend/ParseMaps-inl.h"
 #include "frontend/ParseNode-inl.h"
+#include "vm/ScopeObject-inl.h"
 
 using namespace js;
 using namespace js::gc;
@@ -4510,7 +4511,7 @@ EmitFunc(ExclusiveContext *cx, BytecodeEmitter *bce, ParseNode *pn)
                 JSObject *scope = bce->blockChain;
                 if (!scope && bce->sc->isFunctionBox())
                     scope = bce->sc->asFunctionBox()->function();
-                fun->lazyScript()->setParent(scope, bce->script->sourceObject(), bce->script->originPrincipals);
+                fun->lazyScript()->setParent(scope, bce->script->sourceObject());
             }
         } else {
             SharedContext *outersc = bce->sc;
@@ -4523,7 +4524,7 @@ EmitFunc(ExclusiveContext *cx, BytecodeEmitter *bce, ParseNode *pn)
             Rooted<JSScript*> parent(cx, bce->script);
             CompileOptions options(bce->parser->options());
             options.setPrincipals(parent->principals())
-                   .setOriginPrincipals(parent->originPrincipals)
+                   .setOriginPrincipals(parent->originPrincipals())
                    .setCompileAndGo(parent->compileAndGo)
                    .setSelfHostingMode(parent->selfHosted)
                    .setNoScriptRval(false)

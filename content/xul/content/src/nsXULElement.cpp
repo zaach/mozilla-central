@@ -48,6 +48,7 @@
 #include "nsIScriptContext.h"
 #include "nsIScriptRuntime.h"
 #include "nsIScriptGlobalObject.h"
+#include "nsIScriptSecurityManager.h"
 #include "nsIServiceManager.h"
 #include "mozilla/css/StyleRule.h"
 #include "nsIStyleSheet.h"
@@ -77,6 +78,7 @@
 #include "nsAsyncDOMEvent.h"
 #include "nsIDOMMutationEvent.h"
 #include "nsPIDOMWindow.h"
+#include "nsJSPrincipals.h"
 #include "nsDOMAttributeMap.h"
 #include "nsGkAtoms.h"
 #include "nsXULContentUtils.h"
@@ -323,6 +325,8 @@ NS_TrustedNewXULElement(nsIContent** aResult, already_AddRefed<nsINodeInfo> aNod
 //----------------------------------------------------------------------
 // nsISupports interface
 
+NS_IMPL_CYCLE_COLLECTION_CLASS(nsXULElement)
+
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INHERITED(nsXULElement,
                                                   nsStyledElement)
     {
@@ -344,7 +348,7 @@ NS_INTERFACE_TABLE_HEAD_CYCLE_COLLECTION_INHERITED(nsXULElement)
                                    new nsXULElementTearoff(this))
     NS_INTERFACE_MAP_ENTRY_TEAROFF(nsIFrameLoaderOwner,
                                    new nsXULElementTearoff(this))
-NS_ELEMENT_INTERFACE_MAP_END
+NS_INTERFACE_MAP_END_INHERITING(nsStyledElement)
 
 //----------------------------------------------------------------------
 // nsIDOMNode interface
@@ -1929,6 +1933,8 @@ nsXULElement::WrapNode(JSContext *aCx, JS::Handle<JSObject*> aScope)
     return dom::XULElementBinding::Wrap(aCx, aScope, this);
 }
 
+NS_IMPL_CYCLE_COLLECTION_CLASS(nsXULPrototypeNode)
+
 NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(nsXULPrototypeNode)
     if (tmp->mType == nsXULPrototypeNode::eType_Element) {
         static_cast<nsXULPrototypeElement*>(tmp)->Unlink();
@@ -2325,6 +2331,7 @@ nsXULPrototypeElement::Unlink()
     mNumAttributes = 0;
     delete[] mAttributes;
     mAttributes = nullptr;
+    mChildren.Clear();
 }
 
 void
@@ -2576,29 +2583,33 @@ nsXULPrototypeScript::Compile(const PRUnichar* aText,
 
     // Ok, compile it to create a prototype script object!
 
-    JSAutoRequest ar(context->GetNativeContext());
-    JS::Rooted<JSScript*> newScriptObject(context->GetNativeContext());
+    JSContext* cx = context->GetNativeContext();
+    AutoCxPusher pusher(cx);
 
+    bool ok = false;
+    nsresult rv = nsContentUtils::GetSecurityManager()->
+                    CanExecuteScripts(cx, aDocument->NodePrincipal(), &ok);
+    NS_ENSURE_SUCCESS(rv, rv);
+    NS_ENSURE_TRUE(ok, NS_OK);
+    NS_ENSURE_TRUE(JSVersion(mLangVersion) != JSVERSION_UNKNOWN, NS_OK);
+
+    JS::CompileOptions options(cx);
+    options.setPrincipals(nsJSPrincipals::get(aDocument->NodePrincipal()))
+           .setFileAndLine(urlspec.get(), aLineNo)
+           .setVersion(JSVersion(mLangVersion));
     // If the script was inline, tell the JS parser to save source for
     // Function.prototype.toSource(). If it's out of line, we retrieve the
     // source from the files on demand.
-    bool saveSource = !mOutOfLine;
-
-    nsresult rv = context->CompileScript(aText, aTextLength,
-                                         // Use the enclosing document's principal
-                                         // XXX is this right? or should we use the
-                                         // protodoc's?
-                                         // If we start using the protodoc's, make sure
-                                         // the DowngradePrincipalIfNeeded stuff in
-                                         // XULDocument::OnStreamComplete still works!
-                                         aDocument->NodePrincipal(),
-                                         urlspec.get(), aLineNo, mLangVersion,
-                                         &newScriptObject, saveSource);
-    if (NS_FAILED(rv))
-        return rv;
-
-    Set(newScriptObject);
-    return rv;
+    options.setSourcePolicy(mOutOfLine ? JS::CompileOptions::LAZY_SOURCE
+                                       : JS::CompileOptions::SAVE_SOURCE);
+    JS::RootedObject scope(cx, JS::CurrentGlobalOrNull(cx));
+    xpc_UnmarkGrayObject(scope);
+    JSScript* script = JS::Compile(cx, scope, options,
+                                   static_cast<const jschar*>(aText), aTextLength);
+    if (!script)
+        return NS_ERROR_OUT_OF_MEMORY;
+    Set(script);
+    return NS_OK;
 }
 
 void

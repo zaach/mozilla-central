@@ -315,8 +315,8 @@ PACErrorReporter(JSContext *cx, const char *message, JSErrorReport *report)
 // timeout of 0 means the normal necko timeout strategy, otherwise the dns request
 // will be canceled after aTimeout milliseconds
 static
-JSBool PACResolve(const nsCString &aHostName, NetAddr *aNetAddr,
-                  unsigned int aTimeout)
+bool PACResolve(const nsCString &aHostName, NetAddr *aNetAddr,
+                unsigned int aTimeout)
 {
   if (!sRunning) {
     NS_WARNING("PACResolve without a running ProxyAutoConfig object");
@@ -382,7 +382,7 @@ bool PACResolveToString(const nsCString &aHostName,
 
 // dnsResolve(host) javascript implementation
 static
-JSBool PACDnsResolve(JSContext *cx, unsigned int argc, JS::Value *vp)
+bool PACDnsResolve(JSContext *cx, unsigned int argc, JS::Value *vp)
 {
   if (NS_IsMainThread()) {
     NS_WARNING("DNS Resolution From PAC on Main Thread. How did that happen?");
@@ -405,13 +405,13 @@ JSBool PACDnsResolve(JSContext *cx, unsigned int argc, JS::Value *vp)
   else {
     JS_SET_RVAL(cx, vp, JSVAL_NULL);
   }
-  
+
   return true;
 }
 
 // myIpAddress() javascript implementation
 static
-JSBool PACMyIpAddress(JSContext *cx, unsigned int argc, JS::Value *vp)
+bool PACMyIpAddress(JSContext *cx, unsigned int argc, JS::Value *vp)
 {
   if (NS_IsMainThread()) {
     NS_WARNING("DNS Resolution From PAC on Main Thread. How did that happen?");
@@ -420,7 +420,7 @@ JSBool PACMyIpAddress(JSContext *cx, unsigned int argc, JS::Value *vp)
 
   if (!sRunning) {
     NS_WARNING("PAC myIPAddress without a running ProxyAutoConfig object");
-    return JS_FALSE;
+    return false;
   }
 
   return sRunning->MyIPAddress(vp);
@@ -428,7 +428,7 @@ JSBool PACMyIpAddress(JSContext *cx, unsigned int argc, JS::Value *vp)
 
 // proxyAlert(msg) javascript implementation
 static
-JSBool PACProxyAlert(JSContext *cx, unsigned int argc, JS::Value *vp)
+bool PACProxyAlert(JSContext *cx, unsigned int argc, JS::Value *vp)
 {
   JS::Rooted<JSString*> arg1(cx);
   if (!JS_ConvertArguments(cx, argc, JS_ARGV(cx, vp), "S", arg1.address()))
@@ -540,7 +540,8 @@ private:
     JS::CompartmentOptions options;
     options.setZone(JS::SystemZone)
            .setVersion(JSVERSION_LATEST);
-    mGlobal = JS_NewGlobalObject(mContext, &sGlobalClass, nullptr, options);
+    mGlobal = JS_NewGlobalObject(mContext, &sGlobalClass, nullptr,
+                                 JS::DontFireOnNewGlobalHook, options);
     NS_ENSURE_TRUE(mGlobal, NS_ERROR_OUT_OF_MEMORY);
 
     JSAutoCompartment ac(mContext, mGlobal);
@@ -551,6 +552,9 @@ private:
 
     if (!JS_DefineFunctions(mContext, mGlobal, PACGlobalFunctions))
       return NS_ERROR_FAILURE;
+
+    JS::Rooted<JSObject*> rootedGlobal(mContext, mGlobal);
+    JS_FireOnNewGlobalObject(mContext, rootedGlobal);
 
     return NS_OK;
   }
@@ -654,7 +658,7 @@ ProxyAutoConfig::GetProxyForURI(const nsCString &aTestURI,
 
     JS::Value argv[2] = { uriValue, hostValue };
     JS::Rooted<JS::Value> rval(cx);
-    JSBool ok = JS_CallFunctionName(cx, mJSRuntime->Global(),
+    bool ok = JS_CallFunctionName(cx, mJSRuntime->Global(),
                                     "FindProxyForURL", 2, argv, rval.address());
 
     if (ok && rval.isString()) {

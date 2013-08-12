@@ -11,15 +11,15 @@
 #ifdef JS_THREADSAFE
 # include "prthread.h"
 # include "prprf.h"
-# include "ion/BaselineJIT.h"
+# include "jit/BaselineJIT.h"
 # include "vm/Monitor.h"
 #endif
 
 #if defined(DEBUG) && defined(JS_THREADSAFE) && defined(JS_ION)
-# include "ion/Ion.h"
-# include "ion/IonCompartment.h"
-# include "ion/MIR.h"
-# include "ion/MIRGraph.h"
+# include "jit/Ion.h"
+# include "jit/IonCompartment.h"
+# include "jit/MIR.h"
+# include "jit/MIRGraph.h"
 #endif // DEBUG && THREADSAFE && ION
 
 #include "vm/Interpreter-inl.h"
@@ -117,9 +117,9 @@ ParallelBailoutRecord::addTrace(JSScript *script,
 }
 
 bool
-js::InSequentialOrExclusiveParallelSection()
+js::InExclusiveParallelSection()
 {
-    return true;
+    return false;
 }
 
 bool
@@ -1453,7 +1453,7 @@ ForkJoinShared::executePortion(PerThreadData *perThread,
 
     // Make a new IonContext for the slice, which is needed if we need to
     // re-enter the VM.
-    IonContext icx(cx_->compartment(), NULL);
+    IonContext icx(cx_->runtime(), cx_->compartment(), NULL);
 
     JS_ASSERT(slice.bailoutRecord->topScript == NULL);
 
@@ -2141,9 +2141,9 @@ parallel::SpewBailoutIR(uint32_t bblockId, uint32_t lirId,
 #endif // DEBUG
 
 bool
-js::InSequentialOrExclusiveParallelSection()
+js::InExclusiveParallelSection()
 {
-    return !InParallelSection() || ForkJoinSlice::Current()->hasAcquiredContext();
+    return InParallelSection() && ForkJoinSlice::Current()->hasAcquiredContext();
 }
 
 bool

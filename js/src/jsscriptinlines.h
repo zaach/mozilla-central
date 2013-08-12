@@ -9,15 +9,8 @@
 
 #include "jsscript.h"
 
-#include "jsautooplen.h"
-#include "jscntxt.h"
-#include "jsfun.h"
-#include "jsopcode.h"
-
-#include "ion/AsmJSLink.h"
-#include "vm/GlobalObject.h"
-#include "vm/RegExpObject.h"
-#include "vm/Shape.h"
+#include "jit/AsmJSLink.h"
+#include "vm/ScopeObject.h"
 
 #include "jscompartmentinlines.h"
 
@@ -111,12 +104,12 @@ inline void
 JSScript::writeBarrierPre(JSScript *script)
 {
 #ifdef JSGC_INCREMENTAL
-    if (!script || !script->runtime()->needsBarrier())
+    if (!script || !script->runtimeFromAnyThread()->needsBarrier())
         return;
 
     JS::Zone *zone = script->zone();
     if (zone->needsBarrier()) {
-        JS_ASSERT(!zone->rt->isHeapMajorCollecting());
+        JS_ASSERT(!zone->runtimeFromMainThread()->isHeapMajorCollecting());
         JSScript *tmp = script;
         MarkScriptUnbarriered(zone->barrierTracer(), &tmp, "write barrier");
         JS_ASSERT(tmp == script);
@@ -128,12 +121,12 @@ JSScript::writeBarrierPre(JSScript *script)
 js::LazyScript::writeBarrierPre(js::LazyScript *lazy)
 {
 #ifdef JSGC_INCREMENTAL
-    if (!lazy)
+    if (!lazy || !lazy->runtimeFromAnyThread()->needsBarrier())
         return;
 
     JS::Zone *zone = lazy->zone();
     if (zone->needsBarrier()) {
-        JS_ASSERT(!zone->rt->isHeapMajorCollecting());
+        JS_ASSERT(!zone->runtimeFromMainThread()->isHeapMajorCollecting());
         js::LazyScript *tmp = lazy;
         MarkLazyScriptUnbarriered(zone->barrierTracer(), &tmp, "write barrier");
         JS_ASSERT(tmp == lazy);

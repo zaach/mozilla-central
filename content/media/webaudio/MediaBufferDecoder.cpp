@@ -25,6 +25,8 @@
 
 namespace mozilla {
 
+NS_IMPL_CYCLE_COLLECTION_CLASS(WebAudioDecodeJob)
+
 NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(WebAudioDecodeJob)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mContext)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mOutput)
@@ -94,6 +96,8 @@ public:
   virtual int64_t GetMediaDuration() MOZ_FINAL MOZ_OVERRIDE;
 
   virtual void SetMediaDuration(int64_t aDuration) MOZ_FINAL MOZ_OVERRIDE;
+
+  virtual void UpdateMediaDuration(int64_t aDuration) MOZ_FINAL MOZ_OVERRIDE;
 
   virtual void SetMediaSeekable(bool aMediaSeekable) MOZ_OVERRIDE;
 
@@ -208,6 +212,12 @@ BufferDecoder::GetMediaDuration()
 
 void
 BufferDecoder::SetMediaDuration(int64_t aDuration)
+{
+  // ignore
+}
+
+void
+BufferDecoder::UpdateMediaDuration(int64_t aDuration)
 {
   // ignore
 }

@@ -11,14 +11,12 @@
 
 #include "mozilla/MemoryReporting.h"
 
-#include "jsalloc.h"
 #include "jsfriendapi.h"
 
 #include "ds/LifoAlloc.h"
+#include "ds/IdValuePair.h"
 #include "gc/Barrier.h"
-#include "gc/Heap.h"
-#include "js/HashTable.h"
-#include "js/Vector.h"
+#include "js/Utility.h"
 
 class JSScript;
 
@@ -105,7 +103,15 @@ namespace ion {
     struct IonScript;
 }
 
+namespace analyze {
+    class ScriptAnalysis;
+}
+
 namespace types {
+
+class TypeCallsite;
+class TypeCompartment;
+class TypeSet;
 
 /* Type set entry for either a JSObject with singleton type or a non-singleton TypeObject. */
 struct TypeObjectKey {
@@ -1369,8 +1375,13 @@ struct TypeCompartment
     ArrayTypeTable *arrayTypeTable;
     ObjectTypeTable *objectTypeTable;
 
+  private:
+    void setTypeToHomogenousArray(JSContext *cx, JSObject *obj, Type type);
+
+  public:
     void fixArrayType(JSContext *cx, JSObject *obj);
     void fixObjectType(JSContext *cx, JSObject *obj);
+    void fixRestArgumentsType(JSContext *cx, JSObject *obj);
 
     JSObject *newTypedObject(JSContext *cx, IdValuePair *properties, size_t nproperties);
 
@@ -1432,6 +1443,8 @@ struct TypeCompartment
 
     void finalizeObjects();
 };
+
+void FixRestArgumentsType(ExclusiveContext *cxArg, JSObject *obj);
 
 struct TypeZone
 {
