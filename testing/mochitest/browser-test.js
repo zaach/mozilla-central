@@ -251,7 +251,7 @@ Tester.prototype = {
       return;
 
     try {
-      var msg = "Console message: " + aConsoleMessage.message;
+      var msg = "Console message: " + aConsoleMessage.message.substr(0, 100);
       if (this.currentTest)
         this.currentTest.addResult(new testMessage(msg));
       else
