@@ -95,7 +95,10 @@ function errorResponseUpdateTest() {
   // to have an mtime of "now" - so we (a) check the thumbnail remains green
   // and (b) check the mtime of the file is >= now.
   ensureThumbnailStale(URL);
-  let now = Date.now();
+  // now() returns a higher-precision value than the modified time of a file.
+  // As we set the thumbnail very stale, allowing 1 second of "slop" here
+  // works around this while still keeping the test valid.
+  let now = Date.now() - 1000 ;
   PageThumbs.captureIfStale(URL).then(() => {
     ok(getThumbnailModifiedTime(URL) >= now, "modified time should be >= now");
     retrieveImageDataForURL(URL, function ([r, g, b]) {
@@ -120,7 +123,10 @@ function goodResponseUpdateTest() {
   // return a 200 response and a red thumbnail - so that new thumbnail should
   // end up captured.
   ensureThumbnailStale(URL);
-  let now = Date.now();
+  // now() returns a higher-precision value than the modified time of a file.
+  // As we set the thumbnail very stale, allowing 1 second of "slop" here
+  // works around this while still keeping the test valid.
+  let now = Date.now() - 1000 ;
   PageThumbs.captureIfStale(URL).then(() => {
     ok(getThumbnailModifiedTime(URL) >= now, "modified time should be >= now");
     // the captureIfStale request saw a 200 response with the red body, so we
