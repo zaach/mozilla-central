@@ -16,7 +16,7 @@
 #include "jit/MIRGraph.h"
 
 namespace js {
-namespace ion {
+namespace jit {
 
 class CodeGenerator;
 class CallInfo;
@@ -225,10 +225,8 @@ class IonBuilder : public MIRGenerator
     }
 
     JSFunction *getSingleCallTarget(types::StackTypeSet *calleeTypes);
-    bool getPolyCallTargets(types::StackTypeSet *calleeTypes,
-                            AutoObjectVector &targets,
-                            uint32_t maxTargets,
-                            bool *gotLambda);
+    bool getPolyCallTargets(types::StackTypeSet *calleeTypes, bool constructing,
+                            AutoObjectVector &targets, uint32_t maxTargets, bool *gotLambda);
     bool canInlineTarget(JSFunction *target, bool constructing);
 
     void popCfgStack();
@@ -366,6 +364,7 @@ class IonBuilder : public MIRGenerator
                                 bool barrier, types::StackTypeSet *types);
     bool getPropTryCache(bool *emitted, HandlePropertyName name, HandleId id,
                          bool barrier, types::StackTypeSet *types);
+    bool needsToMonitorMissingProperties(types::StackTypeSet *types);
 
     // jsop_setprop() helpers.
     bool setPropTryCommonSetter(bool *emitted, MDefinition *obj,
@@ -593,11 +592,6 @@ class IonBuilder : public MIRGenerator
                                   types::StackTypeSet *objTypes, types::StackTypeSet *pushedTypes);
 
     MGetPropertyCache *getInlineableGetPropertyCache(CallInfo &callInfo);
-
-    MPolyInlineDispatch *
-    makePolyInlineDispatch(JSContext *cx, CallInfo &callInfo,
-                           MGetPropertyCache *getPropCache, MBasicBlock *bottom,
-                           Vector<MDefinition *, 8, IonAllocPolicy> &retvalDefns);
 
     types::StackTypeSet *cloneTypeSet(types::StackTypeSet *types);
 
@@ -861,7 +855,7 @@ bool TypeSetIncludes(types::TypeSet *types, MIRType input, types::TypeSet *input
 
 bool NeedsPostBarrier(CompileInfo &info, MDefinition *value);
 
-} // namespace ion
+} // namespace jit
 } // namespace js
 
 #endif // JS_ION

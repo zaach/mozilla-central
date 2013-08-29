@@ -20,6 +20,8 @@ function HistoryView(aSet, aLimit, aFilterUnpinned) {
   StartUI.chromeWin.addEventListener('MozAppbarDismissing', this, false);
   StartUI.chromeWin.addEventListener('HistoryNeedsRefresh', this, false);
   window.addEventListener("TabClose", this, true);
+
+  this._adjustDOMforViewState();
 }
 
 HistoryView.prototype = Util.extend(Object.create(View.prototype), {
@@ -299,10 +301,6 @@ HistoryView.prototype = Util.extend(Object.create(View.prototype), {
 let HistoryStartView = {
   _view: null,
   get _grid() { return document.getElementById("start-history-grid"); },
-
-  show: function show() {
-    this._grid.arrangeItems();
-  },
 
   init: function init() {
     this._view = new HistoryView(this._grid, StartUI.maxResultsPerSection, true);

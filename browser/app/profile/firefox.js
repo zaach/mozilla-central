@@ -336,7 +336,7 @@ pref("browser.download.manager.scanWhenDone", true);
 pref("browser.download.manager.resumeOnWakeDelay", 10000);
 
 // Enables the asynchronous Downloads API in the Downloads Panel.
-pref("browser.download.useJSTransfer", false);
+pref("browser.download.useJSTransfer", true);
 
 // This allows disabling the Downloads Panel in favor of the old interface.
 pref("browser.download.useToolkitUI", false);
@@ -805,7 +805,6 @@ pref("urlclassifier.max-complete-age", 2700);
 #endif
 
 pref("browser.geolocation.warning.infoURL", "https://www.mozilla.org/%LOCALE%/firefox/geolocation/");
-pref("browser.mixedcontent.warning.infoURL", "http://support.mozilla.org/1/%APP%/%VERSION%/%OS%/%LOCALE%/mixed-content/");
 
 pref("browser.EULA.version", 3);
 pref("browser.rights.version", 3);

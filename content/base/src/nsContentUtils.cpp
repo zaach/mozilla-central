@@ -20,8 +20,8 @@
 #include "imgLoader.h"
 #include "imgRequestProxy.h"
 #include "jsapi.h"
-#include "jsdbgapi.h"
 #include "jsfriendapi.h"
+#include "js/OldDebugAPI.h"
 #include "js/Value.h"
 #include "Layers.h"
 #include "MediaDecoder.h"
@@ -34,7 +34,7 @@
 #include "mozilla/dom/Element.h"
 #include "mozilla/dom/HTMLMediaElement.h"
 #include "mozilla/dom/HTMLTemplateElement.h"
-#include "mozilla/dom/TextDecoderBase.h"
+#include "mozilla/dom/TextDecoder.h"
 #include "mozilla/Likely.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/Selection.h"
@@ -70,6 +70,7 @@
 #include "nsFocusManager.h"
 #include "nsGenericHTMLElement.h"
 #include "nsGkAtoms.h"
+#include "nsHostObjectProtocolHandler.h"
 #include "nsHtml5Module.h"
 #include "nsHtml5StringParser.h"
 #include "nsIAsyncVerifyRedirectCallback.h"
@@ -116,7 +117,6 @@
 #include "nsILoadGroup.h"
 #include "nsIMEStateManager.h"
 #include "nsIMIMEService.h"
-#include "nsINativeKeyBindings.h"
 #include "nsINode.h"
 #include "nsINodeInfo.h"
 #include "nsIObjectLoadingContent.h"
@@ -141,7 +141,6 @@
 #include "nsIWordBreaker.h"
 #include "nsIXPConnect.h"
 #include "nsJSUtils.h"
-#include "nsLayoutStatics.h"
 #include "nsLWBrkCIID.h"
 #include "nsMutationEvent.h"
 #include "nsNetCID.h"
@@ -168,6 +167,8 @@
 #include "nsWrapperCacheInlines.h"
 #include "nsXULPopupManager.h"
 #include "xpcprivate.h" // nsXPConnect
+#include "HTMLSplitOnSpacesTokenizer.h"
+#include "nsContentTypeParser.h"
 
 #ifdef IBMBIDI
 #include "nsIBidiKeyboard.h"
@@ -187,7 +188,6 @@ using namespace mozilla;
 
 const char kLoadAsData[] = "loadAsData";
 
-nsIDOMScriptObjectFactory *nsContentUtils::sDOMScriptObjectFactory = nullptr;
 nsIXPConnect *nsContentUtils::sXPConnect;
 nsIScriptSecurityManager *nsContentUtils::sSecurityManager;
 nsIParserService *nsContentUtils::sParserService = nullptr;
@@ -926,7 +926,8 @@ nsContentUtils::ParseSandboxAttributeToFlags(const nsAString& aSandboxAttrValue)
                  SANDBOXED_FORMS |
                  SANDBOXED_SCRIPTS |
                  SANDBOXED_AUTOMATIC_FEATURES |
-                 SANDBOXED_POINTER_LOCK;
+                 SANDBOXED_POINTER_LOCK |
+                 SANDBOXED_DOMAIN;
 
   if (!aSandboxAttrValue.IsEmpty()) {
     // The separator optional flag is used because the HTML5 spec says any
@@ -1451,7 +1452,6 @@ nsContentUtils::Shutdown()
 
   NS_IF_RELEASE(sStringBundleService);
   NS_IF_RELEASE(sConsoleService);
-  NS_IF_RELEASE(sDOMScriptObjectFactory);
   sXPConnect = nullptr;
   NS_IF_RELEASE(sSecurityManager);
   NS_IF_RELEASE(sNameSpaceManager);
@@ -2715,9 +2715,11 @@ nsContentUtils::LoadImage(nsIURI* aURI, nsIDocument* aLoadingDocument,
   }
 
   nsCOMPtr<nsILoadGroup> loadGroup = aLoadingDocument->GetDocumentLoadGroup();
-  NS_ASSERTION(loadGroup, "Could not get loadgroup; onload may fire too early");
 
   nsIURI *documentURI = aLoadingDocument->GetDocumentURI();
+
+  NS_ASSERTION(loadGroup || IsFontTableURI(documentURI),
+               "Could not get loadgroup; onload may fire too early");
 
   // check for a Content Security Policy to pass down to the channel that
   // will get created to load the image
@@ -3421,15 +3423,15 @@ nsContentUtils::ConvertStringFromCharset(const nsACString& aCharset,
   }
 
   ErrorResult rv;
-  TextDecoderBase decoder;
-  decoder.Init(NS_ConvertUTF8toUTF16(aCharset), false, rv);
+  nsAutoPtr<TextDecoder> decoder(new TextDecoder());
+  decoder->Init(NS_ConvertUTF8toUTF16(aCharset), false, rv);
   if (rv.Failed()) {
     rv.ClearMessage();
     return rv.ErrorCode();
   }
 
-  decoder.Decode(aInput.BeginReading(), aInput.Length(), false,
-                 aOutput, rv);
+  decoder->Decode(aInput.BeginReading(), aInput.Length(), false,
+                  aOutput, rv);
   return rv.ErrorCode();
 }
 
@@ -4352,7 +4354,7 @@ nsContentUtils::CheckSecurityBeforeLoad(nsIURI* aURIToLoad,
                                         bool aAllowData,
                                         uint32_t aContentPolicyType,
                                         nsISupports* aContext,
-                                        const nsACString& aMimeGuess,
+                                        const nsAFlatCString& aMimeGuess,
                                         nsISupports* aExtra)
 {
   NS_PRECONDITION(aLoadingPrincipal, "Must have a loading principal here");
@@ -4548,39 +4550,6 @@ nsEvent*
 nsContentUtils::GetNativeEvent(nsIDOMEvent* aDOMEvent)
 {
   return aDOMEvent ? aDOMEvent->GetInternalNSEvent() : nullptr;
-}
-
-//static
-bool
-nsContentUtils::DOMEventToNativeKeyEvent(nsIDOMKeyEvent* aKeyEvent,
-                                         nsNativeKeyEvent* aNativeEvent,
-                                         bool aGetCharCode)
-{
-  bool defaultPrevented;
-  aKeyEvent->GetDefaultPrevented(&defaultPrevented);
-  if (defaultPrevented)
-    return false;
-
-  bool trusted = false;
-  aKeyEvent->GetIsTrusted(&trusted);
-  if (!trusted)
-    return false;
-
-  if (aGetCharCode) {
-    aKeyEvent->GetCharCode(&aNativeEvent->charCode);
-  } else {
-    aNativeEvent->charCode = 0;
-  }
-  aKeyEvent->GetKeyCode(&aNativeEvent->keyCode);
-  aKeyEvent->GetAltKey(&aNativeEvent->altKey);
-  aKeyEvent->GetCtrlKey(&aNativeEvent->ctrlKey);
-  aKeyEvent->GetShiftKey(&aNativeEvent->shiftKey);
-  aKeyEvent->GetMetaKey(&aNativeEvent->metaKey);
-
-  aNativeEvent->mGeckoEvent =
-    static_cast<nsKeyEvent*>(GetNativeEvent(aKeyEvent));
-
-  return true;
 }
 
 static bool
@@ -5642,35 +5611,14 @@ nsContentUtils::WrapNative(JSContext *cx, JS::Handle<JSObject*> scope,
 
   NS_ENSURE_TRUE(sXPConnect, NS_ERROR_UNEXPECTED);
 
-  // Keep sXPConnect alive. If we're on the main
-  // thread then this can be done simply and cheaply by adding a reference to
-  // nsLayoutStatics. If we're not on the main thread then we need to add a
-  // more expensive reference sXPConnect directly. We have to use manual
-  // AddRef and Release calls so don't early-exit from this function after we've
-  // added the reference!
-  bool isMainThread = NS_IsMainThread();
-
-  if (isMainThread) {
-    nsLayoutStatics::AddRef();
-  }
-  else {
-    sXPConnect->AddRef();
+  if (!NS_IsMainThread()) {
+    MOZ_CRASH();
   }
 
   nsresult rv = NS_OK;
-  {
-    AutoPushJSContext context(cx);
-    rv = sXPConnect->WrapNativeToJSVal(context, scope, native, cache, aIID,
-                                       aAllowWrapping, vp, aHolder);
-  }
-
-  if (isMainThread) {
-    nsLayoutStatics::Release();
-  }
-  else {
-    sXPConnect->Release();
-  }
-
+  AutoPushJSContext context(cx);
+  rv = sXPConnect->WrapNativeToJSVal(context, scope, native, cache, aIID,
+                                     aAllowWrapping, vp, aHolder);
   return rv;
 }
 
@@ -6491,4 +6439,53 @@ nsContentUtils::DOMWindowDumpEnabled()
 #else
   return true;
 #endif
+}
+
+void
+nsContentUtils::GetNodeTextContent(nsINode* aNode, bool aDeep, nsAString& aResult)
+{
+  aResult.Truncate();
+  AppendNodeTextContent(aNode, aDeep, aResult);
+}
+
+void
+nsContentUtils::DestroyMatchString(void* aData)
+{
+  if (aData) {
+    nsString* matchString = static_cast<nsString*>(aData);
+    delete matchString;
+  }
+}
+
+bool
+nsContentUtils::IsJavascriptMIMEType(const nsAString& aMIMEType)
+{
+  // Table ordered from most to least likely JS MIME types.
+  static const char* jsTypes[] = {
+    "text/javascript",
+    "text/ecmascript",
+    "application/javascript",
+    "application/ecmascript",
+    "application/x-javascript",
+    "application/x-ecmascript",
+    "text/javascript1.0",
+    "text/javascript1.1",
+    "text/javascript1.2",
+    "text/javascript1.3",
+    "text/javascript1.4",
+    "text/javascript1.5",
+    "text/jscript",
+    "text/livescript",
+    "text/x-ecmascript",
+    "text/x-javascript",
+    nullptr
+  };
+
+  for (uint32_t i = 0; jsTypes[i]; ++i) {
+    if (aMIMEType.LowerCaseEqualsASCII(jsTypes[i])) {
+      return true;
+    }
+  }
+
+  return false;
 }

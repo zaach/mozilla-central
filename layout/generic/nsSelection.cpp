@@ -13,23 +13,17 @@
 #include "mozilla/Attributes.h"
 
 #include "nsCOMPtr.h"
-#include "nsWeakReference.h"
-#include "nsIFactory.h"
 #include "nsString.h"
-#include "nsReadableUtils.h"
 #include "nsFrameSelection.h"
 #include "nsISelectionListener.h"
-#include "nsIComponentManager.h"
 #include "nsContentCID.h"
 #include "nsIContent.h"
-#include "nsIDOMElement.h"
 #include "nsIDOMNode.h"
 #include "nsRange.h"
 #include "nsCOMArray.h"
 #include "nsGUIEvent.h"
 #include "nsIDOMKeyEvent.h"
 #include "nsITableCellLayout.h"
-#include "nsIDOMNodeList.h"
 #include "nsTArray.h"
 #include "nsTableOuterFrame.h"
 #include "nsTableCellFrame.h"
@@ -41,8 +35,6 @@
 #include <algorithm>
 
 // for IBMBIDI
-#include "nsFrameTraversal.h"
-#include "nsILineIterator.h"
 #include "nsGkAtoms.h"
 #include "nsIFrameTraversal.h"
 #include "nsLayoutUtils.h"
@@ -65,7 +57,6 @@ static NS_DEFINE_CID(kFrameTraversalCID, NS_FRAMETRAVERSAL_CID);
 
 
 #include "nsITimer.h"
-#include "nsIServiceManager.h"
 #include "nsFrameManager.h"
 // notifications
 #include "nsIDOMDocument.h"
@@ -88,10 +79,6 @@ using namespace mozilla;
 //#define DEBUG_TABLE 1
 
 static NS_DEFINE_IID(kCContentIteratorCID, NS_CONTENTITERATOR_CID);
-
-//PROTOTYPES
-class nsFrameSelection;
-class nsAutoScrollTimer;
 
 static bool IsValidSelectionPoint(nsFrameSelection *aFrameSel, nsINode *aNode);
 
@@ -128,8 +115,6 @@ struct CachedOffsetForFrame {
   int32_t      mLastContentOffset;      // store last content offset
   bool mCanCacheFrameOffset;    // cached frame offset is valid?
 };
-
-static RangeData sEmptyData(nullptr);
 
 // Stack-class to turn on/off selection batching for table selection
 class MOZ_STACK_CLASS nsSelectionBatcher MOZ_FINAL
@@ -4449,6 +4434,10 @@ Selection::CollapseToStart()
   if (!firstRange)
     return NS_ERROR_FAILURE;
 
+  if (mFrameSelection) {
+    int16_t reason = mFrameSelection->PopReason() | nsISelectionListener::COLLAPSETOSTART_REASON;
+    mFrameSelection->PostReason(reason);
+  }
   return Collapse(firstRange->GetStartParent(), firstRange->StartOffset());
 }
 
@@ -4469,6 +4458,10 @@ Selection::CollapseToEnd()
   if (!lastRange)
     return NS_ERROR_FAILURE;
 
+  if (mFrameSelection) {
+    int16_t reason = mFrameSelection->PopReason() | nsISelectionListener::COLLAPSETOEND_REASON;
+    mFrameSelection->PostReason(reason);
+  }
   return Collapse(lastRange->GetEndParent(), lastRange->EndOffset());
 }
 
@@ -4517,7 +4510,8 @@ Selection::GetRangeCount(int32_t* aRangeCount)
 NS_IMETHODIMP
 Selection::GetRangeAt(int32_t aIndex, nsIDOMRange** aReturn)
 {
-  *aReturn = mRanges.SafeElementAt(aIndex, sEmptyData).mRange;
+  RangeData empty(nullptr);
+  *aReturn = mRanges.SafeElementAt(aIndex, empty).mRange;
   if (!*aReturn) {
     return NS_ERROR_DOM_INDEX_SIZE_ERR;
   }
@@ -4530,7 +4524,8 @@ Selection::GetRangeAt(int32_t aIndex, nsIDOMRange** aReturn)
 nsRange*
 Selection::GetRangeAt(int32_t aIndex)
 {
-  return mRanges.SafeElementAt(aIndex, sEmptyData).mRange;
+  RangeData empty(nullptr);
+  return mRanges.SafeElementAt(aIndex, empty).mRange;
 }
 
 /*

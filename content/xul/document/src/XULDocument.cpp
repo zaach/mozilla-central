@@ -65,8 +65,6 @@
 #include "nsIObjectOutputStream.h"
 #include "nsContentList.h"
 #include "nsIScriptGlobalObject.h"
-#include "nsIScriptGlobalObjectOwner.h"
-#include "nsIScriptRuntime.h"
 #include "nsIScriptSecurityManager.h"
 #include "nsNodeInfoManager.h"
 #include "nsContentCreatorFunctions.h"
@@ -3078,7 +3076,7 @@ XULDocument::ResumeWalk()
 
                     nsContentUtils::ReportToConsole(
                                         nsIScriptError::warningFlag,
-                                        "XUL Document", nullptr,
+                                        NS_LITERAL_CSTRING("XUL Document"), nullptr,
                                         nsContentUtils::eXUL_PROPERTIES,
                                         "PINotInProlog",
                                         params, ArrayLength(params),
@@ -3371,7 +3369,7 @@ XULDocument::ReportMissingOverlay(nsIURI* aURI)
     NS_ConvertUTF8toUTF16 utfSpec(spec);
     const PRUnichar* params[] = { utfSpec.get() };
     nsContentUtils::ReportToConsole(nsIScriptError::warningFlag,
-                                    "XUL Document", this,
+                                    NS_LITERAL_CSTRING("XUL Document"), this,
                                     nsContentUtils::eXUL_PROPERTIES,
                                     "MissingOverlay",
                                     params, ArrayLength(params));
@@ -3525,7 +3523,7 @@ XULDocument::OnStreamComplete(nsIStreamLoader* aLoader,
             rv = mCurrentScriptProto->Compile(mOffThreadCompileString.get(),
                                               mOffThreadCompileString.Length(),
                                               uri, 1, this,
-                                              mCurrentPrototype->GetScriptGlobalObject(),
+                                              mCurrentPrototype,
                                               this);
             if (NS_SUCCEEDED(rv) && !mCurrentScriptProto->GetScriptObject()) {
                 // We will be notified via OnOffThreadCompileComplete when the
@@ -3545,6 +3543,11 @@ XULDocument::OnStreamComplete(nsIStreamLoader* aLoader,
 NS_IMETHODIMP
 XULDocument::OnScriptCompileComplete(JSScript* aScript, nsresult aStatus)
 {
+    // When compiling off thread the script will not have been attached to the
+    // script proto yet.
+    if (aScript && !mCurrentScriptProto->GetScriptObject())
+        mCurrentScriptProto->Set(aScript);
+
     // Allow load events to be fired once off thread compilation finishes.
     if (mOffThreadCompiling) {
         mOffThreadCompiling = false;
@@ -3553,11 +3556,6 @@ XULDocument::OnScriptCompileComplete(JSScript* aScript, nsresult aStatus)
 
     // After compilation finishes the script's characters are no longer needed.
     mOffThreadCompileString.Truncate();
-
-    // When compiling off thread the script will not have been attached to the
-    // script proto yet.
-    if (aScript && !mCurrentScriptProto->GetScriptObject())
-        mCurrentScriptProto->Set(aScript);
 
     // Clear mCurrentScriptProto now, but save it first for use below in
     // the execute code, and in the while loop that resumes walks of other
@@ -3615,20 +3613,8 @@ XULDocument::OnScriptCompileComplete(JSScript* aScript, nsresult aStatus)
             // Ignore the return value, as we don't need to propagate
             // a failure to write to the FastLoad file, because this
             // method aborts that whole process on error.
-            nsIScriptGlobalObject* global =
-                mCurrentPrototype->GetScriptGlobalObject();
-
-            NS_ASSERTION(global != nullptr, "master prototype w/o global?!");
-            if (global) {
-                nsIScriptContext *scriptContext =
-                    global->GetScriptContext();
-                NS_ASSERTION(scriptContext != nullptr,
-                             "Failed to get script context for language");
-                if (scriptContext)
-                    scriptProto->SerializeOutOfLine(nullptr, global);
-            }
+            scriptProto->SerializeOutOfLine(nullptr, mCurrentPrototype);
         }
-
         // ignore any evaluation errors
     }
 
@@ -3678,7 +3664,7 @@ XULDocument::ExecuteScript(nsIScriptContext * aContext,
     nsAutoMicroTask mt;
     JSContext *cx = aContext->GetNativeContext();
     AutoCxPusher pusher(cx);
-    JSObject* global = mScriptGlobalObject->GetGlobalJSObject();
+    JS::Rooted<JSObject*> global(cx, mScriptGlobalObject->GetGlobalJSObject());
     xpc_UnmarkGrayObject(global);
     xpc_UnmarkGrayScript(aScriptObject);
     JSAutoCompartment ac(cx, global);
@@ -4081,7 +4067,8 @@ XULDocument::OverlayForwardReference::Merge(nsIContent* aTargetNode,
         if (attr == nsGkAtoms::removeelement &&
             value.EqualsLiteral("true")) {
 
-            nsCOMPtr<nsIContent> parent = aTargetNode->GetParent();
+            nsCOMPtr<nsINode> parent = aTargetNode->GetParentNode();
+            if (!parent) return NS_ERROR_FAILURE;
             rv = RemoveElement(parent, aTargetNode);
             if (NS_FAILED(rv)) return rv;
 
@@ -4463,7 +4450,7 @@ XULDocument::CheckBroadcasterHookup(Element* aElement,
 }
 
 nsresult
-XULDocument::InsertElement(nsIContent* aParent, nsIContent* aChild,
+XULDocument::InsertElement(nsINode* aParent, nsIContent* aChild,
                            bool aNotify)
 {
     // Insert aChild appropriately into aParent, accounting for a
@@ -4544,7 +4531,7 @@ XULDocument::InsertElement(nsIContent* aParent, nsIContent* aChild,
 }
 
 nsresult
-XULDocument::RemoveElement(nsIContent* aParent, nsIContent* aChild)
+XULDocument::RemoveElement(nsINode* aParent, nsINode* aChild)
 {
     int32_t nodeOffset = aParent->IndexOf(aChild);
 

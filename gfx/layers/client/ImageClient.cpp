@@ -3,16 +3,36 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "mozilla/layers/TextureClient.h"
-#include "mozilla/layers/ImageClient.h"
-#include "BasicLayers.h"
-#include "mozilla/layers/ShadowLayers.h"
-#include "SharedTextureImage.h"
-#include "ImageContainer.h" // For PlanarYCbCrImage
-#include "mozilla/layers/SharedRGBImage.h"
+#include "ImageClient.h"
+#include <stdint.h>                     // for uint32_t
+#include "ImageContainer.h"             // for Image, PlanarYCbCrImage, etc
+#include "ImageTypes.h"                 // for ImageFormat::PLANAR_YCBCR, etc
+#include "SharedTextureImage.h"         // for SharedTextureImage::Data, etc
+#include "gfx2DGlue.h"                  // for ImageFormatToSurfaceFormat
+#include "gfxASurface.h"                // for gfxASurface, etc
+#include "gfxPlatform.h"                // for gfxPlatform
+#include "gfxPoint.h"                   // for gfxIntSize
+#include "mozilla/Assertions.h"         // for MOZ_ASSERT, etc
+#include "mozilla/RefPtr.h"             // for RefPtr, TemporaryRef
+#include "mozilla/gfx/BaseSize.h"       // for BaseSize
+#include "mozilla/gfx/Point.h"          // for IntSize
+#include "mozilla/gfx/Types.h"          // for SurfaceFormat, etc
+#include "mozilla/layers/CompositableClient.h"  // for CompositableClient
+#include "mozilla/layers/CompositableForwarder.h"
+#include "mozilla/layers/CompositorTypes.h"  // for CompositableType, etc
+#include "mozilla/layers/ISurfaceAllocator.h"
+#include "mozilla/layers/LayersSurfaces.h"  // for SurfaceDescriptor, etc
+#include "mozilla/layers/ShadowLayers.h"  // for ShadowLayerForwarder
 #include "mozilla/layers/SharedPlanarYCbCrImage.h"
-#include "gfxPlatform.h"
-
+#include "mozilla/layers/SharedRGBImage.h"
+#include "mozilla/layers/TextureClient.h"  // for TextureClient, etc
+#include "mozilla/layers/TextureClientOGL.h"  // for SharedTextureClientOGL
+#include "mozilla/mozalloc.h"           // for operator delete, etc
+#include "nsAutoPtr.h"                  // for nsRefPtr
+#include "nsCOMPtr.h"                   // for already_AddRefed
+#include "nsDebug.h"                    // for NS_WARNING, NS_ASSERTION
+#include "nsISupportsImpl.h"            // for Image::Release, etc
+#include "nsRect.h"                     // for nsIntRect
 #ifdef MOZ_WIDGET_GONK
 #include "GrallocImages.h"
 #endif
@@ -115,15 +135,16 @@ ImageClientSingle::UpdateImage(ImageContainer* aContainer,
       mFrontBuffer = nullptr;
     }
 
+    bool bufferCreated = false;
     if (!mFrontBuffer) {
-      mFrontBuffer = CreateBufferTextureClient(gfx::FORMAT_YUV);
+      mFrontBuffer = CreateBufferTextureClient(gfx::FORMAT_YUV, TEXTURE_DEALLOCATE_HOST);
       gfx::IntSize ySize(data->mYSize.width, data->mYSize.height);
       gfx::IntSize cbCrSize(data->mCbCrSize.width, data->mCbCrSize.height);
       if (!mFrontBuffer->AsTextureClientYCbCr()->AllocateForYCbCr(ySize, cbCrSize, data->mStereoMode)) {
         mFrontBuffer = nullptr;
         return false;
       }
-      AddTextureClient(mFrontBuffer);
+      bufferCreated = true;
     }
 
     if (!mFrontBuffer->Lock(OPEN_READ_WRITE)) {
@@ -131,6 +152,10 @@ ImageClientSingle::UpdateImage(ImageContainer* aContainer,
     }
     bool status = mFrontBuffer->AsTextureClientYCbCr()->UpdateYCbCr(*data);
     mFrontBuffer->Unlock();
+
+    if (bufferCreated) {
+      AddTextureClient(mFrontBuffer);
+    }
 
     if (status) {
       GetForwarder()->UpdatedTexture(this, mFrontBuffer, nullptr);
@@ -140,6 +165,22 @@ ImageClientSingle::UpdateImage(ImageContainer* aContainer,
       return false;
     }
 
+  } else if (image->GetFormat() == SHARED_TEXTURE) {
+    SharedTextureImage* sharedImage = static_cast<SharedTextureImage*>(image);
+    const SharedTextureImage::Data *data = sharedImage->GetData();
+    gfx::IntSize size = gfx::IntSize(image->GetSize().width, image->GetSize().height);
+
+    if (mFrontBuffer) {
+      RemoveTextureClient(mFrontBuffer);
+      mFrontBuffer = nullptr;
+    }
+
+    RefPtr<SharedTextureClientOGL> buffer = new SharedTextureClientOGL(mTextureFlags);
+    buffer->InitWith(data->mHandle, size, data->mShareType, data->mInverted);
+    mFrontBuffer = buffer;
+
+    AddTextureClient(mFrontBuffer);
+    GetForwarder()->UseTexture(this, mFrontBuffer);
   } else {
     nsRefPtr<gfxASurface> surface = image->GetAsSurface();
     MOZ_ASSERT(surface);
@@ -152,14 +193,16 @@ ImageClientSingle::UpdateImage(ImageContainer* aContainer,
       mFrontBuffer = nullptr;
     }
 
+    bool bufferCreated = false;
     if (!mFrontBuffer) {
       gfxASurface::gfxImageFormat format
         = gfxPlatform::GetPlatform()->OptimalFormatForContent(surface->GetContentType());
-      mFrontBuffer = CreateBufferTextureClient(gfx::ImageFormatToSurfaceFormat(format));
+      mFrontBuffer = CreateBufferTextureClient(gfx::ImageFormatToSurfaceFormat(format),
+                                               TEXTURE_DEALLOCATE_HOST);
       MOZ_ASSERT(mFrontBuffer->AsTextureClientSurface());
       mFrontBuffer->AsTextureClientSurface()->AllocateForSurface(size);
 
-      AddTextureClient(mFrontBuffer);
+      bufferCreated = true;
     }
 
     if (!mFrontBuffer->Lock(OPEN_READ_WRITE)) {
@@ -167,6 +210,11 @@ ImageClientSingle::UpdateImage(ImageContainer* aContainer,
     }
     bool status = mFrontBuffer->AsTextureClientSurface()->UpdateSurface(surface);
     mFrontBuffer->Unlock();
+
+    if (bufferCreated) {
+      AddTextureClient(mFrontBuffer);
+    }
+
     if (status) {
       GetForwarder()->UpdatedTexture(this, mFrontBuffer, nullptr);
       GetForwarder()->UseTexture(this, mFrontBuffer);
@@ -197,6 +245,12 @@ ImageClientSingle::AddTextureClient(TextureClient* aTexture)
 {
   MOZ_ASSERT((mTextureFlags & aTexture->GetFlags()) == mTextureFlags);
   CompositableClient::AddTextureClient(aTexture);
+}
+
+TemporaryRef<BufferTextureClient>
+ImageClientSingle::CreateBufferTextureClient(gfx::SurfaceFormat aFormat, TextureFlags aFlags)
+{
+  return CompositableClient::CreateBufferTextureClient(aFormat, mTextureFlags | aFlags);
 }
 
 TemporaryRef<BufferTextureClient>

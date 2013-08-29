@@ -90,7 +90,11 @@ const RIL_IPC_TELEPHONY_MSG_NAMES = [
   "RIL:RejectCall",
   "RIL:HoldCall",
   "RIL:ResumeCall",
-  "RIL:RegisterTelephonyMsg"
+  "RIL:RegisterTelephonyMsg",
+  "RIL:ConferenceCall",
+  "RIL:SeparateCall",
+  "RIL:HoldConference",
+  "RIL:ResumeConference"
 ];
 
 const RIL_IPC_MOBILECONNECTION_MSG_NAMES = [
@@ -105,6 +109,7 @@ const RIL_IPC_MOBILECONNECTION_MSG_NAMES = [
   "RIL:GetCallForwardingOption",
   "RIL:SetCallBarringOption",
   "RIL:GetCallBarringOption",
+  "RIL:ChangeCallBarringPassword",
   "RIL:SetCallWaitingOption",
   "RIL:GetCallWaitingOption",
   "RIL:SetCallingLineIdRestriction",
@@ -930,6 +935,19 @@ RadioInterface.prototype = {
       case "RIL:ResumeCall":
         this.workerMessenger.send("resumeCall", { callIndex: msg.json.data });
         break;
+      case "RIL:ConferenceCall":
+        this.workerMessenger.send("conferenceCall");
+        break;
+      case "RIL:SeparateCall":
+        this.workerMessenger.send("separateCall",
+                                  { callIndex: msg.json.data });
+        break;
+      case "RIL:HoldConference":
+        this.workerMessenger.send("holdConference");
+        break;
+      case "RIL:ResumeConference":
+        this.workerMessenger.send("resumeConference");
+        break;
       case "RIL:GetAvailableNetworks":
         this.workerMessenger.sendWithIPCMessage(msg, "getAvailableNetworks");
         break;
@@ -1000,6 +1018,9 @@ RadioInterface.prototype = {
       case "RIL:GetCallBarringOption":
         this.workerMessenger.sendWithIPCMessage(msg, "queryCallBarringStatus");
         break;
+      case "RIL:ChangeCallBarringPassword":
+        this.workerMessenger.sendWithIPCMessage(msg, "changeCallBarringPassword");
+        break;
       case "RIL:SetCallWaitingOption":
         this.workerMessenger.sendWithIPCMessage(msg, "setCallWaiting");
         break;
@@ -1046,6 +1067,9 @@ RadioInterface.prototype = {
         // This one will handle its own notifications.
         this.handleCallDisconnected(message.call);
         break;
+      case "conferenceCallStateChanged":
+        this.handleConferenceCallStateChanged(message.state);
+        break;
       case "cdmaCallWaiting":
         gMessageManager.sendTelephonyMessage("RIL:CdmaCallWaiting",
                                              this.clientId, message.number);
@@ -1079,6 +1103,9 @@ RadioInterface.prototype = {
         break;
       case "operatorchange":
         this.handleOperatorChange(message);
+        break;
+      case "otastatuschange":
+        this.handleOtaStatus(message);
         break;
       case "radiostatechange":
         this.handleRadioStateChange(message);
@@ -1437,6 +1464,18 @@ RadioInterface.prototype = {
     }
   },
 
+  handleOtaStatus: function handleOtaStatus(message) {
+    if (message.status < 0 ||
+        RIL.CDMA_OTA_PROVISION_STATUS_TO_GECKO.length <= message.status) {
+      return;
+    }
+
+    let status = RIL.CDMA_OTA_PROVISION_STATUS_TO_GECKO[message.status];
+
+    gMessageManager.sendMobileConnectionMessage("RIL:OtaStatusChanged",
+                                                this.clientId, status);
+  },
+
   handleRadioStateChange: function handleRadioStateChange(message) {
     this._changingRadioPower = false;
 
@@ -1496,55 +1535,51 @@ RadioInterface.prototype = {
    *    the APN setting via APN types.
    */
   updateApnSettings: function updateApnSettings(allApnSettings) {
-    // TODO: Support multi-SIM, bug 799023.
-    let simNumber = 1;
-    for (let simId = 0; simId < simNumber; simId++) {
-      let thisSimApnSettings = allApnSettings[simId];
-      if (!thisSimApnSettings) {
-        return;
+    let thisSimApnSettings = allApnSettings[this.clientId];
+    if (!thisSimApnSettings) {
+      return;
+    }
+
+    // Clear old APN settings.
+    for each (let apnSetting in this.apnSettings.byAPN) {
+      // Clear all connections of this APN settings.
+      for each (let type in apnSetting.types) {
+        if (this.getDataCallStateByType(type) ==
+            RIL.GECKO_NETWORK_STATE_CONNECTED) {
+          this.deactivateDataCallByType(type);
+        }
+      }
+      if (apnSetting.iface.name in gNetworkManager.networkInterfaces) {
+        gNetworkManager.unregisterNetworkInterface(apnSetting.iface);
+      }
+      this.unregisterDataCallCallback(apnSetting.iface);
+      delete apnSetting.iface;
+    }
+    this.apnSettings.byAPN = {};
+    this.apnSettings.byType = {};
+
+    // Create new APN settings.
+    for (let apnIndex = 0; thisSimApnSettings[apnIndex]; apnIndex++) {
+      let inputApnSetting = thisSimApnSettings[apnIndex];
+      if (!this.validateApnSetting(inputApnSetting)) {
+        continue;
       }
 
-      // Clear old APN settings.
-      for each (let apnSetting in this.apnSettings.byAPN) {
-        // Clear all connections of this APN settings.
-        for each (let type in apnSetting.types) {
-          if (this.getDataCallStateByType(type) ==
-              RIL.GECKO_NETWORK_STATE_CONNECTED) {
-            this.deactivateDataCallByType(type);
-          }
-        }
-        if (apnSetting.iface.name in gNetworkManager.networkInterfaces) {
-          gNetworkManager.unregisterNetworkInterface(apnSetting.iface);
-        }
-        this.unregisterDataCallCallback(apnSetting.iface);
-        delete apnSetting.iface;
+      // Combine APN, user name, and password as the key of byAPN{} to get
+      // the corresponding APN setting.
+      let apnKey = inputApnSetting.apn + (inputApnSetting.user || '') +
+                   (inputApnSetting.password || '');
+      if (!this.apnSettings.byAPN[apnKey]) {
+        this.apnSettings.byAPN[apnKey] = {};
+        this.apnSettings.byAPN[apnKey] = inputApnSetting;
+        this.apnSettings.byAPN[apnKey].iface =
+          new RILNetworkInterface(this, this.apnSettings.byAPN[apnKey]);
+      } else {
+        this.apnSettings.byAPN[apnKey].types.push(inputApnSetting.types);
       }
-      this.apnSettings.byAPN = {};
-      this.apnSettings.byType = {};
-
-      // Create new APN settings.
-      for (let apnIndex = 0; thisSimApnSettings[apnIndex]; apnIndex++) {
-        let inputApnSetting = thisSimApnSettings[apnIndex];
-        if (!this.validateApnSetting(inputApnSetting)) {
-          continue;
-        }
-
-        // Combine APN, user name, and password as the key of byAPN{} to get
-        // the corresponding APN setting.
-        let apnKey = inputApnSetting.apn + (inputApnSetting.user || '') +
-                     (inputApnSetting.password || '');
-        if (!this.apnSettings.byAPN[apnKey]) {
-          this.apnSettings.byAPN[apnKey] = {};
-          this.apnSettings.byAPN[apnKey] = inputApnSetting;
-          this.apnSettings.byAPN[apnKey].iface =
-            new RILNetworkInterface(this, this.apnSettings.byAPN[apnKey]);
-        } else {
-          this.apnSettings.byAPN[apnKey].types.push(inputApnSetting.types);
-        }
-        for each (let type in inputApnSetting.types) {
-          this.apnSettings.byType[type] = {};
-          this.apnSettings.byType[type] = this.apnSettings.byAPN[apnKey];
-        }
+      for each (let type in inputApnSetting.types) {
+        this.apnSettings.byType[type] = {};
+        this.apnSettings.byType[type] = this.apnSettings.byAPN[apnKey];
       }
     }
   },
@@ -1657,7 +1692,35 @@ RadioInterface.prototype = {
    * Track the active call and update the audio system as its state changes.
    */
   _activeCall: null,
-  updateCallAudioState: function updateCallAudioState(call) {
+  updateCallAudioState: function updateCallAudioState(options) {
+    if (options.conferenceState === nsITelephonyProvider.CALL_STATE_CONNECTED) {
+      gAudioManager.phoneState = nsIAudioManager.PHONE_STATE_IN_CALL;
+      if (this.speakerEnabled) {
+        gAudioManager.setForceForUse(nsIAudioManager.USE_COMMUNICATION,
+                                     nsIAudioManager.FORCE_SPEAKER);
+      }
+      return;
+    }
+    if (options.conferenceState === nsITelephonyProvider.CALL_STATE_UNKNOWN ||
+        options.conferenceState === nsITelephonyProvider.CALL_STATE_HELD) {
+      if (!this._activeCall) {
+        gAudioManager.phoneState = nsIAudioManager.PHONE_STATE_NORMAL;
+      }
+      return;
+    }
+
+    if (!options.call) {
+      return;
+    }
+
+    if (options.call.isConference) {
+      if (this._activeCall && this._activeCall.callIndex == options.call.callIndex) {
+        this._activeCall = null;
+      }
+      return;
+    }
+
+    let call = options.call;
     switch (call.state) {
       case nsITelephonyProvider.CALL_STATE_DIALING: // Fall through...
       case nsITelephonyProvider.CALL_STATE_ALERTING:
@@ -1751,7 +1814,7 @@ RadioInterface.prototype = {
     if (call.state == nsITelephonyProvider.CALL_STATE_DIALING) {
       gSystemMessenger.broadcastMessage("telephony-new-call", {});
     }
-    this.updateCallAudioState(call);
+    this.updateCallAudioState({call: call});
     gMessageManager.sendTelephonyMessage("RIL:CallStateChanged",
                                          this.clientId, call);
   },
@@ -1770,9 +1833,18 @@ RadioInterface.prototype = {
       direction: call.isOutgoing ? "outgoing" : "incoming"
     };
     gSystemMessenger.broadcastMessage("telephony-call-ended", data);
-    this.updateCallAudioState(call);
+    this.updateCallAudioState({call: call});
     gMessageManager.sendTelephonyMessage("RIL:CallStateChanged",
                                          this.clientId, call);
+  },
+
+  handleConferenceCallStateChanged: function handleConferenceCallStateChanged(state) {
+    debug("handleConferenceCallStateChanged: " + state);
+    state = state != null ? convertRILCallState(state) :
+                            nsITelephonyProvider.CALL_STATE_UNKNOWN;
+    this.updateCallAudioState({conferenceState: state});
+    gMessageManager.sendTelephonyMessage("RIL:ConferenceCallStateChanged",
+                                         this.clientId, state);
   },
 
   /**
@@ -2265,8 +2337,15 @@ RadioInterface.prototype = {
         break;
       case "ril.data.enabled":
         if (DEBUG) this.debug("'ril.data.enabled' is now " + aResult);
+        let enabled;
+        if (Array.isArray(aResult)) {
+          enabled = aResult[this.clientId];
+        } else {
+          // Backward compability
+          enabled = aResult;
+        }
         this.dataCallSettings.oldEnabled = this.dataCallSettings.enabled;
-        this.dataCallSettings.enabled = aResult;
+        this.dataCallSettings.enabled = enabled;
         this.updateRILNetworkInterface();
         break;
       case "ril.data.roaming_enabled":
@@ -2427,6 +2506,7 @@ RadioInterface.prototype = {
         this._updateCallingLineIdRestrictionPref(response.clirMode);
       }
       target.sendAsyncMessage("RIL:SetCallingLineIdRestriction", response);
+      return false;
     }).bind(this));
   },
 
@@ -3232,6 +3312,8 @@ RadioInterface.prototype = {
 function RILNetworkInterface(radioInterface, apnSetting) {
   this.radioInterface = radioInterface;
   this.apnSetting = apnSetting;
+
+  this.connectedTypes = [];
 }
 
 RILNetworkInterface.prototype = {
@@ -3287,8 +3369,6 @@ RILNetworkInterface.prototype = {
   },
 
   name: null,
-
-  dhcp: false,
 
   ip: null,
 
@@ -3402,12 +3482,12 @@ RILNetworkInterface.prototype = {
   registeredAsDataCallCallback: false,
   registeredAsNetworkInterface: false,
   connecting: false,
-  apnSetting: {},
+  apnSetting: null,
 
   // APN failed connections. Retry counter
   apnRetryCounter: 0,
 
-  connectedTypes: [],
+  connectedTypes: null,
 
   inConnectedTypes: function inConnectedTypes(type) {
     return this.connectedTypes.indexOf(type) != -1;

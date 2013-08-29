@@ -64,6 +64,7 @@
 #include "nsCycleCollectionParticipant.h"
 #include "nsCycleCollector.h"
 #include "nsDOMJSUtils.h"
+#include "nsThreadUtils.h"
 #include "xpcpublic.h"
 
 using namespace mozilla;
@@ -258,8 +259,9 @@ private:
     if (delegateMightNeedMarking && kkind == JSTRACE_OBJECT) {
       JSObject* kdelegate = js::GetWeakmapKeyDelegate((JSObject*)k);
       if (kdelegate && !xpc_IsGrayGCThing(kdelegate)) {
-        JS::UnmarkGrayGCThingRecursively(k, JSTRACE_OBJECT);
-        tracer->mAnyMarked = true;
+        if (JS::UnmarkGrayGCThingRecursively(k, JSTRACE_OBJECT)) {
+          tracer->mAnyMarked = true;
+        }
       }
     }
 
@@ -267,8 +269,9 @@ private:
         (!k || !xpc_IsGrayGCThing(k)) &&
         (!m || !xpc_IsGrayGCThing(m)) &&
         vkind != JSTRACE_SHAPE) {
-      JS::UnmarkGrayGCThingRecursively(v, vkind);
-      tracer->mAnyMarked = true;
+      if (JS::UnmarkGrayGCThingRecursively(v, vkind)) {
+        tracer->mAnyMarked = true;
+      }
     }
   }
 

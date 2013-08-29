@@ -14,7 +14,7 @@
 #include "jit/MIR.h"
 
 namespace js {
-namespace ion {
+namespace jit {
 
 class BaselineInspector;
 
@@ -104,11 +104,12 @@ class BaselineInspector
     MIRType expectedBinaryArithSpecialization(jsbytecode *pc);
 
     bool hasSeenNonNativeGetElement(jsbytecode *pc);
+    bool hasSeenNegativeIndexGetElement(jsbytecode *pc);
     bool hasSeenAccessedGetter(jsbytecode *pc);
     bool hasSeenDoubleResult(jsbytecode *pc);
 };
 
-} // namespace ion
+} // namespace jit
 } // namespace js
 
 #endif // JS_ION

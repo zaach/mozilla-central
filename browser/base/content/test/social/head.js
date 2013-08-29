@@ -165,7 +165,8 @@ function runSocialTests(tests, cbPreTest, cbPostTest, cbFinish) {
     } catch (err if err instanceof StopIteration) {
       // out of items:
       (cbFinish || defaultFinishChecks)();
-      info("runSocialTests: finish test run with " + Social.providers.length + " providers");
+      is(providersAtStart, Social.providers.length,
+         "runSocialTests: finish test run with " + Social.providers.length + " providers");
       return;
     }
     // We run on a timeout as the frameworker also makes use of timeouts, so
@@ -314,26 +315,6 @@ function resetBuiltinManifestPref(name) {
      Services.prefs.PREF_INVALID, "default manifest removed");
 }
 
-function addWindowListener(aURL, aCallback) {
-  Services.wm.addListener({
-    onOpenWindow: function(aXULWindow) {
-      info("window opened, waiting for focus");
-      Services.wm.removeListener(this);
-
-      var domwindow = aXULWindow.QueryInterface(Ci.nsIInterfaceRequestor)
-                                .getInterface(Ci.nsIDOMWindow);
-      waitForFocus(function() {
-        is(domwindow.document.location.href, aURL, "window opened and focused");
-        executeSoon(function() {
-          aCallback(domwindow);
-        });
-      }, domwindow);
-    },
-    onCloseWindow: function(aXULWindow) { },
-    onWindowTitleChange: function(aXULWindow, aNewTitle) { }
-  });
-}
-
 function addTab(url, callback) {
   let tab = gBrowser.selectedTab = gBrowser.addTab(url, {skipAnimation: true});
   tab.linkedBrowser.addEventListener("load", function tabLoad(event) {
@@ -417,8 +398,8 @@ function get3ChatsForCollapsing(mode, cb) {
 
 function makeChat(mode, uniqueid, cb) {
   info("making a chat window '" + uniqueid +"'");
-  const chatUrl = "https://example.com/browser/browser/base/content/test/social/social_chat.html";
   let provider = Social.provider;
+  const chatUrl = provider.origin + "/browser/browser/base/content/test/social/social_chat.html";
   let isOpened = window.SocialChatBar.openChat(provider, chatUrl + "?id=" + uniqueid, function(chat) {
     info("chat window has opened");
     // we can't callback immediately or we might close the chat during

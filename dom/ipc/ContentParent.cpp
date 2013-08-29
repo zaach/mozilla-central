@@ -77,10 +77,12 @@
 #include "nsIRemoteBlob.h"
 #include "nsIScriptError.h"
 #include "nsIScriptSecurityManager.h"
+#include "nsIStyleSheet.h"
 #include "nsISupportsPrimitives.h"
 #include "nsIURIFixup.h"
 #include "nsIWindowWatcher.h"
 #include "nsServiceManagerUtils.h"
+#include "nsStyleSheetService.h"
 #include "nsSystemInfo.h"
 #include "nsThreadUtils.h"
 #include "nsToolkitCompsCID.h"
@@ -939,6 +941,10 @@ ContentParent::OnChannelConnected(int32_t pid)
         }
 #endif
     }
+
+    // Set a reply timeout. The only time the parent process will actually
+    // timeout is through urgent messages (which are used by CPOWs).
+    SetReplyTimeoutMs(Preferences::GetInt("dom.ipc.cpow.timeout", 3000));
 }
 
 void
@@ -1254,9 +1260,37 @@ ContentParent::ContentParent(mozIApplication* aApp,
         nsCString name(gAppData->name);
         nsCString UAName(gAppData->UAName);
 
-        //Sending all information to content process
+        // Sending all information to content process.
         unused << SendAppInfo(version, buildID, name, UAName);
     }
+
+    nsStyleSheetService *sheetService = nsStyleSheetService::GetInstance();
+    if (sheetService) {
+        // This looks like a lot of work, but in a normal browser session we just
+        // send two loads.
+
+        nsCOMArray<nsIStyleSheet>& agentSheets = *sheetService->AgentStyleSheets();
+        for (uint32_t i = 0; i < agentSheets.Length(); i++) {
+            URIParams uri;
+            SerializeURI(agentSheets[i]->GetSheetURI(), uri);
+            unused << SendLoadAndRegisterSheet(uri, nsIStyleSheetService::AGENT_SHEET);
+        }
+
+        nsCOMArray<nsIStyleSheet>& userSheets = *sheetService->UserStyleSheets();
+        for (uint32_t i = 0; i < userSheets.Length(); i++) {
+            URIParams uri;
+            SerializeURI(userSheets[i]->GetSheetURI(), uri);
+            unused << SendLoadAndRegisterSheet(uri, nsIStyleSheetService::USER_SHEET);
+        }
+
+        nsCOMArray<nsIStyleSheet>& authorSheets = *sheetService->AuthorStyleSheets();
+        for (uint32_t i = 0; i < authorSheets.Length(); i++) {
+            URIParams uri;
+            SerializeURI(authorSheets[i]->GetSheetURI(), uri);
+            unused << SendLoadAndRegisterSheet(uri, nsIStyleSheetService::AUTHOR_SHEET);
+        }
+    }
+
 }
 
 ContentParent::~ContentParent()
@@ -1676,14 +1710,19 @@ ContentParent::Observe(nsISupports* aSubject,
         nsString mountPoint;
         int32_t  state;
         int32_t  mountGeneration;
+        bool     isMediaPresent;
+        bool     isSharing;
 
         vol->GetName(volName);
         vol->GetMountPoint(mountPoint);
         vol->GetState(&state);
         vol->GetMountGeneration(&mountGeneration);
+        vol->GetIsMediaPresent(&isMediaPresent);
+        vol->GetIsSharing(&isSharing);
 
         unused << SendFileSystemUpdate(volName, mountPoint, state,
-                                       mountGeneration);
+                                       mountGeneration, isMediaPresent,
+                                       isSharing);
     }
 #endif
 #ifdef ACCESSIBILITY
@@ -2531,7 +2570,7 @@ bool
 ContentParent::RecvAddGeolocationListener(const IPC::Principal& aPrincipal,
                                           const bool& aHighAccuracy)
 {
-#ifdef MOZ_PERMISSIONS
+#ifdef MOZ_CHILD_PERMISSIONS
   if (Preferences::GetBool("geo.testing.ignore_ipc_principal", false) == false) {
     nsIPrincipal* principal = aPrincipal;
     if (principal == nullptr) {
@@ -2790,6 +2829,15 @@ ContentParent::RecvKeywordToURI(const nsCString& aKeyword, OptionalInputStreamPa
   SerializeInputStream(postData, *aPostData);
   SerializeURI(uri, *aURI);
   return true;
+}
+
+bool
+ContentParent::ShouldContinueFromReplyTimeout()
+{
+  // The only time ContentParent sends blocking messages is for CPOWs, so
+  // timeouts should only ever occur in electrolysis-enabled sessions.
+  MOZ_ASSERT(Preferences::GetBool("browser.tabs.remote", false));
+  return false;
 }
 
 } // namespace dom

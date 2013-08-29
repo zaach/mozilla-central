@@ -35,8 +35,8 @@ XPCOMUtils.defineLazyModuleGetter(this, "UserAgentOverrides",
 XPCOMUtils.defineLazyModuleGetter(this, "LoginManagerContent",
                                   "resource://gre/modules/LoginManagerContent.jsm");
 
-XPCOMUtils.defineLazyModuleGetter(this, "NetUtil",
-                                  "resource://gre/modules/NetUtil.jsm");
+XPCOMUtils.defineLazyModuleGetter(this, "Task", "resource://gre/modules/Task.jsm");
+XPCOMUtils.defineLazyModuleGetter(this, "OS", "resource://gre/modules/osfile.jsm");
 
 #ifdef MOZ_SAFE_BROWSING
 XPCOMUtils.defineLazyModuleGetter(this, "SafeBrowsing",
@@ -69,6 +69,7 @@ XPCOMUtils.defineLazyServiceGetter(this, "uuidgen",
   ["MasterPassword", "chrome://browser/content/MasterPassword.js"],
   ["PluginHelper", "chrome://browser/content/PluginHelper.js"],
   ["OfflineApps", "chrome://browser/content/OfflineApps.js"],
+  ["Linkifier", "chrome://browser/content/Linkify.js"],
 ].forEach(function (aScript) {
   let [name, script] = aScript;
   XPCOMUtils.defineLazyGetter(window, name, function() {
@@ -242,6 +243,7 @@ var BrowserApp = {
   _tabs: [],
   _selectedTab: null,
   _prefObservers: [],
+  isGuest: false,
 
   get isTablet() {
     let sysInfo = Cc["@mozilla.org/system-info;1"].getService(Ci.nsIPropertyBag2);
@@ -335,9 +337,6 @@ var BrowserApp = {
     ExternalApps.init();
     Distribution.init();
     Tabs.init();
-#ifdef MOZ_TELEMETRY_REPORTING
-    Telemetry.init();
-#endif
 #ifdef ACCESSIBILITY
     AccessFu.attach(window);
 #endif
@@ -356,6 +355,8 @@ var BrowserApp = {
         gScreenHeight = window.arguments[2];
       if (window.arguments[3])
         pinned = window.arguments[3];
+      if (window.arguments[4])
+        this.isGuest = window.arguments[4];
     }
 
     let status = this.startupStatus();
@@ -453,7 +454,7 @@ var BrowserApp = {
       });
 
     NativeWindow.contextmenus.add(Strings.browser.GetStringFromName("contextmenu.shareLink"),
-      NativeWindow.contextmenus.linkShareableContext,
+      NativeWindow.contextmenus._disableInGuest(NativeWindow.contextmenus.linkShareableContext),
       function(aTarget) {
         let url = NativeWindow.contextmenus._getLinkURL(aTarget);
         let title = aTarget.textContent || aTarget.title;
@@ -461,7 +462,7 @@ var BrowserApp = {
       });
 
     NativeWindow.contextmenus.add(Strings.browser.GetStringFromName("contextmenu.shareEmailAddress"),
-      NativeWindow.contextmenus.emailLinkContext,
+      NativeWindow.contextmenus._disableInGuest(NativeWindow.contextmenus.emailLinkContext),
       function(aTarget) {
         let url = NativeWindow.contextmenus._getLinkURL(aTarget);
         let emailAddr = NativeWindow.contextmenus._stripScheme(url);
@@ -470,7 +471,7 @@ var BrowserApp = {
       });
 
     NativeWindow.contextmenus.add(Strings.browser.GetStringFromName("contextmenu.sharePhoneNumber"),
-      NativeWindow.contextmenus.phoneNumberLinkContext,
+      NativeWindow.contextmenus._disableInGuest(NativeWindow.contextmenus.phoneNumberLinkContext),
       function(aTarget) {
         let url = NativeWindow.contextmenus._getLinkURL(aTarget);
         let phoneNumber = NativeWindow.contextmenus._stripScheme(url);
@@ -479,7 +480,7 @@ var BrowserApp = {
       });
 
     NativeWindow.contextmenus.add(Strings.browser.GetStringFromName("contextmenu.addToContacts"),
-      NativeWindow.contextmenus.emailLinkContext,
+      NativeWindow.contextmenus._disableInGuest(NativeWindow.contextmenus.emailLinkContext),
       function(aTarget) {
         let url = NativeWindow.contextmenus._getLinkURL(aTarget);
         sendMessageToJava({
@@ -489,7 +490,7 @@ var BrowserApp = {
       });
 
     NativeWindow.contextmenus.add(Strings.browser.GetStringFromName("contextmenu.addToContacts"),
-      NativeWindow.contextmenus.phoneNumberLinkContext,
+      NativeWindow.contextmenus._disableInGuest(NativeWindow.contextmenus.phoneNumberLinkContext),
       function(aTarget) {
         let url = NativeWindow.contextmenus._getLinkURL(aTarget);
         sendMessageToJava({
@@ -529,7 +530,7 @@ var BrowserApp = {
       });
 
     NativeWindow.contextmenus.add(Strings.browser.GetStringFromName("contextmenu.shareMedia"),
-      NativeWindow.contextmenus.SelectorContext("video"),
+      NativeWindow.contextmenus._disableInGuest(NativeWindow.contextmenus.SelectorContext("video")),
       function(aTarget) {
         let url = (aTarget.currentSrc || aTarget.src);
         let title = aTarget.textContent || aTarget.title;
@@ -562,7 +563,7 @@ var BrowserApp = {
       });
 
     NativeWindow.contextmenus.add(Strings.browser.GetStringFromName("contextmenu.shareImage"),
-      NativeWindow.contextmenus.imageSaveableContext,
+      NativeWindow.contextmenus._disableInGuest(NativeWindow.contextmenus.imageSaveableContext),
       function(aTarget) {
         let doc = aTarget.ownerDocument;
         let imageCache = Cc["@mozilla.org/image/tools;1"].getService(Ci.imgITools)
@@ -591,7 +592,7 @@ var BrowserApp = {
       });
 
     NativeWindow.contextmenus.add(Strings.browser.GetStringFromName("contextmenu.setImageAs"),
-      NativeWindow.contextmenus.imageSaveableContext,
+      NativeWindow.contextmenus._disableInGuest(NativeWindow.contextmenus.imageSaveableContext),
       function(aTarget) {
         let src = aTarget.src;
         sendMessageToJava({
@@ -656,9 +657,6 @@ var BrowserApp = {
     ExternalApps.uninit();
     Distribution.uninit();
     Tabs.uninit();
-#ifdef MOZ_TELEMETRY_REPORTING
-    Telemetry.uninit();
-#endif
   },
 
   // This function returns false during periods where the browser displayed document is
@@ -778,18 +776,16 @@ var BrowserApp = {
     let referrerURI = "referrerURI" in aParams ? aParams.referrerURI : null;
     let charset = "charset" in aParams ? aParams.charset : null;
 
-    if ("showProgress" in aParams || "userSearch" in aParams) {
-      let tab = this.getTabForBrowser(aBrowser);
-      if (tab) {
-        if ("showProgress" in aParams) tab.showProgress = aParams.showProgress;
-        if ("userSearch" in aParams) tab.userSearch = aParams.userSearch;
-      }
+    let tab = this.getTabForBrowser(aBrowser);
+    if (tab) {
+      if (!tab.aboutHomePage) tab.aboutHomePage = ("aboutHomePage" in aParams) ? aParams.aboutHomePage : "";
+      if ("showProgress" in aParams) tab.showProgress = aParams.showProgress;
+      if ("userSearch" in aParams) tab.userSearch = aParams.userSearch;
     }
 
     try {
       aBrowser.loadURIWithFlags(aURI, flags, referrerURI, charset, postData);
     } catch(e) {
-      let tab = this.getTabForBrowser(aBrowser);
       if (tab) {
         let message = {
           type: "Content:LoadError",
@@ -1389,6 +1385,7 @@ var BrowserApp = {
           flags: flags,
           tabID: data.tabID,
           isPrivate: (data.isPrivate === true),
+          aboutHomePage: ("aboutHomePage" in data) ? data.aboutHomePage : "",
           pinned: (data.pinned === true),
           delayLoad: (delayLoad === true),
           desktopMode: (data.desktopMode === true)
@@ -1628,7 +1625,8 @@ var NativeWindow = {
         type: "PageActions:Add",
         id: id,
         title: aOptions.title,
-        icon: resolveGeckoURI(aOptions.icon)
+        icon: resolveGeckoURI(aOptions.icon),
+        important: "important" in aOptions ? aOptions.important : false
       });
       this._items[id] = {
         clickCallback: aOptions.clickCallback,
@@ -2201,6 +2199,16 @@ var NativeWindow = {
       return null;
     },
 
+    _disableInGuest: function _disableInGuest(selector) {
+      return {
+        matches: function _disableInGuestMatches(aElement, aX, aY) {
+          if (BrowserApp.isGuest)
+            return false;
+          return selector.matches(aElement, aX, aY);
+        }
+      }
+    },
+
     _getLinkURL: function ch_getLinkURL(aLink) {
       let href = aLink.href;
       if (href)
@@ -2567,6 +2575,7 @@ function Tab(aURL, aParams) {
   this.clickToPlayPluginsActivated = false;
   this.desktopMode = false;
   this.originalURI = null;
+  this.aboutHomePage = null;
   this.savedArticle = null;
   this.hasTouchListener = false;
   this.browserWidth = 0;
@@ -2668,6 +2677,7 @@ Tab.prototype = {
     this.browser.sessionHistory.addSHistoryListener(this);
 
     this.browser.addEventListener("DOMContentLoaded", this, true);
+    this.browser.addEventListener("DOMFormHasPassword", this, true);
     this.browser.addEventListener("DOMLinkAdded", this, true);
     this.browser.addEventListener("DOMTitleChanged", this, true);
     this.browser.addEventListener("DOMWindowClose", this, true);
@@ -2816,6 +2826,7 @@ Tab.prototype = {
     this.browser.sessionHistory.removeSHistoryListener(this);
 
     this.browser.removeEventListener("DOMContentLoaded", this, true);
+    this.browser.removeEventListener("DOMFormHasPassword", this, true);
     this.browser.removeEventListener("DOMLinkAdded", this, true);
     this.browser.removeEventListener("DOMTitleChanged", this, true);
     this.browser.removeEventListener("DOMWindowClose", this, true);
@@ -2851,6 +2862,7 @@ Tab.prototype = {
       this.browser.focus();
       this.browser.docShellIsActive = true;
       Reader.updatePageAction(this);
+      HelperApps.updatePageAction(this.browser.currentURI);
     } else {
       this.browser.setAttribute("type", "content-targetable");
       this.browser.docShellIsActive = false;
@@ -3276,15 +3288,13 @@ Tab.prototype = {
     let remeasureNeeded = false;
 
     if (hasHorizontalMargins) {
-      let screenWidth = gScreenWidth + gViewportMargins.left + gViewportMargins.right;
-      let viewportShouldExcludeHorizontalMargins = (Math.round(pageWidth) <= screenWidth);
+      let viewportShouldExcludeHorizontalMargins = (pageWidth <= gScreenWidth - 0.5);
       if (viewportShouldExcludeHorizontalMargins != this.viewportExcludesHorizontalMargins) {
         remeasureNeeded = true;
       }
     }
     if (hasVerticalMargins) {
-      let screenHeight = gScreenHeight + gViewportMargins.top + gViewportMargins.bottom;
-      let viewportShouldExcludeVerticalMargins = (Math.round(pageHeight) <= screenHeight);
+      let viewportShouldExcludeVerticalMargins = (pageHeight <= gScreenHeight - 0.5);
       if (viewportShouldExcludeVerticalMargins != this.viewportExcludesVerticalMargins) {
         remeasureNeeded = true;
       }
@@ -3339,17 +3349,26 @@ Tab.prototype = {
           // Ignore. Catching and ignoring exceptions here ensures that Talos succeeds.
         }
 
+        let docURI = target.documentURI;
+        let errorType = "";
+        if (docURI.startsWith("about:certerror"))
+          errorType = "certerror";
+        else if (docURI.startsWith("about:blocked"))
+          errorType = "blocked"
+        else if (docURI.startsWith("about:neterror"))
+          errorType = "neterror";
+
         sendMessageToJava({
           type: "DOMContentLoaded",
           tabID: this.id,
-          bgColor: backgroundColor
+          bgColor: backgroundColor,
+          errorType: errorType
         });
 
         // Attach a listener to watch for "click" events bubbling up from error
         // pages and other similar page. This lets us fix bugs like 401575 which
         // require error page UI to do privileged things, without letting error
         // pages have any privilege themselves.
-        let docURI = target.documentURI;
         if (docURI.startsWith("about:certerror") || docURI.startsWith("about:blocked")) {
           this.browser.addEventListener("click", ErrorPageEventHandler, true);
           let listener = function() {
@@ -3363,6 +3382,11 @@ Tab.prototype = {
         if (docURI.startsWith("about:reader"))
           new AboutReader(this.browser.contentDocument, this.browser.contentWindow);
 
+        break;
+      }
+
+      case "DOMFormHasPassword": {
+        LoginManagerContent.onFormPassword(aEvent);
         break;
       }
 
@@ -3532,6 +3556,15 @@ Tab.prototype = {
           tabID: this.id
         });
 
+        if (!aEvent.persisted && Services.prefs.getBoolPref("browser.ui.linkify.phone")) {
+          if (!this._linkifier)
+            this._linkifier = new Linkifier();
+          this._linkifier.linkifyNumbers(this.browser.contentWindow.document);
+        }
+
+        // Show page actions for helper apps.
+        HelperApps.updatePageAction(this.browser.currentURI);
+
         if (!Reader.isEnabledForParseOnLoad)
           return;
 
@@ -3633,7 +3666,6 @@ Tab.prototype = {
       fixedURI = URIFixup.createExposableURI(aLocationURI);
     } catch (ex) { }
 
-    let documentURI = contentWin.document.documentURIObject.spec;
     let contentType = contentWin.document.contentType;
 
     // If fixedURI matches browser.lastURI, we assume this isn't a real location
@@ -3650,6 +3682,7 @@ Tab.prototype = {
     this.shouldShowPluginDoorhanger = true;
     this.clickToPlayPluginsActivated = false;
     // Borrowed from desktop Firefox: http://mxr.mozilla.org/mozilla-central/source/browser/base/content/urlbarBindings.xml#174
+    let documentURI = contentWin.document.documentURIObject.spec
     let matchedURL = documentURI.match(/^((?:[a-z]+:\/\/)?(?:[^\/]+@)?)(.+?)(?::\d+)?(?:\/|$)/);
     let baseDomain = "";
     if (matchedURL) {
@@ -3671,8 +3704,8 @@ Tab.prototype = {
       tabID: this.id,
       uri: fixedURI.spec,
       userSearch: this.userSearch || "",
-      documentURI: documentURI,
       baseDomain: baseDomain,
+      aboutHomePage: this.aboutHomePage || "",
       contentType: (contentType ? contentType : ""),
       sameDocument: sameDocument
     };
@@ -6482,12 +6515,14 @@ var SearchEngines = {
 
     let suggestTemplate = null;
     let suggestEngine = null;
-    let engine = this.getSuggestionEngine();
-    if (engine != null) {
+
+    // Check to see if the default engine supports search suggestions. We only need to check
+    // the default engine because we only show suggestions for the default engine in the UI.
+    let engine = Services.search.defaultEngine;
+    if (engine.supportsResponseType("application/x-suggestions+json")) {
       suggestEngine = engine.name;
       suggestTemplate = engine.getSubmission("__searchTerms__", "application/x-suggestions+json").uri.spec;
     }
-
 
     // By convention, the currently configured default engine is at position zero in searchEngines.
     sendMessageToJava({
@@ -6542,19 +6577,6 @@ var SearchEngines = {
         dump("Unexpected message type observed: " + aTopic);
         break;
     }
-  },
-
-  getSuggestionEngine: function () {
-    let engines = [ Services.search.currentEngine,
-                    Services.search.defaultEngine ];
-
-    for (let i = 0; i < engines.length; i++) {
-      let engine = engines[i];
-      if (engine && engine.supportsResponseType("application/x-suggestions+json"))
-        return engine;
-    }
-
-    return null;
   },
 
   addEngine: function addEngine(aElement) {
@@ -6807,7 +6829,7 @@ var WebappsUI = {
         file.initWithPath(profilePath);
 
         let self = this;
-        DOMApplicationRegistry.confirmInstall(aData, false, file, null,
+        DOMApplicationRegistry.confirmInstall(aData, file, null,
           function (aManifest) {
             let localeManifest = new ManifestHelper(aManifest, aData.app.origin);
 
@@ -6875,18 +6897,9 @@ var WebappsUI = {
 
   _writeData: function(aFile, aPrefs) {
     if (aPrefs.length > 0) {
-      let data = JSON.stringify(aPrefs);
-
-      let ostream = Cc["@mozilla.org/network/file-output-stream;1"].createInstance(Ci.nsIFileOutputStream);
-      ostream.init(aFile, -1, -1, 0);
-
-      let istream = Cc["@mozilla.org/io/string-input-stream;1"].createInstance(Ci.nsIStringInputStream);
-      istream.setData(data, data.length);
-
-      NetUtil.asyncCopy(istream, ostream, function(aResult) {
-        if (!Components.isSuccessCode(aResult)) {
-          console.log("Error writing default prefs: " + aResult);
-        }
+      let array = new TextEncoder().encode(JSON.stringify(aPrefs));
+      OS.File.writeAtomic(aFile.path, array, { tmpPath: aFile.path + ".tmp" }).then(null, function onError(reason) {
+        console.log("Error writing default prefs: " + reason);
       });
     }
   },
@@ -7073,25 +7086,9 @@ var RemoteDebugger = {
 var Telemetry = {
   SHARED_PREF_TELEMETRY_ENABLED: "datareporting.telemetry.enabled",
 
-  init: function init() {
-    Services.obs.addObserver(this, "Telemetry:Add", false);
-  },
-
-  uninit: function uninit() {
-    Services.obs.removeObserver(this, "Telemetry:Add");
-  },
-
   addData: function addData(aHistogramId, aValue) {
-    let telemetry = Cc["@mozilla.org/base/telemetry;1"].getService(Ci.nsITelemetry);
-    let histogram = telemetry.getHistogramById(aHistogramId);
+    let histogram = Services.telemetry.getHistogramById(aHistogramId);
     histogram.add(aValue);
-  },
-
-  observe: function observe(aSubject, aTopic, aData) {
-    if (aTopic == "Telemetry:Add") {
-      let json = JSON.parse(aData);
-      this.addData(json.name, json.value);
-    }
   },
 };
 
@@ -7151,14 +7148,16 @@ let Reader = {
       this.pageAction.id = NativeWindow.pageactions.add({
         title: Strings.browser.GetStringFromName("readerMode.exit"),
         icon: "drawable://reader_active",
-        clickCallback: this.pageAction.readerModeCallback
+        clickCallback: this.pageAction.readerModeCallback,
+        important: true
       });
     } else if (tab.readerEnabled) {
       this.pageAction.id = NativeWindow.pageactions.add({
         title: Strings.browser.GetStringFromName("readerMode.enter"),
         icon: "drawable://reader",
         clickCallback:this.pageAction.readerModeCallback,
-        longClickCallback: this.pageAction.readerModeActiveCallback
+        longClickCallback: this.pageAction.readerModeActiveCallback,
+        important: true
       });
     }
   },
@@ -7720,16 +7719,9 @@ var Distribution = {
           return;
         }
 
-        // Save the data for the later sessions
-        let ostream = Cc["@mozilla.org/network/safe-file-output-stream;1"].createInstance(Ci.nsIFileOutputStream);
-        ostream.init(this._file, 0x02 | 0x08 | 0x20, parseInt("600", 8), ostream.DEFER_OPEN);
-
-        let converter = Cc["@mozilla.org/intl/scriptableunicodeconverter"].createInstance(Ci.nsIScriptableUnicodeConverter);
-        converter.charset = "UTF-8";
-
         // Asynchronously copy the data to the file.
-        let istream = converter.convertToInputStream(aData);
-        NetUtil.asyncCopy(istream, ostream, function(rc) { });
+        let array = new TextEncoder().encode(aData);
+        OS.File.writeAtomic(this._file.path, array, { tmpPath: this._file.path + ".tmp" });
         break;
       }
     }
@@ -7819,24 +7811,18 @@ var Distribution = {
   // aFile is an nsIFile
   // aCallback takes the parsed JSON object as a parameter
   readJSON: function dc_readJSON(aFile, aCallback) {
-    if (!aFile.exists())
-      return;
-
-    let channel = NetUtil.newChannel(aFile);
-    channel.contentType = "application/json";
-    NetUtil.asyncFetch(channel, function(aStream, aResult) {
-      if (!Components.isSuccessCode(aResult)) {
-        Cu.reportError("Distribution: Could not read from " + aFile.leafName + " file");
-        return;
-      }
-
-      let raw = NetUtil.readInputStreamToString(aStream, aStream.available(), { charset : "UTF-8" }) || "";
-      aStream.close();
+    Task.spawn(function() {
+      let bytes = yield OS.File.read(aFile.path);
+      let raw = new TextDecoder().decode(bytes) || "";
 
       try {
         aCallback(JSON.parse(raw));
       } catch (e) {
         Cu.reportError("Distribution: Could not parse JSON: " + e);
+      }
+    }).then(null, function onError(reason) {
+      if (!(reason instanceof OS.File.Error && reason.becauseNoSuchFile)) {
+        Cu.reportError("Distribution: Could not read from " + aFile.leafName + " file");
       }
     });
   }

@@ -11,7 +11,7 @@
 #include "jit/BaselineIC.h"
 
 using namespace js;
-using namespace js::ion;
+using namespace js::jit;
 
 using mozilla::DebugOnly;
 
@@ -300,6 +300,20 @@ BaselineInspector::hasSeenNonNativeGetElement(jsbytecode *pc)
 
     if (stub->isGetElem_Fallback())
         return stub->toGetElem_Fallback()->hasNonNativeAccess();
+    return false;
+}
+
+bool
+BaselineInspector::hasSeenNegativeIndexGetElement(jsbytecode *pc)
+{
+    if (!hasBaselineScript())
+        return false;
+
+    const ICEntry &entry = icEntryFromPC(pc);
+    ICStub *stub = entry.fallbackStub();
+
+    if (stub->isGetElem_Fallback())
+        return stub->toGetElem_Fallback()->hasNegativeIndex();
     return false;
 }
 

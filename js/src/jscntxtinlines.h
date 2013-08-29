@@ -10,6 +10,7 @@
 #include "jscntxt.h"
 
 #include "jsiter.h"
+#include "jsworkers.h"
 
 #include "builtin/Object.h"
 #include "jit/IonFrames.h"
@@ -342,16 +343,14 @@ inline void
 ExclusiveContext::maybePause() const
 {
 #ifdef JS_WORKER_THREADS
-    if (workerThread && runtime_->workerThreadState->shouldPause) {
-        AutoLockWorkerThreadState lock(*runtime_->workerThreadState);
-        workerThread->pause();
-    }
+    if (workerThread)
+        workerThread->maybePause();
 #endif
 }
 
 class AutoLockForExclusiveAccess
 {
-#ifdef JS_THREADSAFE
+#ifdef JS_WORKER_THREADS
     JSRuntime *runtime;
 
     void init(JSRuntime *rt) {
@@ -388,7 +387,7 @@ class AutoLockForExclusiveAccess
             runtime->mainThreadHasExclusiveAccess = false;
         }
     }
-#else // JS_THREADSAFE
+#else // JS_WORKER_THREADS
   public:
     AutoLockForExclusiveAccess(ExclusiveContext *cx MOZ_GUARD_OBJECT_NOTIFIER_PARAM) {
         MOZ_GUARD_OBJECT_NOTIFIER_INIT;
@@ -400,10 +399,16 @@ class AutoLockForExclusiveAccess
         // An empty destructor is needed to avoid warnings from clang about
         // unused local variables of this type.
     }
-#endif // JS_THREADSAFE
+#endif // JS_WORKER_THREADS
 
     MOZ_DECL_USE_GUARD_OBJECT_NOTIFIER
 };
+
+inline LifoAlloc &
+ExclusiveContext::typeLifoAlloc()
+{
+    return zone()->types.typeLifoAlloc;
+}
 
 }  /* namespace js */
 
@@ -411,12 +416,6 @@ inline js::LifoAlloc &
 JSContext::analysisLifoAlloc()
 {
     return compartment()->analysisLifoAlloc;
-}
-
-inline js::LifoAlloc &
-JSContext::typeLifoAlloc()
-{
-    return zone()->types.typeLifoAlloc;
 }
 
 inline void
@@ -519,7 +518,7 @@ JSContext::currentScript(jsbytecode **ppc,
 #ifdef JS_ION
     if (act->isJit()) {
         JSScript *script = NULL;
-        js::ion::GetPcScript(const_cast<JSContext *>(this), &script, ppc);
+        js::jit::GetPcScript(const_cast<JSContext *>(this), &script, ppc);
         if (!allowCrossCompartment && script->compartment() != compartment())
             return NULL;
         return script;

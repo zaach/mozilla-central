@@ -655,6 +655,8 @@ pref("ui.scrolling.overscroll_snap_limit", -1);
 pref("ui.scrolling.min_scrollable_distance", -1);
 // The axis lock mode for panning behaviour - set between standard, free and sticky
 pref("ui.scrolling.axis_lock_mode", "standard");
+// Negate scrollY, true will make the mouse scroll wheel move the screen the same direction as with most desktops or laptops.
+pref("ui.scrolling.negate_wheel_scrollY", true);
 
 
 // Enable accessibility mode if platform accessibility is enabled.
@@ -777,3 +779,6 @@ pref("gfx.canvas.azure.backends", "skia");
 pref("gfx.canvas.azure.accelerated", true);
 
 pref("general.useragent.override.youtube.com", "Android; Tablet;#Android; Mobile;");
+
+// When true, phone number linkification is enabled.
+pref("browser.ui.linkify.phone", false);

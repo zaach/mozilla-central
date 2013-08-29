@@ -23,7 +23,7 @@
 #include "vm/Shape-inl.h"
 
 using namespace js;
-using namespace js::ion;
+using namespace js::jit;
 
 namespace {
 
@@ -1109,10 +1109,10 @@ MacroAssembler::handleFailure(ExecutionMode executionMode)
     void *handler;
     switch (executionMode) {
       case SequentialExecution:
-        handler = JS_FUNC_TO_DATA_PTR(void *, ion::HandleException);
+        handler = JS_FUNC_TO_DATA_PTR(void *, jit::HandleException);
         break;
       case ParallelExecution:
-        handler = JS_FUNC_TO_DATA_PTR(void *, ion::HandleParallelFailure);
+        handler = JS_FUNC_TO_DATA_PTR(void *, jit::HandleParallelFailure);
         break;
       default:
         MOZ_ASSUME_UNREACHABLE("No such execution mode");
@@ -1227,13 +1227,12 @@ MacroAssembler::tracelogStart(JSScript *script)
     PushRegsInMask(regs);
 
     Register temp = regs.takeGeneral();
-    Register logger = regs.takeGeneral();
     Register type = regs.takeGeneral();
     Register rscript = regs.takeGeneral();
 
     setupUnalignedABICall(3, temp);
-    movePtr(ImmWord((void *)TraceLogging::defaultLogger()), logger);
-    passABIArg(logger);
+    movePtr(ImmWord((void *)TraceLogging::defaultLogger()), temp);
+    passABIArg(temp);
     move32(Imm32(TraceLogging::SCRIPT_START), type);
     passABIArg(type);
     movePtr(ImmGCPtr(script), rscript);

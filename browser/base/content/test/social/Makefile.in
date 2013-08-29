@@ -13,7 +13,6 @@ include $(DEPTH)/config/autoconf.mk
 MOCHITEST_BROWSER_FILES = \
                  head.js \
 		 blocklist.xml \
-		 blocklistEmpty.xml \
 		 browser_blocklist.js \
 		 browser_defaults.js \
 		 browser_addons.js \
@@ -30,6 +29,7 @@ MOCHITEST_BROWSER_FILES = \
                  browser_social_chatwindow_resize.js \
                  browser_social_chatwindowfocus.js \
                  browser_social_multiprovider.js \
+                 browser_social_multiworker.js \
                  browser_social_errorPage.js \
                  browser_social_window.js \
                  social_activate.html \

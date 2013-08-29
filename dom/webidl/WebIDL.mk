@@ -33,6 +33,8 @@ webidl_files = \
   BeforeUnloadEvent.webidl \
   BiquadFilterNode.webidl \
   Blob.webidl \
+  BrowserElementDictionaries.webidl \
+  CameraControl.webidl \
   CameraManager.webidl \
   CanvasRenderingContext2D.webidl \
   CaretPosition.webidl \
@@ -216,6 +218,7 @@ webidl_files = \
   OfflineAudioCompletionEvent.webidl \
   OfflineAudioContext.webidl \
   OfflineResourceList.webidl \
+  OscillatorNode.webidl \
   PaintRequest.webidl \
   PaintRequestList.webidl \
   PannerNode.webidl \
@@ -381,6 +384,7 @@ webidl_files = \
   WebComponents.webidl \
   WebSocket.webidl \
   WheelEvent.webidl \
+  WifiOptions.webidl \
   Window.webidl \
   WorkerLocation.webidl \
   WorkerNavigator.webidl \
@@ -443,6 +447,7 @@ webidl_files += \
   MozStkCommandEvent.webidl \
   Telephony.webidl \
   TelephonyCall.webidl \
+  TelephonyCallGroup.webidl \
   $(NULL)
 endif
 
@@ -491,8 +496,10 @@ webidl_files += \
   CFStateChangeEvent.webidl \
   DataErrorEvent.webidl \
   IccCardLockErrorEvent.webidl \
+  MozCellBroadcast.webidl \
   MozCellBroadcastEvent.webidl \
   MozEmergencyCbModeEvent.webidl \
+  MozOtaStatusEvent.webidl \
   MozVoicemailEvent.webidl \
   MozWifiConnectionInfoEvent.webidl \
   MozWifiStatusChangeEvent.webidl \

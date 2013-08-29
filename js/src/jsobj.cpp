@@ -21,7 +21,6 @@
 #include "jsarray.h"
 #include "jsatom.h"
 #include "jscntxt.h"
-#include "jsdbgapi.h"
 #include "jsfun.h"
 #include "jsgc.h"
 #include "jsiter.h"
@@ -41,6 +40,7 @@
 #include "jit/AsmJSModule.h"
 #include "jit/BaselineJIT.h"
 #include "js/MemoryMetrics.h"
+#include "js/OldDebugAPI.h"
 #include "vm/ArgumentsObject.h"
 #include "vm/Interpreter.h"
 #include "vm/RegExpStaticsObject.h"
@@ -1183,6 +1183,18 @@ JSObject::isSealedOrFrozen(JSContext *cx, HandleObject obj, ImmutabilityType it,
         return false;
     if (extensible) {
         *resultp = false;
+        return true;
+    }
+
+    if (obj->is<TypedArrayObject>()) {
+        if (it == SEAL) {
+            // Typed arrays are always sealed.
+            *resultp = true;
+        } else {
+            // Typed arrays cannot be frozen, but an empty typed array is
+            // trivially frozen.
+            *resultp = (obj->as<TypedArrayObject>().length() == 0);
+        }
         return true;
     }
 

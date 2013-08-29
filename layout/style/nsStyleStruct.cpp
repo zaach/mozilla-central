@@ -1154,6 +1154,7 @@ nsChangeHint nsStyleSVGReset::CalcDifference(const nsStyleSVGReset& aOther) cons
       !EqualURIs(mMask, aOther.mMask) ||
       mFilters != aOther.mFilters) {
     NS_UpdateHint(hint, nsChangeHint_UpdateEffects);
+    NS_UpdateHint(hint, nsChangeHint_UpdateOverflow); // for filters only
     NS_UpdateHint(hint, nsChangeHint_RepaintFrame);
   }
 
@@ -2918,6 +2919,8 @@ nsStyleText::nsStyleText(void)
   mWordWrap = NS_STYLE_WORDWRAP_NORMAL;
   mHyphens = NS_STYLE_HYPHENS_MANUAL;
   mTextSizeAdjust = NS_STYLE_TEXT_SIZE_ADJUST_AUTO;
+  mTextOrientation = NS_STYLE_TEXT_ORIENTATION_AUTO;
+  mTextCombineHorizontal = NS_STYLE_TEXT_COMBINE_HORIZ_NONE;
 
   mLetterSpacing.SetNormalValue();
   mLineHeight.SetNormalValue();
@@ -2937,6 +2940,8 @@ nsStyleText::nsStyleText(const nsStyleText& aSource)
     mWordWrap(aSource.mWordWrap),
     mHyphens(aSource.mHyphens),
     mTextSizeAdjust(aSource.mTextSizeAdjust),
+    mTextOrientation(aSource.mTextOrientation),
+    mTextCombineHorizontal(aSource.mTextCombineHorizontal),
     mTabSize(aSource.mTabSize),
     mWordSpacing(aSource.mWordSpacing),
     mLetterSpacing(aSource.mLetterSpacing),
@@ -2960,6 +2965,10 @@ nsChangeHint nsStyleText::CalcDifference(const nsStyleText& aOther) const
     return NS_STYLE_HINT_FRAMECHANGE;
   }
 
+  if (mTextCombineHorizontal != aOther.mTextCombineHorizontal) {
+    return nsChangeHint_ReconstructFrame;
+  }
+
   if ((mTextAlign != aOther.mTextAlign) ||
       (mTextAlignLast != aOther.mTextAlignLast) ||
       (mTextTransform != aOther.mTextTransform) ||
@@ -2968,6 +2977,7 @@ nsChangeHint nsStyleText::CalcDifference(const nsStyleText& aOther) const
       (mWordWrap != aOther.mWordWrap) ||
       (mHyphens != aOther.mHyphens) ||
       (mTextSizeAdjust != aOther.mTextSizeAdjust) ||
+      (mTextOrientation != aOther.mTextOrientation) ||
       (mLetterSpacing != aOther.mLetterSpacing) ||
       (mLineHeight != aOther.mLineHeight) ||
       (mTextIndent != aOther.mTextIndent) ||

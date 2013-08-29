@@ -82,7 +82,9 @@ IndexedDBParent::~IndexedDBParent()
 void
 IndexedDBParent::Disconnect()
 {
-  MOZ_ASSERT(!mDisconnected);
+  if (mDisconnected) {
+    return;
+  }
 
   mDisconnected = true;
 
@@ -389,7 +391,7 @@ IndexedDBDatabaseParent::HandleRequestEvent(nsIDOMEvent* aEvent,
   MOZ_ASSERT(!JSVAL_IS_PRIMITIVE(result));
 
   IDBDatabase *database;
-  rv = UnwrapObject<IDBDatabase>(cx, &result.toObject(), database);
+  rv = UNWRAP_OBJECT(IDBDatabase, cx, &result.toObject(), database);
   if (NS_FAILED(rv)) {
     NS_WARNING("Didn't get the object we expected!");
     return rv;

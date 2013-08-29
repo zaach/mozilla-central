@@ -25,7 +25,6 @@
 
 #include "jsatom.h"
 #include "jscompartment.h"
-#include "jsdbgapi.h"
 #include "jsexn.h"
 #include "jsfun.h"
 #include "jsgc.h"
@@ -44,6 +43,7 @@
 #include "jit/Ion.h"
 #endif
 #include "js/CharacterEncoding.h"
+#include "js/OldDebugAPI.h"
 #include "vm/Shape.h"
 #include "yarr/BumpPointerAllocator.h"
 
@@ -261,6 +261,11 @@ js::DestroyContext(JSContext *cx, DestroyContextMode mode)
         for (CompartmentsIter c(rt); !c.done(); c.next())
             CancelOffThreadIonCompile(c, NULL);
         WaitForOffThreadParsingToFinish(rt);
+
+#ifdef JS_WORKER_THREADS
+        if (rt->workerThreadState)
+            rt->workerThreadState->cleanup(rt);
+#endif
 
         /* Unpin all common names before final GC. */
         FinishCommonNames(rt);
@@ -1020,7 +1025,7 @@ js_InvokeOperationCallback(JSContext *cx)
      * A worker thread may have set the callback after finishing an Ion
      * compilation.
      */
-    ion::AttachFinishedCompilations(cx);
+    jit::AttachFinishedCompilations(cx);
 #endif
 
     /*

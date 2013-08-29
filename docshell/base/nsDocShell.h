@@ -643,8 +643,6 @@ protected:
     // helpers for executing commands
     nsresult GetControllerForCommand(const char *inCommand,
                                      nsIController** outController);
-    nsresult IsCommandEnabled(const char * inCommand, bool* outEnabled);
-    nsresult DoCommand(const char * inCommand);
     nsresult EnsureCommandHandler();
 
     nsIChannel* GetCurrentDocChannel();
@@ -814,6 +812,7 @@ protected:
     bool                       mAllowMedia;
     bool                       mAllowDNSPrefetch;
     bool                       mAllowWindowControl;
+    bool                       mAllowContentRetargeting;
     bool                       mCreatingDocument; // (should be) debugging only
     bool                       mUseErrorPages;
     bool                       mObserveErrorPages;

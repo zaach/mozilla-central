@@ -905,10 +905,7 @@ nsContextMenu.prototype = {
   reload: function(event) {
     if (this.onSocial) {
       // full reload of social provider
-      Social.enabled = false;
-      Services.tm.mainThread.dispatch(function() {
-        Social.enabled = true;
-      }, Components.interfaces.nsIThread.DISPATCH_NORMAL);
+      Social.provider.reload();
     } else {
       BrowserReloadOrDuplicate(event);
     }
@@ -1288,7 +1285,7 @@ nsContextMenu.prototype = {
   },
 
   playPlugin: function() {
-    gPluginHandler.activateSinglePlugin(this.target.ownerDocument.defaultView.top, this.target);
+    gPluginHandler._showClickToPlayNotification(this.browser, this.target);
   },
 
   hidePlugin: function() {

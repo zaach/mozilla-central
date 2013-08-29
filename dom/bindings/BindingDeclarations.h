@@ -14,14 +14,18 @@
 #define mozilla_dom_BindingDeclarations_h__
 
 #include "nsStringGlue.h"
+#include "js/Value.h"
+#include "js/RootingAPI.h"
 #include "jsapi.h"
-#include "mozilla/Util.h"
+#include "mozilla/Maybe.h"
 #include "nsCOMPtr.h"
 #include "nsDOMString.h"
 #include "nsStringBuffer.h"
 #include "nsTArray.h"
 #include "nsAutoPtr.h" // for nsRefPtr member variables
 
+struct JSContext;
+class JSObject;
 class nsWrapperCache;
 
 // nsGlobalWindow implements nsWrapperCache, but doesn't always use it. Don't
@@ -61,31 +65,13 @@ class MOZ_STACK_CLASS GlobalObject
 public:
   GlobalObject(JSContext* aCx, JSObject* aObject);
 
-  nsISupports* Get() const
-  {
-    return mGlobalObject;
-  }
-
-  bool Failed() const
-  {
-    return !Get();
-  }
-
-private:
-  JS::RootedObject mGlobalJSObject;
-  nsISupports* mGlobalObject;
-  nsCOMPtr<nsISupports> mGlobalObjectRef;
-};
-
-class MOZ_STACK_CLASS WorkerGlobalObject
-{
-public:
-  WorkerGlobalObject(JSContext* aCx, JSObject* aObject);
-
   JSObject* Get() const
   {
     return mGlobalJSObject;
   }
+
+  nsISupports* GetAsSupports() const;
+
   // The context that this returns is not guaranteed to be in the compartment of
   // the object returned from Get(), in fact it's generally in the caller's
   // compartment.
@@ -99,9 +85,11 @@ public:
     return !Get();
   }
 
-private:
+protected:
   JS::RootedObject mGlobalJSObject;
   JSContext* mCx;
+  mutable nsISupports* mGlobalObject;
+  mutable nsCOMPtr<nsISupports> mGlobalObjectRef;
 };
 
 /**
@@ -624,34 +612,6 @@ struct ParentObject {
 
   nsISupports* const mObject;
   nsWrapperCache* const mWrapperCache;
-};
-
-// Representation for dates
-class Date {
-public:
-  // Not inlining much here to avoid the extra includes we'd need
-  Date();
-  Date(double aMilliseconds) :
-    mMsecSinceEpoch(aMilliseconds)
-  {}
-
-  bool IsUndefined() const;
-  double TimeStamp() const
-  {
-    return mMsecSinceEpoch;
-  }
-  void SetTimeStamp(double aMilliseconds)
-  {
-    mMsecSinceEpoch = aMilliseconds;
-  }
-  // Can return false if CheckedUnwrap fails.  This will NOT throw;
-  // callers should do it as needed.
-  bool SetTimeStamp(JSContext* cx, JSObject* obj);
-
-  bool ToDateObject(JSContext* cx, JS::MutableHandle<JS::Value> rval) const;
-
-private:
-  double mMsecSinceEpoch;
 };
 
 } // namespace dom

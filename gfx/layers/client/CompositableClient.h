@@ -6,20 +6,24 @@
 #ifndef MOZILLA_GFX_BUFFERCLIENT_H
 #define MOZILLA_GFX_BUFFERCLIENT_H
 
-#include "mozilla/layers/PCompositableChild.h"
-#include "mozilla/layers/LayersTypes.h"
-#include "mozilla/RefPtr.h"
+#include <stdint.h>                     // for uint64_t
+#include <vector>                       // for vector
+#include "mozilla/Assertions.h"         // for MOZ_CRASH
+#include "mozilla/RefPtr.h"             // for TemporaryRef, RefCounted
+#include "mozilla/gfx/Types.h"          // for SurfaceFormat
+#include "mozilla/layers/CompositorTypes.h"
+#include "mozilla/layers/LayersTypes.h"  // for LayersBackend
+#include "mozilla/layers/PCompositableChild.h"  // for PCompositableChild
+#include "nsTraceRefcnt.h"              // for MOZ_COUNT_CTOR, etc
 
 namespace mozilla {
 namespace layers {
 
-class CompositableChild;
 class CompositableClient;
 class DeprecatedTextureClient;
 class TextureClient;
 class BufferTextureClient;
 class ImageBridgeChild;
-class ShadowableLayer;
 class CompositableForwarder;
 class CompositableChild;
 class SurfaceDescriptor;
@@ -62,7 +66,7 @@ class SurfaceDescriptor;
  * where we have a different way of interfacing with the textures - in terms of
  * drawing into the compositable and/or passing its contents to the compostior.
  */
-class CompositableClient : public RefCounted<CompositableClient>
+class CompositableClient : public AtomicRefCounted<CompositableClient>
 {
 public:
   CompositableClient(CompositableForwarder* aForwarder);
@@ -76,7 +80,7 @@ public:
   TemporaryRef<DeprecatedTextureClient>
   CreateDeprecatedTextureClient(DeprecatedTextureClientType aDeprecatedTextureClientType);
 
-  TemporaryRef<BufferTextureClient>
+  virtual TemporaryRef<BufferTextureClient>
   CreateBufferTextureClient(gfx::SurfaceFormat aFormat, TextureFlags aFlags);
 
   virtual TemporaryRef<BufferTextureClient>
@@ -98,7 +102,7 @@ public:
   CompositableChild* GetIPDLActor() const;
 
   // should only be called by a CompositableForwarder
-  void SetIPDLActor(CompositableChild* aChild);
+  virtual void SetIPDLActor(CompositableChild* aChild);
 
   CompositableForwarder* GetForwarder() const
   {

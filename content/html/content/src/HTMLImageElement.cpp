@@ -13,6 +13,7 @@
 #include "nsMappedAttributes.h"
 #include "nsSize.h"
 #include "nsIDocument.h"
+#include "nsIDOMMutationEvent.h"
 #include "nsIScriptContext.h"
 #include "nsIURL.h"
 #include "nsIIOService.h"
@@ -251,6 +252,11 @@ HTMLImageElement::GetAttributeChangeHint(const nsIAtom* aAttribute,
   if (aAttribute == nsGkAtoms::usemap ||
       aAttribute == nsGkAtoms::ismap) {
     NS_UpdateHint(retval, NS_STYLE_HINT_FRAMECHANGE);
+  } else if (aAttribute == nsGkAtoms::alt) {
+    if (aModType == nsIDOMMutationEvent::ADDITION ||
+        aModType == nsIDOMMutationEvent::REMOVAL) {
+      NS_UpdateHint(retval, NS_STYLE_HINT_FRAMECHANGE);
+    }
   }
   return retval;
 }
@@ -523,9 +529,10 @@ HTMLImageElement::IntrinsicState() const
 already_AddRefed<HTMLImageElement>
 HTMLImageElement::Image(const GlobalObject& aGlobal,
                         const Optional<uint32_t>& aWidth,
-                        const Optional<uint32_t>& aHeight, ErrorResult& aError)
+                        const Optional<uint32_t>& aHeight,
+                        ErrorResult& aError)
 {
-  nsCOMPtr<nsPIDOMWindow> win = do_QueryInterface(aGlobal.Get());
+  nsCOMPtr<nsPIDOMWindow> win = do_QueryInterface(aGlobal.GetAsSupports());
   nsIDocument* doc;
   if (!win || !(doc = win->GetExtantDoc())) {
     aError.Throw(NS_ERROR_FAILURE);

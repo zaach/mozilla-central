@@ -14,7 +14,7 @@
 #include "jit/Registers.h"
 
 namespace js {
-namespace ion {
+namespace jit {
 
 struct AnyRegister {
     typedef uint32_t Code;
@@ -449,11 +449,7 @@ class TypedRegisterSet
         return bits_;
     }
     uint32_t size() const {
-        uint32_t sum2  = (bits_ & 0x55555555) + ((bits_ & 0xaaaaaaaa) >> 1);
-        uint32_t sum4  = (sum2  & 0x33333333) + ((sum2  & 0xcccccccc) >> 2);
-        uint32_t sum8  = (sum4  & 0x0f0f0f0f) + ((sum4  & 0xf0f0f0f0) >> 4);
-        uint32_t sum16 = (sum8  & 0x00ff00ff) + ((sum8  & 0xff00ff00) >> 8);
-        return sum16;
+        return mozilla::CountPopulation32(bits_);
     }
     bool operator ==(const TypedRegisterSet<T> &other) const {
         return other.bits_ == bits_;
@@ -792,10 +788,10 @@ class AsmJSHeapAccess
 #if defined(JS_CPU_X86) || defined(JS_CPU_X64)
     uint8_t opLength_;  // the length of the load/store instruction
     uint8_t isFloat32Load_;
-    ion::AnyRegister::Code loadedReg_ : 8;
+    jit::AnyRegister::Code loadedReg_ : 8;
 #endif
 
-    JS_STATIC_ASSERT(ion::AnyRegister::Total < UINT8_MAX);
+    JS_STATIC_ASSERT(jit::AnyRegister::Total < UINT8_MAX);
 
   public:
 #if defined(JS_CPU_X86) || defined(JS_CPU_X64)
@@ -834,13 +830,13 @@ class AsmJSHeapAccess
     unsigned opLength() const { return opLength_; }
     bool isLoad() const { return loadedReg_ != UINT8_MAX; }
     bool isFloat32Load() const { return isFloat32Load_; }
-    ion::AnyRegister loadedReg() const { return ion::AnyRegister::FromCode(loadedReg_); }
+    jit::AnyRegister loadedReg() const { return jit::AnyRegister::FromCode(loadedReg_); }
 #endif
 };
 
 typedef Vector<AsmJSHeapAccess, 0, IonAllocPolicy> AsmJSHeapAccessVector;
 
-} // namespace ion
+} // namespace jit
 } // namespace js
 
 #endif /* jit_RegisterSets_h */

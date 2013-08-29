@@ -117,7 +117,6 @@
 #include "nsWrapperCacheInlines.h"
 #include "xpcpublic.h"
 #include "nsIScriptError.h"
-#include "nsLayoutStatics.h"
 #include "mozilla/Telemetry.h"
 
 #include "mozilla/CORSMode.h"
@@ -356,7 +355,7 @@ Element::GetBindingURL(nsIDocument *aDocument, css::URLValue **aResult)
 JSObject*
 Element::WrapObject(JSContext *aCx, JS::Handle<JSObject*> aScope)
 {
-  JSObject* obj = nsINode::WrapObject(aCx, aScope);
+  JS::Rooted<JSObject*> obj(aCx, nsINode::WrapObject(aCx, aScope));
   if (!obj) {
     return nullptr;
   }
@@ -1133,7 +1132,7 @@ Element::UnbindFromTree(bool aDeep, bool aNullParent)
       // The element being removed is an ancestor of the full-screen element,
       // exit full-screen state.
       nsContentUtils::ReportToConsole(nsIScriptError::warningFlag,
-                                      "DOM", OwnerDoc(),
+                                      NS_LITERAL_CSTRING("DOM"), OwnerDoc(),
                                       nsContentUtils::eDOM_PROPERTIES,
                                       "RemovedFullScreenElement");
       // Fully exit full-screen.
@@ -2432,7 +2431,7 @@ Element::MozRequestFullScreen()
   const char* error = GetFullScreenError(OwnerDoc());
   if (error) {
     nsContentUtils::ReportToConsole(nsIScriptError::warningFlag,
-                                    "DOM", OwnerDoc(),
+                                    NS_LITERAL_CSTRING("DOM"), OwnerDoc(),
                                     nsContentUtils::eDOM_PROPERTIES,
                                     error);
     nsRefPtr<nsAsyncDOMEvent> e =

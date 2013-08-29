@@ -35,6 +35,8 @@ pref("prompts.tab_modal.enabled", true);
 // Enable off main thread compositing
 pref("layers.offmainthreadcomposition.enabled", true);
 pref("layers.async-pan-zoom.enabled", false);
+pref("layers.componentalpha.enabled", false);
+pref("gfx.azpc.touch_start_tolerance", "0.1"); // dpi * tolerance = pixel threshold
 pref("gfx.axis.fling_friction", "0.002");
 
 // Enable Microsoft TSF support by default for imes.
@@ -230,7 +232,7 @@ pref("accessibility.browsewithcaret", false);
 pref("app.update.showInstalledUI", false);
 
 // pointer to the default engine name
-pref("browser.search.defaultenginename", "chrome://browser/locale/browser.properties");
+pref("browser.search.defaultenginename", "chrome://browser/locale/region.properties");
 
 // SSL error page behaviour
 pref("browser.ssl_override_behavior", 2);
@@ -240,9 +242,9 @@ pref("browser.xul.error_pages.expert_bad_cert", false);
 pref("browser.search.log", false);
 
 // ordering of search engines in the engine list.
-pref("browser.search.order.1", "chrome://browser/locale/browser.properties");
-pref("browser.search.order.2", "chrome://browser/locale/browser.properties");
-pref("browser.search.order.3", "chrome://browser/locale/browser.properties");
+pref("browser.search.order.1", "chrome://browser/locale/region.properties");
+pref("browser.search.order.2", "chrome://browser/locale/region.properties");
+pref("browser.search.order.3", "chrome://browser/locale/region.properties");
 
 // send ping to the server to update
 pref("browser.search.update", true);

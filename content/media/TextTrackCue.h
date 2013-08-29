@@ -26,8 +26,7 @@ class TextTrackCue MOZ_FINAL : public nsDOMEventTargetHelper
 {
 public:
   NS_DECL_ISUPPORTS_INHERITED
-  NS_DECL_CYCLE_COLLECTION_SCRIPT_HOLDER_CLASS_INHERITED(TextTrackCue,
-                                                         nsDOMEventTargetHelper)
+  NS_DECL_CYCLE_COLLECTION_CLASS_INHERITED(TextTrackCue, nsDOMEventTargetHelper)
 
   // TextTrackCue WebIDL
   // See bug 868509 about splitting out the WebVTT-specific interfaces.
@@ -38,7 +37,7 @@ public:
               const nsAString& aText,
               ErrorResult& aRv)
   {
-    nsRefPtr<TextTrackCue> ttcue = new TextTrackCue(aGlobal.Get(), aStartTime,
+    nsRefPtr<TextTrackCue> ttcue = new TextTrackCue(aGlobal.GetAsSupports(), aStartTime,
                                                     aEndTime, aText, aRv);
     return ttcue.forget();
   }

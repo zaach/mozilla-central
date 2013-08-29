@@ -397,6 +397,7 @@ static nsDefaultMimeTypeEntry defaultMimeEntries [] =
   { TEXT_CSS, "css" },
   { IMAGE_JPEG, "jpeg" },
   { IMAGE_JPEG, "jpg" },
+  { IMAGE_SVG_XML, "svg" },
   { TEXT_HTML, "html" },
   { TEXT_HTML, "htm" },
   { APPLICATION_XPINSTALL, "xpi" },
@@ -480,7 +481,7 @@ static nsExtraMimeTypeEntry extraMimeEntries [] =
   { IMAGE_PNG, "png", "PNG Image" },
   { IMAGE_TIFF, "tiff,tif", "TIFF Image" },
   { IMAGE_XBM, "xbm", "XBM Image" },
-  { "image/svg+xml", "svg", "Scalable Vector Graphics" },
+  { IMAGE_SVG_XML, "svg", "Scalable Vector Graphics" },
   { MESSAGE_RFC822, "eml", "RFC-822 data" },
   { TEXT_PLAIN, "txt,text", "Text File" },
   { TEXT_HTML, "html,htm,shtml,ehtml", "HyperText Markup Language" },
@@ -2207,6 +2208,11 @@ NS_IMETHODIMP nsExternalAppHandler::Cancel(nsresult aReason)
   if (mSaver) {
     mSaver->Finish(aReason);
     mSaver = nullptr;
+  } else if (mStopRequestIssued && mTempFile) {
+    // This branch can only happen when the user cancels the helper app dialog
+    // when the request has completed. The temp file has to be removed here,
+    // because mSaver has been released at that time with the temp file left.
+    (void)mTempFile->Remove(false);
   }
 
   // Break our reference cycle with the helper app dialog (set up in

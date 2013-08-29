@@ -39,6 +39,7 @@
 "use strict";
 
 importScripts("ril_consts.js", "systemlibs.js");
+importScripts("resource://gre/modules/workers/require.js");
 
 // set to true in ril_consts.js to see debug messages
 let DEBUG = DEBUG_WORKER;
@@ -56,7 +57,6 @@ const INT32_MAX   = 2147483647;
 const UINT8_SIZE  = 1;
 const UINT16_SIZE = 2;
 const UINT32_SIZE = 4;
-const PARCEL_SIZE_SIZE = UINT32_SIZE;
 
 const PDU_HEX_OCTET_SIZE = 4;
 
@@ -96,631 +96,7 @@ let RILQUIRKS_HAVE_QUERY_ICC_LOCK_RETRY_COUNT = libcutils.property_get("ro.moz.r
 // Marker object.
 let PENDING_NETWORK_TYPE = {};
 
-/**
- * This object contains helpers buffering incoming data & deconstructing it
- * into parcels as well as buffering outgoing data & constructing parcels.
- * For that it maintains two buffers and corresponding uint8 views, indexes.
- *
- * The incoming buffer is a circular buffer where we store incoming data.
- * As soon as a complete parcel is received, it is processed right away, so
- * the buffer only needs to be large enough to hold one parcel.
- *
- * The outgoing buffer is to prepare outgoing parcels. The index is reset
- * every time a parcel is sent.
- */
-let Buf = {
-
-  INCOMING_BUFFER_LENGTH: 1024,
-  OUTGOING_BUFFER_LENGTH: 1024,
-
-  init: function init() {
-    this.incomingBuffer = new ArrayBuffer(this.INCOMING_BUFFER_LENGTH);
-    this.outgoingBuffer = new ArrayBuffer(this.OUTGOING_BUFFER_LENGTH);
-
-    this.incomingBytes = new Uint8Array(this.incomingBuffer);
-    this.outgoingBytes = new Uint8Array(this.outgoingBuffer);
-
-    // Track where incoming data is read from and written to.
-    this.incomingWriteIndex = 0;
-    this.incomingReadIndex = 0;
-
-    // Leave room for the parcel size for outgoing parcels.
-    this.outgoingIndex = PARCEL_SIZE_SIZE;
-
-    // How many bytes we've read for this parcel so far.
-    this.readIncoming = 0;
-
-    // How many bytes available as parcel data.
-    this.readAvailable = 0;
-
-    // Size of the incoming parcel. If this is zero, we're expecting a new
-    // parcel.
-    this.currentParcelSize = 0;
-
-    // This gets incremented each time we send out a parcel.
-    this.token = 1;
-
-    // Maps tokens we send out with requests to the request type, so that
-    // when we get a response parcel back, we know what request it was for.
-    this.tokenRequestMap = {};
-
-    // This is the token of last solicited response.
-    this.lastSolicitedToken = 0;
-
-    // Queue for storing outgoing override points
-    this.outgoingBufferCalSizeQueue = [];
-  },
-
-  /**
-   * Mark current outgoingIndex as start point for calculation length of data
-   * written to outgoingBuffer.
-   * Mark can be nested for here uses queue to remember marks.
-   *
-   * @param writeFunction
-   *        Function to write data length into outgoingBuffer, this function is
-   *        also used to allocate buffer for data length.
-   *        Raw data size(in Uint8) is provided as parameter calling writeFunction.
-   *        If raw data size is not in proper unit for writing, user can adjust
-   *        the length value in writeFunction before writing.
-   **/
-  startCalOutgoingSize: function startCalOutgoingSize(writeFunction) {
-    let sizeInfo = {index: this.outgoingIndex,
-                    write: writeFunction};
-
-    // Allocate buffer for data lemgtj.
-    writeFunction.call(0);
-
-    // Get size of data length buffer for it is not counted into data size.
-    sizeInfo.size = this.outgoingIndex - sizeInfo.index;
-
-    // Enqueue size calculation information.
-    this.outgoingBufferCalSizeQueue.push(sizeInfo);
-  },
-
-  /**
-   * Calculate data length since last mark, and write it into mark position.
-   **/
-  stopCalOutgoingSize: function stopCalOutgoingSize() {
-    let sizeInfo = this.outgoingBufferCalSizeQueue.pop();
-
-    // Remember current outgoingIndex.
-    let currentOutgoingIndex = this.outgoingIndex;
-    // Calculate data length, in uint8.
-    let writeSize = this.outgoingIndex - sizeInfo.index - sizeInfo.size;
-
-    // Write data length to mark, use same function for allocating buffer to make
-    // sure there is no buffer overloading.
-    this.outgoingIndex = sizeInfo.index;
-    sizeInfo.write(writeSize);
-
-    // Restore outgoingIndex.
-    this.outgoingIndex = currentOutgoingIndex;
-  },
-
-  /**
-   * Grow the incoming buffer.
-   *
-   * @param min_size
-   *        Minimum new size. The actual new size will be the the smallest
-   *        power of 2 that's larger than this number.
-   */
-  growIncomingBuffer: function growIncomingBuffer(min_size) {
-    if (DEBUG) {
-      debug("Current buffer of " + this.INCOMING_BUFFER_LENGTH +
-            " can't handle incoming " + min_size + " bytes.");
-    }
-    let oldBytes = this.incomingBytes;
-    this.INCOMING_BUFFER_LENGTH =
-      2 << Math.floor(Math.log(min_size)/Math.log(2));
-    if (DEBUG) debug("New incoming buffer size: " + this.INCOMING_BUFFER_LENGTH);
-    this.incomingBuffer = new ArrayBuffer(this.INCOMING_BUFFER_LENGTH);
-    this.incomingBytes = new Uint8Array(this.incomingBuffer);
-    if (this.incomingReadIndex <= this.incomingWriteIndex) {
-      // Read and write index are in natural order, so we can just copy
-      // the old buffer over to the bigger one without having to worry
-      // about the indexes.
-      this.incomingBytes.set(oldBytes, 0);
-    } else {
-      // The write index has wrapped around but the read index hasn't yet.
-      // Write whatever the read index has left to read until it would
-      // circle around to the beginning of the new buffer, and the rest
-      // behind that.
-      let head = oldBytes.subarray(this.incomingReadIndex);
-      let tail = oldBytes.subarray(0, this.incomingReadIndex);
-      this.incomingBytes.set(head, 0);
-      this.incomingBytes.set(tail, head.length);
-      this.incomingReadIndex = 0;
-      this.incomingWriteIndex += head.length;
-    }
-    if (DEBUG) {
-      debug("New incoming buffer size is " + this.INCOMING_BUFFER_LENGTH);
-    }
-  },
-
-  /**
-   * Grow the outgoing buffer.
-   *
-   * @param min_size
-   *        Minimum new size. The actual new size will be the the smallest
-   *        power of 2 that's larger than this number.
-   */
-  growOutgoingBuffer: function growOutgoingBuffer(min_size) {
-    if (DEBUG) {
-      debug("Current buffer of " + this.OUTGOING_BUFFER_LENGTH +
-            " is too small.");
-    }
-    let oldBytes = this.outgoingBytes;
-    this.OUTGOING_BUFFER_LENGTH =
-      2 << Math.floor(Math.log(min_size)/Math.log(2));
-    this.outgoingBuffer = new ArrayBuffer(this.OUTGOING_BUFFER_LENGTH);
-    this.outgoingBytes = new Uint8Array(this.outgoingBuffer);
-    this.outgoingBytes.set(oldBytes, 0);
-    if (DEBUG) {
-      debug("New outgoing buffer size is " + this.OUTGOING_BUFFER_LENGTH);
-    }
-  },
-
-  /**
-   * Functions for reading data from the incoming buffer.
-   *
-   * These are all little endian, apart from readParcelSize();
-   */
-
-  /**
-   * Ensure position specified is readable.
-   *
-   * @param index
-   *        Data position in incoming parcel, valid from 0 to
-   *        this.currentParcelSize.
-   */
-  ensureIncomingAvailable: function ensureIncomingAvailable(index) {
-    if (index >= this.currentParcelSize) {
-      throw new Error("Trying to read data beyond the parcel end!");
-    } else if (index < 0) {
-      throw new Error("Trying to read data before the parcel begin!");
-    }
-  },
-
-  /**
-   * Seek in current incoming parcel.
-   *
-   * @param offset
-   *        Seek offset in relative to current position.
-   */
-  seekIncoming: function seekIncoming(offset) {
-    // Translate to 0..currentParcelSize
-    let cur = this.currentParcelSize - this.readAvailable;
-
-    let newIndex = cur + offset;
-    this.ensureIncomingAvailable(newIndex);
-
-    // ... incomingReadIndex -->|
-    // 0               new     cur           currentParcelSize
-    // |================|=======|===================|
-    // |<--        cur       -->|<- readAvailable ->|
-    // |<-- newIndex -->|<--  new readAvailable  -->|
-    this.readAvailable = this.currentParcelSize - newIndex;
-
-    // Translate back:
-    if (this.incomingReadIndex < cur) {
-      // The incomingReadIndex is wrapped.
-      newIndex += this.INCOMING_BUFFER_LENGTH;
-    }
-    newIndex += (this.incomingReadIndex - cur);
-    newIndex %= this.INCOMING_BUFFER_LENGTH;
-    this.incomingReadIndex = newIndex;
-  },
-
-  readUint8Unchecked: function readUint8Unchecked() {
-    let value = this.incomingBytes[this.incomingReadIndex];
-    this.incomingReadIndex = (this.incomingReadIndex + 1) %
-                             this.INCOMING_BUFFER_LENGTH;
-    return value;
-  },
-
-  readUint8: function readUint8() {
-    // Translate to 0..currentParcelSize
-    let cur = this.currentParcelSize - this.readAvailable;
-    this.ensureIncomingAvailable(cur);
-
-    this.readAvailable--;
-    return this.readUint8Unchecked();
-  },
-
-  readUint8Array: function readUint8Array(length) {
-    // Translate to 0..currentParcelSize
-    let last = this.currentParcelSize - this.readAvailable;
-    last += (length - 1);
-    this.ensureIncomingAvailable(last);
-
-    let array = new Uint8Array(length);
-    for (let i = 0; i < length; i++) {
-      array[i] = this.readUint8Unchecked();
-    }
-
-    this.readAvailable -= length;
-    return array;
-  },
-
-  readUint16: function readUint16() {
-    return this.readUint8() | this.readUint8() << 8;
-  },
-
-  readUint32: function readUint32() {
-    return this.readUint8()       | this.readUint8() <<  8 |
-           this.readUint8() << 16 | this.readUint8() << 24;
-  },
-
-  readUint32List: function readUint32List() {
-    let length = this.readUint32();
-    let ints = [];
-    for (let i = 0; i < length; i++) {
-      ints.push(this.readUint32());
-    }
-    return ints;
-  },
-
-  readString: function readString() {
-    let string_len = this.readUint32();
-    if (string_len < 0 || string_len >= INT32_MAX) {
-      return null;
-    }
-    let s = "";
-    for (let i = 0; i < string_len; i++) {
-      s += String.fromCharCode(this.readUint16());
-    }
-    // Strings are \0\0 delimited, but that isn't part of the length. And
-    // if the string length is even, the delimiter is two characters wide.
-    // It's insane, I know.
-    this.readStringDelimiter(string_len);
-    return s;
-  },
-
-  readStringList: function readStringList() {
-    let num_strings = this.readUint32();
-    let strings = [];
-    for (let i = 0; i < num_strings; i++) {
-      strings.push(this.readString());
-    }
-    return strings;
-  },
-
-  readStringDelimiter: function readStringDelimiter(length) {
-    let delimiter = this.readUint16();
-    if (!(length & 1)) {
-      delimiter |= this.readUint16();
-    }
-    if (DEBUG) {
-      if (delimiter !== 0) {
-        debug("Something's wrong, found string delimiter: " + delimiter);
-      }
-    }
-  },
-
-  readParcelSize: function readParcelSize() {
-    return this.readUint8Unchecked() << 24 |
-           this.readUint8Unchecked() << 16 |
-           this.readUint8Unchecked() <<  8 |
-           this.readUint8Unchecked();
-  },
-
-  /**
-   * Functions for writing data to the outgoing buffer.
-   */
-
-  /**
-   * Ensure position specified is writable.
-   *
-   * @param index
-   *        Data position in outgoing parcel, valid from 0 to
-   *        this.OUTGOING_BUFFER_LENGTH.
-   */
-  ensureOutgoingAvailable: function ensureOutgoingAvailable(index) {
-    if (index >= this.OUTGOING_BUFFER_LENGTH) {
-      this.growOutgoingBuffer(index + 1);
-    }
-  },
-
-  writeUint8: function writeUint8(value) {
-    this.ensureOutgoingAvailable(this.outgoingIndex);
-
-    this.outgoingBytes[this.outgoingIndex] = value;
-    this.outgoingIndex++;
-  },
-
-  writeUint16: function writeUint16(value) {
-    this.writeUint8(value & 0xff);
-    this.writeUint8((value >> 8) & 0xff);
-  },
-
-  writeUint32: function writeUint32(value) {
-    this.writeUint8(value & 0xff);
-    this.writeUint8((value >> 8) & 0xff);
-    this.writeUint8((value >> 16) & 0xff);
-    this.writeUint8((value >> 24) & 0xff);
-  },
-
-  writeString: function writeString(value) {
-    if (value == null) {
-      this.writeUint32(-1);
-      return;
-    }
-    this.writeUint32(value.length);
-    for (let i = 0; i < value.length; i++) {
-      this.writeUint16(value.charCodeAt(i));
-    }
-    // Strings are \0\0 delimited, but that isn't part of the length. And
-    // if the string length is even, the delimiter is two characters wide.
-    // It's insane, I know.
-    this.writeStringDelimiter(value.length);
-  },
-
-  writeStringList: function writeStringList(strings) {
-    this.writeUint32(strings.length);
-    for (let i = 0; i < strings.length; i++) {
-      this.writeString(strings[i]);
-    }
-  },
-
-  writeStringDelimiter: function writeStringDelimiter(length) {
-    this.writeUint16(0);
-    if (!(length & 1)) {
-      this.writeUint16(0);
-    }
-  },
-
-  writeParcelSize: function writeParcelSize(value) {
-    /**
-     *  Parcel size will always be the first thing in the parcel byte
-     *  array, but the last thing written. Store the current index off
-     *  to a temporary to be reset after we write the size.
-     */
-    let currentIndex = this.outgoingIndex;
-    this.outgoingIndex = 0;
-    this.writeUint8((value >> 24) & 0xff);
-    this.writeUint8((value >> 16) & 0xff);
-    this.writeUint8((value >> 8) & 0xff);
-    this.writeUint8(value & 0xff);
-    this.outgoingIndex = currentIndex;
-  },
-
-  copyIncomingToOutgoing: function copyIncomingToOutgoing(length) {
-    if (!length || (length < 0)) {
-      return;
-    }
-
-    let translatedReadIndexEnd = this.currentParcelSize - this.readAvailable + length - 1;
-    this.ensureIncomingAvailable(translatedReadIndexEnd);
-
-    let translatedWriteIndexEnd = this.outgoingIndex + length - 1;
-    this.ensureOutgoingAvailable(translatedWriteIndexEnd);
-
-    let newIncomingReadIndex = this.incomingReadIndex + length;
-    if (newIncomingReadIndex < this.INCOMING_BUFFER_LENGTH) {
-      // Reading won't cause wrapping, go ahead with builtin copy.
-      this.outgoingBytes.set(this.incomingBytes.subarray(this.incomingReadIndex, newIncomingReadIndex),
-                             this.outgoingIndex);
-    } else {
-      // Not so lucky.
-      newIncomingReadIndex %= this.INCOMING_BUFFER_LENGTH;
-      this.outgoingBytes.set(this.incomingBytes.subarray(this.incomingReadIndex, this.INCOMING_BUFFER_LENGTH),
-                             this.outgoingIndex);
-      if (newIncomingReadIndex) {
-        let firstPartLength = this.INCOMING_BUFFER_LENGTH - this.incomingReadIndex;
-        this.outgoingBytes.set(this.incomingBytes.subarray(0, newIncomingReadIndex),
-                               this.outgoingIndex + firstPartLength);
-      }
-    }
-
-    this.incomingReadIndex = newIncomingReadIndex;
-    this.readAvailable -= length;
-    this.outgoingIndex += length;
-  },
-
-  /**
-   * Parcel management
-   */
-
-  /**
-   * Write incoming data to the circular buffer.
-   *
-   * @param incoming
-   *        Uint8Array containing the incoming data.
-   */
-  writeToIncoming: function writeToIncoming(incoming) {
-    // We don't have to worry about the head catching the tail since
-    // we process any backlog in parcels immediately, before writing
-    // new data to the buffer. So the only edge case we need to handle
-    // is when the incoming data is larger than the buffer size.
-    let minMustAvailableSize = incoming.length + this.readIncoming;
-    if (minMustAvailableSize > this.INCOMING_BUFFER_LENGTH) {
-      this.growIncomingBuffer(minMustAvailableSize);
-    }
-
-    // We can let the typed arrays do the copying if the incoming data won't
-    // wrap around the edges of the circular buffer.
-    let remaining = this.INCOMING_BUFFER_LENGTH - this.incomingWriteIndex;
-    if (remaining >= incoming.length) {
-      this.incomingBytes.set(incoming, this.incomingWriteIndex);
-    } else {
-      // The incoming data would wrap around it.
-      let head = incoming.subarray(0, remaining);
-      let tail = incoming.subarray(remaining);
-      this.incomingBytes.set(head, this.incomingWriteIndex);
-      this.incomingBytes.set(tail, 0);
-    }
-    this.incomingWriteIndex = (this.incomingWriteIndex + incoming.length) %
-                              this.INCOMING_BUFFER_LENGTH;
-  },
-
-  /**
-   * Process incoming data.
-   *
-   * @param incoming
-   *        Uint8Array containing the incoming data.
-   */
-  processIncoming: function processIncoming(incoming) {
-    if (DEBUG) {
-      debug("Received " + incoming.length + " bytes.");
-      debug("Already read " + this.readIncoming);
-    }
-
-    this.writeToIncoming(incoming);
-    this.readIncoming += incoming.length;
-    while (true) {
-      if (!this.currentParcelSize) {
-        // We're expecting a new parcel.
-        if (this.readIncoming < PARCEL_SIZE_SIZE) {
-          // We don't know how big the next parcel is going to be, need more
-          // data.
-          if (DEBUG) debug("Next parcel size unknown, going to sleep.");
-          return;
-        }
-        this.currentParcelSize = this.readParcelSize();
-        if (DEBUG) debug("New incoming parcel of size " +
-                         this.currentParcelSize);
-        // The size itself is not included in the size.
-        this.readIncoming -= PARCEL_SIZE_SIZE;
-      }
-
-      if (this.readIncoming < this.currentParcelSize) {
-        // We haven't read enough yet in order to be able to process a parcel.
-        if (DEBUG) debug("Read " + this.readIncoming + ", but parcel size is "
-                         + this.currentParcelSize + ". Going to sleep.");
-        return;
-      }
-
-      // Alright, we have enough data to process at least one whole parcel.
-      // Let's do that.
-      let expectedAfterIndex = (this.incomingReadIndex + this.currentParcelSize)
-                               % this.INCOMING_BUFFER_LENGTH;
-
-      if (DEBUG) {
-        let parcel;
-        if (expectedAfterIndex < this.incomingReadIndex) {
-          let head = this.incomingBytes.subarray(this.incomingReadIndex);
-          let tail = this.incomingBytes.subarray(0, expectedAfterIndex);
-          parcel = Array.slice(head).concat(Array.slice(tail));
-        } else {
-          parcel = Array.slice(this.incomingBytes.subarray(
-            this.incomingReadIndex, expectedAfterIndex));
-        }
-        debug("Parcel (size " + this.currentParcelSize + "): " + parcel);
-      }
-
-      if (DEBUG) debug("We have at least one complete parcel.");
-      try {
-        this.readAvailable = this.currentParcelSize;
-        this.processParcel();
-      } catch (ex) {
-        if (DEBUG) debug("Parcel handling threw " + ex + "\n" + ex.stack);
-      }
-
-      // Ensure that the whole parcel was consumed.
-      if (this.incomingReadIndex != expectedAfterIndex) {
-        if (DEBUG) {
-          debug("Parcel handler didn't consume whole parcel, " +
-                Math.abs(expectedAfterIndex - this.incomingReadIndex) +
-                " bytes left over");
-        }
-        this.incomingReadIndex = expectedAfterIndex;
-      }
-      this.readIncoming -= this.currentParcelSize;
-      this.readAvailable = 0;
-      this.currentParcelSize = 0;
-    }
-  },
-
-  /**
-   * Process one parcel.
-   */
-  processParcel: function processParcel() {
-    let response_type = this.readUint32();
-
-    let request_type, options;
-    if (response_type == RESPONSE_TYPE_SOLICITED) {
-      let token = this.readUint32();
-      let error = this.readUint32();
-
-      options = this.tokenRequestMap[token];
-      if (!options) {
-        if (DEBUG) {
-          debug("Suspicious uninvited request found: " + token + ". Ignored!");
-        }
-        return;
-      }
-
-      delete this.tokenRequestMap[token];
-      request_type = options.rilRequestType;
-
-      options.rilRequestError = error;
-      if (DEBUG) {
-        debug("Solicited response for request type " + request_type +
-              ", token " + token + ", error " + error);
-      }
-    } else if (response_type == RESPONSE_TYPE_UNSOLICITED) {
-      request_type = this.readUint32();
-      if (DEBUG) debug("Unsolicited response for request type " + request_type);
-    } else {
-      if (DEBUG) debug("Unknown response type: " + response_type);
-      return;
-    }
-
-    RIL.handleParcel(request_type, this.readAvailable, options);
-  },
-
-  /**
-   * Start a new outgoing parcel.
-   *
-   * @param type
-   *        Integer specifying the request type.
-   * @param options [optional]
-   *        Object containing information about the request, e.g. the
-   *        original main thread message object that led to the RIL request.
-   */
-  newParcel: function newParcel(type, options) {
-    if (DEBUG) debug("New outgoing parcel of type " + type);
-
-    // We're going to leave room for the parcel size at the beginning.
-    this.outgoingIndex = PARCEL_SIZE_SIZE;
-    this.writeUint32(type);
-    let token = this.token;
-    this.writeUint32(token);
-
-    if (!options) {
-      options = {};
-    }
-    options.rilRequestType = type;
-    options.rilRequestError = null;
-    this.tokenRequestMap[token] = options;
-    this.token++;
-    return token;
-  },
-
-  /**
-   * Communicate with the RIL IPC thread.
-   */
-  sendParcel: function sendParcel() {
-    // Compute the size of the parcel and write it to the front of the parcel
-    // where we left room for it. Note that he parcel size does not include
-    // the size itself.
-    let parcelSize = this.outgoingIndex - PARCEL_SIZE_SIZE;
-    this.writeParcelSize(parcelSize);
-
-    // This assumes that postRILMessage will make a copy of the ArrayBufferView
-    // right away!
-    let parcel = this.outgoingBytes.subarray(0, this.outgoingIndex);
-    if (DEBUG) debug("Outgoing parcel: " + Array.slice(parcel));
-    postRILMessage(CLIENT_ID, parcel);
-    this.outgoingIndex = PARCEL_SIZE_SIZE;
-  },
-
-  simpleRequest: function simpleRequest(type, options) {
-    this.newParcel(type, options);
-    this.sendParcel();
-  }
-};
-
+let Buf = require("resource://gre/modules/workers/worker_buf.js");
 
 /**
  * The RIL state machine.
@@ -734,6 +110,11 @@ let RIL = {
    * Valid calls.
    */
   currentCalls: {},
+
+  /**
+   * Existing conference call and its participants.
+   */
+  currentConference: {state: null, participants: {}},
 
   /**
    * Existing data calls.
@@ -1881,13 +1262,15 @@ let RIL = {
     if (this._isEmergencyNumber(options.number)) {
       this.dialEmergencyNumber(options, onerror);
     } else {
-      // TODO: Both dial() and sendMMI() functions should be unified at some
-      // point in the future. In the mean time we handle temporary CLIR MMI
-      // commands through the dial() function. Please see bug 889737.
-      let mmi = this._parseMMI(options.number);
-      if (mmi && this._isTemporaryModeCLIR(mmi)) {
-        options.number = mmi.dialNumber;
-        options.clirMode = this._getCLIRMode(mmi);
+      if (!this._isCdma) {
+        // TODO: Both dial() and sendMMI() functions should be unified at some
+        // point in the future. In the mean time we handle temporary CLIR MMI
+        // commands through the dial() function. Please see bug 889737.
+        let mmi = this._parseMMI(options.number);
+        if (mmi && this._isTemporaryModeCLIR(mmi)) {
+          options.number = mmi.dialNumber;
+          options.clirMode = this._getCLIRMode(mmi);
+        }
       }
       this.dialNonEmergencyNumber(options, onerror);
     }
@@ -2065,6 +1448,29 @@ let RIL = {
     if (call && call.state == CALL_STATE_HOLDING) {
       Buf.simpleRequest(REQUEST_SWITCH_HOLDING_AND_ACTIVE);
     }
+  },
+
+  // Flag indicating whether user has requested making a conference call.
+  _hasConferenceRequest: false,
+
+  conferenceCall: function conferenceCall(options) {
+    this._hasConferenceRequest = true;
+    Buf.simpleRequest(REQUEST_CONFERENCE, options);
+  },
+
+  separateCall: function separateCall(options) {
+    Buf.newParcel(REQUEST_SEPARATE_CONNECTION, options);
+    Buf.writeUint32(1);
+    Buf.writeUint32(options.callIndex);
+    Buf.sendParcel();
+  },
+
+  holdConference: function holdConference() {
+    Buf.simpleRequest(REQUEST_SWITCH_HOLDING_AND_ACTIVE);
+  },
+
+  resumeConference: function resumeConference() {
+    Buf.simpleRequest(REQUEST_SWITCH_HOLDING_AND_ACTIVE);
   },
 
   /**
@@ -2333,9 +1739,25 @@ let RIL = {
    *        String containing PDP type to request. ("IP", "IPV6", ...)
    */
   setupDataCall: function setupDataCall(options) {
+    // From ./hardware/ril/include/telephony/ril.h:
+    // ((const char **)data)[0] Radio technology to use: 0-CDMA, 1-GSM/UMTS, 2...
+    // for values above 2 this is RIL_RadioTechnology + 2.
+    //
+    // From frameworks/base/telephony/java/com/android/internal/telephony/DataConnection.java:
+    // if the mRilVersion < 6, radio technology must be GSM/UMTS or CDMA.
+    // Otherwise, it must be + 2
+    //
+    // See also bug 901232 and 867873
+    let radioTech;
+    if (RILQUIRKS_V5_LEGACY) {
+      radioTech = this._isCdma ? DATACALL_RADIOTECHNOLOGY_CDMA
+                               : DATACALL_RADIOTECHNOLOGY_GSM;
+    } else {
+      radioTech = options.radioTech + 2;
+    }
     let token = Buf.newParcel(REQUEST_SETUP_DATA_CALL, options);
     Buf.writeUint32(7);
-    Buf.writeString(options.radioTech.toString());
+    Buf.writeString(radioTech.toString());
     Buf.writeString(DATACALL_PROFILE_DEFAULT.toString());
     Buf.writeString(options.apn);
     Buf.writeString(options.user);
@@ -2903,6 +2325,25 @@ let RIL = {
   setCallBarring: function setCallBarring(options) {
     options.facility = CALL_BARRING_PROGRAM_TO_FACILITY[options.program];
     this.setICCFacilityLock(options);
+  },
+
+  /**
+   * Change call barring facility password.
+   *
+   * @param pin
+   *        Old password.
+   * @param newPin
+   *        New password.
+   */
+  changeCallBarringPassword: function changeCallBarringPassword(options) {
+    Buf.newParcel(REQUEST_CHANGE_BARRING_PASSWORD, options);
+    Buf.writeUint32(3);
+    // Set facility to ICC_CB_FACILITY_BA_ALL by following TS.22.030 clause
+    // 6.5.4 and Table B.1.
+    Buf.writeString(ICC_CB_FACILITY_BA_ALL);
+    Buf.writeString(options.pin);
+    Buf.writeString(options.newPin);
+    Buf.sendParcel();
   },
 
   /**
@@ -3879,6 +3320,9 @@ let RIL = {
    * Helpers for processing call state and handle the active call.
    */
   _processCalls: function _processCalls(newCalls) {
+    let conferenceChanged = false;
+    let clearConferenceRequest = false;
+
     // Go through the calls we currently have on file and see if any of them
     // changed state. Remove them from the newCalls map as we deal with them
     // so that only new calls remain in the map after we're done.
@@ -3892,13 +3336,26 @@ let RIL = {
       if (!newCall) {
         // Call is no longer reported by the radio. Remove from our map and
         // send disconnected state change.
-        delete this.currentCalls[currentCall.callIndex];
-        this.getFailCauseCode(currentCall);
+
+        if (this.currentConference.participants[currentCall.callIndex]) {
+          conferenceChanged = true;
+          currentCall.isConference = false;
+          delete this.currentConference.participants[currentCall.callIndex];
+          delete this.currentCalls[currentCall.callIndex];
+          // We don't query the fail cause here as it triggers another asynchrouns
+          // request that leads to a problem of updating all conferece participants
+          // in one task.
+          this._handleDisconnectedCall(currentCall);
+        } else {
+          delete this.currentCalls[currentCall.callIndex];
+          this.getFailCauseCode(currentCall);
+        }
         continue;
       }
 
       // Call is still valid.
-      if (newCall.state == currentCall.state) {
+      if (newCall.state == currentCall.state &&
+          newCall.isMpty == currentCall.isMpty) {
         continue;
       }
 
@@ -3914,8 +3371,71 @@ let RIL = {
       if (!currentCall.started && newCall.state == CALL_STATE_ACTIVE) {
         currentCall.started = new Date().getTime();
       }
-      currentCall.state = newCall.state;
-      this._handleChangedCallState(currentCall);
+
+      if (currentCall.isMpty == newCall.isMpty &&
+          newCall.state != currentCall.state) {
+        currentCall.state = newCall.state;
+        if (currentCall.isConference) {
+          conferenceChanged = true;
+        }
+        this._handleChangedCallState(currentCall);
+        continue;
+      }
+
+      // '.isMpty' becomes false when the conference call is put on hold.
+      // We need to introduce additional 'isConference' to correctly record the
+      // real conference status
+
+      // Update a possible conference participant when .isMpty changes.
+      if (!currentCall.isMpty && newCall.isMpty) {
+        if (this._hasConferenceRequest) {
+          conferenceChanged = true;
+          clearConferenceRequest = true;
+          currentCall.state = newCall.state;
+          currentCall.isMpty = newCall.isMpty;
+          currentCall.isConference = true;
+          this.currentConference.participants[currentCall.callIndex] = currentCall;
+          this._handleChangedCallState(currentCall);
+        } else if (currentCall.isConference) {
+          // The case happens when resuming a held conference call.
+          conferenceChanged = true;
+          currentCall.state = newCall.state;
+          currentCall.isMpty = newCall.isMpty;
+          this.currentConference.participants[currentCall.callIndex] = currentCall;
+          this._handleChangedCallState(currentCall);
+        } else {
+          // Weird. This sometimes happens when we switch two calls, but it is
+          // not a conference call.
+          currentCall.state = newCall.state;
+          this._handleChangedCallState(currentCall);
+        }
+      } else if (currentCall.isMpty && !newCall.isMpty) {
+        if (!this.currentConference.participants[newCall.callIndex]) {
+          continue;
+        }
+
+        // '.isMpty' of a conference participant is set to false by rild when
+        // the conference call is put on hold. We don't actually know if the call
+        // still attends the conference until updating all calls finishes. We
+        // cache it for further determination.
+        if (newCall.state != CALL_STATE_HOLDING) {
+          delete this.currentConference.participants[newCall.callIndex];
+          currentCall.state = newCall.state;
+          currentCall.isMpty = newCall.isMpty;
+          currentCall.isConference = false;
+          conferenceChanged = true;
+          this._handleChangedCallState(currentCall);
+          continue;
+        }
+
+        if (!this.currentConference.cache) {
+          this.currentConference.cache = {};
+        }
+        this.currentConference.cache[currentCall.callIndex] = newCall;
+        currentCall.state = newCall.state;
+        currentCall.isMpty = newCall.isMpty;
+        conferenceChanged = true;
+      }
     }
 
     // Go through any remaining calls that are new to us.
@@ -3942,14 +3462,67 @@ let RIL = {
         }
 
         // Add to our map.
-        this.currentCalls[newCall.callIndex] = newCall;
+        if (newCall.isMpty) {
+          conferenceChanged = true;
+          newCall.isConference = true;
+          this.currentConference.participants[newCall.callIndex] = newCall;
+        } else {
+          newCall.isConference = false;
+        }
         this._handleChangedCallState(newCall);
+        this.currentCalls[newCall.callIndex] = newCall;
       }
+    }
+
+    if (clearConferenceRequest) {
+      this._hasConferenceRequest = false;
+    }
+    if (conferenceChanged) {
+      this._ensureConference();
     }
 
     // Update our mute status. If there is anything in our currentCalls map then
     // we know it's a voice call and we should leave audio on.
     this.muted = (Object.getOwnPropertyNames(this.currentCalls).length === 0);
+  },
+
+  _ensureConference: function _ensureConference() {
+    let oldState = this.currentConference.state;
+    let remaining = Object.keys(this.currentConference.participants);
+
+    if (remaining.length == 1) {
+      // Remove that if only does one remain in a conference call.
+      let call = this.currentCalls[remaining[0]];
+      call.isConference = false;
+      this._handleChangedCallState(call);
+      delete this.currentConference.participants[call.callIndex];
+    } else if (remaining.length > 1) {
+      for each (let call in this.currentConference.cache) {
+        call.isConference = true;
+        this.currentConference.participants[call.callIndex] = call;
+        this.currentCalls[call.callIndex] = call;
+        this._handleChangedCallState(call);
+      }
+    }
+    delete this.currentConference.cache;
+
+    // Update the conference call's state.
+    let state = null;
+    for each (let call in this.currentConference.participants) {
+      if (state && state != call.state) {
+        // Each participant should have the same state, otherwise something
+        // wrong happens.
+        state = null;
+        break;
+      }
+      state = call.state;
+    }
+    if (oldState != state) {
+      this.currentConference.state = state;
+      let message = {rilMessageType: "conferenceCallStateChanged",
+                     state: state};
+      this.sendChromeMessage(message);
+    }
   },
 
   _handleChangedCallState: function _handleChangedCallState(changedCall) {
@@ -4290,7 +3863,7 @@ let RIL = {
     };
     Buf.newParcel(REQUEST_STK_SEND_ENVELOPE_WITH_STATUS, options);
 
-    Buf.seekIncoming(-1 * (Buf.currentParcelSize - Buf.readAvailable
+    Buf.seekIncoming(-1 * (Buf.getCurrentParcelSize() - Buf.getReadAvailable()
                            - 2 * UINT32_SIZE)); // Skip response_type & request_type.
     let messageStringLength = Buf.readUint32(); // In semi-octets
     let smscLength = GsmPDUHelper.readHexOctet(); // In octets, inclusive of TOA
@@ -4399,7 +3972,7 @@ let RIL = {
     // Write EFsms Status
     Buf.writeUint32(EFSMS_STATUS_FREE);
 
-    Buf.seekIncoming(-1 * (Buf.currentParcelSize - Buf.readAvailable
+    Buf.seekIncoming(-1 * (Buf.getCurrentParcelSize() - Buf.getReadAvailable()
                            - 2 * UINT32_SIZE)); // Skip response_type & request_type.
     let messageStringLength = Buf.readUint32(); // In semi-octets
     let smscLength = GsmPDUHelper.readHexOctet(); // In octets, inclusive of TOA
@@ -4424,7 +3997,7 @@ let RIL = {
     GsmPDUHelper.writeHexOctet(smscLength);
     // Write TOA & SMSC Address
     if (smscLength) {
-      Buf.seekIncoming(-1 * (Buf.currentParcelSize - Buf.readAvailable
+      Buf.seekIncoming(-1 * (Buf.getCurrentParcelSize() - Buf.getReadAvailable()
                              - 2 * UINT32_SIZE // Skip response_type, request_type.
                              - 2 * PDU_HEX_OCTET_SIZE)); // Skip messageStringLength & smscLength.
       Buf.copyIncomingToOutgoing(PDU_HEX_OCTET_SIZE * smscLength);
@@ -5274,7 +4847,12 @@ RIL[REQUEST_SWITCH_HOLDING_AND_ACTIVE] = function REQUEST_SWITCH_HOLDING_AND_ACT
   // this.getCurrentCalls() helps update the call state actively.
   this.getCurrentCalls();
 };
-RIL[REQUEST_CONFERENCE] = null;
+RIL[REQUEST_CONFERENCE] = function REQUEST_CONFERENCE(length, options) {
+  if (options.rilRequestError) {
+    this._hasConferenceRequest = false;
+    return;
+  }
+};
 RIL[REQUEST_UDUB] = null;
 RIL[REQUEST_LAST_CALL_FAIL_CAUSE] = function REQUEST_LAST_CALL_FAIL_CAUSE(length, options) {
   let num = 0;
@@ -5668,8 +5246,9 @@ RIL[REQUEST_SET_CALL_WAITING] = function REQUEST_SET_CALL_WAITING(length, option
 RIL[REQUEST_SMS_ACKNOWLEDGE] = null;
 RIL[REQUEST_GET_IMEI] = function REQUEST_GET_IMEI(length, options) {
   this.IMEI = Buf.readString();
+  let rilMessageType = options.rilMessageType;
   // So far we only send the IMEI back to chrome if it was requested via MMI.
-  if (options.rilMessageType !== "sendMMI") {
+  if (rilMessageType !== "sendMMI") {
     return;
   }
 
@@ -5758,7 +5337,13 @@ RIL[REQUEST_SET_FACILITY_LOCK] = function REQUEST_SET_FACILITY_LOCK(length, opti
   }
   this.sendChromeMessage(options);
 };
-RIL[REQUEST_CHANGE_BARRING_PASSWORD] = null;
+RIL[REQUEST_CHANGE_BARRING_PASSWORD] =
+  function REQUEST_CHANGE_BARRING_PASSWORD(length, options) {
+  if (options.rilRequestError) {
+    options.errorMsg = RIL_ERROR_TO_GECKO_ERROR[options.rilRequestError];
+  }
+  this.sendChromeMessage(options);
+};
 RIL[REQUEST_SIM_OPEN_CHANNEL] = function REQUEST_SIM_OPEN_CHANNEL(length, options) {
   if (options.rilRequestError) {
     options.errorMsg = RIL_ERROR_TO_GECKO_ERROR[options.rilRequestError];
@@ -6440,7 +6025,11 @@ RIL[UNSOLICITED_CDMA_CALL_WAITING] = function UNSOLICITED_CDMA_CALL_WAITING(leng
   this.sendChromeMessage({rilMessageType: "cdmaCallWaiting",
                           number: call.number});
 };
-RIL[UNSOLICITED_CDMA_OTA_PROVISION_STATUS] = null;
+RIL[UNSOLICITED_CDMA_OTA_PROVISION_STATUS] = function UNSOLICITED_CDMA_OTA_PROVISION_STATUS() {
+  let status = Buf.readUint32List()[0];
+  this.sendChromeMessage({rilMessageType: "otastatuschange",
+                          status: status});
+};
 RIL[UNSOLICITED_CDMA_INFO_REC] = null;
 RIL[UNSOLICITED_OEM_HOOK_RAW] = null;
 RIL[UNSOLICITED_RINGBACK_TONE] = null;
@@ -7775,7 +7364,7 @@ let GsmPDUHelper = {
     // Because each PDU octet is converted to two UCS2 char2, we should always
     // get even messageStringLength in this#_processReceivedSms(). So, we'll
     // always need two delimitors at the end.
-    if (Buf.readAvailable <= 4) {
+    if (Buf.getReadAvailable() <= 4) {
       return;
     }
 
@@ -9551,62 +9140,14 @@ let CdmaPDUHelper = {
 
 let StkCommandParamsFactory = {
   createParam: function createParam(cmdDetails, ctlvs) {
-    let param;
-    switch (cmdDetails.typeOfCommand) {
-      case STK_CMD_REFRESH:
-        param = this.processRefresh(cmdDetails, ctlvs);
-        break;
-      case STK_CMD_POLL_INTERVAL:
-        param = this.processPollInterval(cmdDetails, ctlvs);
-        break;
-      case STK_CMD_POLL_OFF:
-        param = this.processPollOff(cmdDetails, ctlvs);
-        break;
-      case STK_CMD_PROVIDE_LOCAL_INFO:
-        param = this.processProvideLocalInfo(cmdDetails, ctlvs);
-        break;
-      case STK_CMD_SET_UP_EVENT_LIST:
-        param = this.processSetUpEventList(cmdDetails, ctlvs);
-        break;
-      case STK_CMD_SET_UP_MENU:
-      case STK_CMD_SELECT_ITEM:
-        param = this.processSelectItem(cmdDetails, ctlvs);
-        break;
-      case STK_CMD_DISPLAY_TEXT:
-        param = this.processDisplayText(cmdDetails, ctlvs);
-        break;
-      case STK_CMD_SET_UP_IDLE_MODE_TEXT:
-        param = this.processSetUpIdleModeText(cmdDetails, ctlvs);
-        break;
-      case STK_CMD_GET_INKEY:
-        param = this.processGetInkey(cmdDetails, ctlvs);
-        break;
-      case STK_CMD_GET_INPUT:
-        param = this.processGetInput(cmdDetails, ctlvs);
-        break;
-      case STK_CMD_SEND_SS:
-      case STK_CMD_SEND_USSD:
-      case STK_CMD_SEND_SMS:
-      case STK_CMD_SEND_DTMF:
-        param = this.processEventNotify(cmdDetails, ctlvs);
-        break;
-      case STK_CMD_SET_UP_CALL:
-        param = this.processSetupCall(cmdDetails, ctlvs);
-        break;
-      case STK_CMD_LAUNCH_BROWSER:
-        param = this.processLaunchBrowser(cmdDetails, ctlvs);
-        break;
-      case STK_CMD_PLAY_TONE:
-        param = this.processPlayTone(cmdDetails, ctlvs);
-        break;
-      case STK_CMD_TIMER_MANAGEMENT:
-        param = this.processTimerManagement(cmdDetails, ctlvs);
-        break;
-      default:
-        if (DEBUG) debug("unknown proactive command");
-        break;
+    let method = StkCommandParamsFactory[cmdDetails.typeOfCommand];
+    if (typeof method != "function") {
+      if (DEBUG) {
+        debug("Unknown proactive command " + cmdDetails.typeOfCommand.toString(16));
+      }
+      return null;
     }
-    return param;
+    return method.call(this, cmdDetails, ctlvs);
   },
 
   /**
@@ -10015,49 +9556,75 @@ let StkCommandParamsFactory = {
     return timer;
   }
 };
+StkCommandParamsFactory[STK_CMD_REFRESH] = function STK_CMD_REFRESH(cmdDetails, ctlvs) {
+  return this.processRefresh(cmdDetails, ctlvs);
+};
+StkCommandParamsFactory[STK_CMD_POLL_INTERVAL] = function STK_CMD_POLL_INTERVAL(cmdDetails, ctlvs) {
+  return this.processPollInterval(cmdDetails, ctlvs);
+};
+StkCommandParamsFactory[STK_CMD_POLL_OFF] = function STK_CMD_POLL_OFF(cmdDetails, ctlvs) {
+  return this.processPollOff(cmdDetails, ctlvs);
+};
+StkCommandParamsFactory[STK_CMD_PROVIDE_LOCAL_INFO] = function STK_CMD_PROVIDE_LOCAL_INFO(cmdDetails, ctlvs) {
+  return this.processProvideLocalInfo(cmdDetails, ctlvs);
+};
+StkCommandParamsFactory[STK_CMD_SET_UP_EVENT_LIST] = function STK_CMD_SET_UP_EVENT_LIST(cmdDetails, ctlvs) {
+  return this.processSetUpEventList(cmdDetails, ctlvs);
+};
+StkCommandParamsFactory[STK_CMD_SET_UP_MENU] = function STK_CMD_SET_UP_MENU(cmdDetails, ctlvs) {
+  return this.processSelectItem(cmdDetails, ctlvs);
+};
+StkCommandParamsFactory[STK_CMD_SELECT_ITEM] = function STK_CMD_SELECT_ITEM(cmdDetails, ctlvs) {
+  return this.processSelectItem(cmdDetails, ctlvs);
+};
+StkCommandParamsFactory[STK_CMD_DISPLAY_TEXT] = function STK_CMD_DISPLAY_TEXT(cmdDetails, ctlvs) {
+  return this.processDisplayText(cmdDetails, ctlvs);
+};
+StkCommandParamsFactory[STK_CMD_SET_UP_IDLE_MODE_TEXT] = function STK_CMD_SET_UP_IDLE_MODE_TEXT(cmdDetails, ctlvs) {
+  return this.processSetUpIdleModeText(cmdDetails, ctlvs);
+};
+StkCommandParamsFactory[STK_CMD_GET_INKEY] = function STK_CMD_GET_INKEY(cmdDetails, ctlvs) {
+  return this.processGetInkey(cmdDetails, ctlvs);
+};
+StkCommandParamsFactory[STK_CMD_GET_INPUT] = function STK_CMD_GET_INPUT(cmdDetails, ctlvs) {
+  return this.processGetInput(cmdDetails, ctlvs);
+};
+StkCommandParamsFactory[STK_CMD_SEND_SS] = function STK_CMD_SEND_SS(cmdDetails, ctlvs) {
+  return this.processEventNotify(cmdDetails, ctlvs);
+};
+StkCommandParamsFactory[STK_CMD_SEND_USSD] = function STK_CMD_SEND_USSD(cmdDetails, ctlvs) {
+  return this.processEventNotify(cmdDetails, ctlvs);
+};
+StkCommandParamsFactory[STK_CMD_SEND_SMS] = function STK_CMD_SEND_SMS(cmdDetails, ctlvs) {
+  return this.processEventNotify(cmdDetails, ctlvs);
+};
+StkCommandParamsFactory[STK_CMD_SEND_DTMF] = function STK_CMD_SEND_DTMF(cmdDetails, ctlvs) {
+  return this.processEventNotify(cmdDetails, ctlvs);
+};
+StkCommandParamsFactory[STK_CMD_SET_UP_CALL] = function STK_CMD_SET_UP_CALL(cmdDetails, ctlvs) {
+  return this.processSetupCall(cmdDetails, ctlvs);
+};
+StkCommandParamsFactory[STK_CMD_LAUNCH_BROWSER] = function STK_CMD_LAUNCH_BROWSER(cmdDetails, ctlvs) {
+  return this.processLaunchBrowser(cmdDetails, ctlvs);
+};
+StkCommandParamsFactory[STK_CMD_PLAY_TONE] = function STK_CMD_PLAY_TONE(cmdDetails, ctlvs) {
+  return this.processPlayTone(cmdDetails, ctlvs);
+};
+StkCommandParamsFactory[STK_CMD_TIMER_MANAGEMENT] = function STK_CMD_TIMER_MANAGEMENT(cmdDetails, ctlvs) {
+  return this.processTimerManagement(cmdDetails, ctlvs);
+};
 
 let StkProactiveCmdHelper = {
   retrieve: function retrieve(tag, length) {
-    switch (tag) {
-      case COMPREHENSIONTLV_TAG_COMMAND_DETAILS:
-        return this.retrieveCommandDetails(length);
-      case COMPREHENSIONTLV_TAG_DEVICE_ID:
-        return this.retrieveDeviceId(length);
-      case COMPREHENSIONTLV_TAG_ALPHA_ID:
-        return this.retrieveAlphaId(length);
-      case COMPREHENSIONTLV_TAG_DURATION:
-        return this.retrieveDuration(length);
-      case COMPREHENSIONTLV_TAG_ADDRESS:
-        return this.retrieveAddress(length);
-      case COMPREHENSIONTLV_TAG_TEXT_STRING:
-        return this.retrieveTextString(length);
-      case COMPREHENSIONTLV_TAG_TONE:
-        return this.retrieveTone(length);
-      case COMPREHENSIONTLV_TAG_ITEM:
-        return this.retrieveItem(length);
-      case COMPREHENSIONTLV_TAG_ITEM_ID:
-        return this.retrieveItemId(length);
-      case COMPREHENSIONTLV_TAG_RESPONSE_LENGTH:
-        return this.retrieveResponseLength(length);
-      case COMPREHENSIONTLV_TAG_FILE_LIST:
-        return this.retrieveFileList(length);
-      case COMPREHENSIONTLV_TAG_DEFAULT_TEXT:
-        return this.retrieveDefaultText(length);
-      case COMPREHENSIONTLV_TAG_EVENT_LIST:
-        return this.retrieveEventList(length);
-      case COMPREHENSIONTLV_TAG_TIMER_IDENTIFIER:
-        return this.retrieveTimerId(length);
-      case COMPREHENSIONTLV_TAG_TIMER_VALUE:
-        return this.retrieveTimerValue(length);
-      case COMPREHENSIONTLV_TAG_IMMEDIATE_RESPONSE:
-        return this.retrieveImmediaResponse(length);
-      case COMPREHENSIONTLV_TAG_URL:
-        return this.retrieveUrl(length);
-      default:
-        if (DEBUG) debug("StkProactiveCmdHelper: unknown tag " + tag.toString(16));
-        Buf.seekIncoming(length * PDU_HEX_OCTET_SIZE);
-        return null;
+    let method = StkProactiveCmdHelper[tag];
+    if (typeof method != "function") {
+      if (DEBUG) {
+        debug("Unknown comprehension tag " + tag.toString(16));
+      }
+      Buf.seekIncoming(length * PDU_HEX_OCTET_SIZE);
+      return null;
     }
+    return method.call(this, length);
   },
 
   /**
@@ -10376,6 +9943,57 @@ let StkProactiveCmdHelper = {
     }
     return null;
   },
+};
+StkProactiveCmdHelper[COMPREHENSIONTLV_TAG_COMMAND_DETAILS] = function COMPREHENSIONTLV_TAG_COMMAND_DETAILS(length) {
+  return this.retrieveCommandDetails(length);
+};
+StkProactiveCmdHelper[COMPREHENSIONTLV_TAG_DEVICE_ID] = function COMPREHENSIONTLV_TAG_DEVICE_ID(length) {
+  return this.retrieveDeviceId(length);
+};
+StkProactiveCmdHelper[COMPREHENSIONTLV_TAG_ALPHA_ID] = function COMPREHENSIONTLV_TAG_ALPHA_ID(length) {
+  return this.retrieveAlphaId(length);
+};
+StkProactiveCmdHelper[COMPREHENSIONTLV_TAG_DURATION] = function COMPREHENSIONTLV_TAG_DURATION(length) {
+  return this.retrieveDuration(length);
+};
+StkProactiveCmdHelper[COMPREHENSIONTLV_TAG_ADDRESS] = function COMPREHENSIONTLV_TAG_ADDRESS(length) {
+  return this.retrieveAddress(length);
+};
+StkProactiveCmdHelper[COMPREHENSIONTLV_TAG_TEXT_STRING] = function COMPREHENSIONTLV_TAG_TEXT_STRING(length) {
+  return this.retrieveTextString(length);
+};
+StkProactiveCmdHelper[COMPREHENSIONTLV_TAG_TONE] = function COMPREHENSIONTLV_TAG_TONE(length) {
+  return this.retrieveTone(length);
+};
+StkProactiveCmdHelper[COMPREHENSIONTLV_TAG_ITEM] = function COMPREHENSIONTLV_TAG_ITEM(length) {
+  return this.retrieveItem(length);
+};
+StkProactiveCmdHelper[COMPREHENSIONTLV_TAG_ITEM_ID] = function COMPREHENSIONTLV_TAG_ITEM_ID(length) {
+  return this.retrieveItemId(length);
+};
+StkProactiveCmdHelper[COMPREHENSIONTLV_TAG_RESPONSE_LENGTH] = function COMPREHENSIONTLV_TAG_RESPONSE_LENGTH(length) {
+  return this.retrieveResponseLength(length);
+};
+StkProactiveCmdHelper[COMPREHENSIONTLV_TAG_FILE_LIST] = function COMPREHENSIONTLV_TAG_FILE_LIST(length) {
+  return this.retrieveFileList(length);
+};
+StkProactiveCmdHelper[COMPREHENSIONTLV_TAG_DEFAULT_TEXT] = function COMPREHENSIONTLV_TAG_DEFAULT_TEXT(length) {
+  return this.retrieveDefaultText(length);
+};
+StkProactiveCmdHelper[COMPREHENSIONTLV_TAG_EVENT_LIST] = function COMPREHENSIONTLV_TAG_EVENT_LIST(length) {
+  return this.retrieveEventList(length);
+};
+StkProactiveCmdHelper[COMPREHENSIONTLV_TAG_TIMER_IDENTIFIER] = function COMPREHENSIONTLV_TAG_TIMER_IDENTIFIER(length) {
+  return this.retrieveTimerId(length);
+};
+StkProactiveCmdHelper[COMPREHENSIONTLV_TAG_TIMER_VALUE] = function COMPREHENSIONTLV_TAG_TIMER_VALUE(length) {
+  return this.retrieveTimerValue(length);
+};
+StkProactiveCmdHelper[COMPREHENSIONTLV_TAG_IMMEDIATE_RESPONSE] = function COMPREHENSIONTLV_TAG_IMMEDIATE_RESPONSE(length) {
+  return this.retrieveImmediaResponse(length);
+};
+StkProactiveCmdHelper[COMPREHENSIONTLV_TAG_URL] = function COMPREHENSIONTLV_TAG_URL(length) {
+  return this.retrieveUrl(length);
 };
 
 let ComprehensionTlvHelper = {
@@ -13176,6 +12794,9 @@ let RuimRecordHelper = {
 // Initialize buffers. This is a separate function so that unit tests can
 // re-initialize the buffers at will.
 Buf.init();
+Buf.setOutputStream(function (parcel) {
+  postRILMessage(CLIENT_ID, parcel);
+});
 
 function onRILMessage(data) {
   Buf.processIncoming(data);

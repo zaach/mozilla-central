@@ -94,11 +94,8 @@ const KEY_APP_SYSTEM_LOCAL            = "app-system-local";
 const KEY_APP_SYSTEM_SHARE            = "app-system-share";
 const KEY_APP_SYSTEM_USER             = "app-system-user";
 
-const UNKNOWN_XPCOM_ABI               = "unknownABI";
 const XPI_PERMISSION                  = "install";
 
-const PREFIX_ITEM_URI                 = "urn:mozilla:item:";
-const RDFURI_ITEM_ROOT                = "urn:mozilla:item:root"
 const RDFURI_INSTALL_MANIFEST_ROOT    = "urn:mozilla:install-manifest";
 const PREFIX_NS_EM                    = "http://www.mozilla.org/2004/em-rdf#";
 
@@ -159,6 +156,14 @@ const TYPES = {
   dictionary: 64
 };
 
+// Keep track of where we are in startup for telemetry
+// event happened during XPIDatabase.startup()
+const XPI_STARTING = "XPIStarting";
+// event happened after startup() but before the final-ui-startup event
+const XPI_BEFORE_UI_STARTUP = "BeforeFinalUIStartup";
+// event happened after final-ui-startup
+const XPI_AFTER_UI_STARTUP = "AfterFinalUIStartup";
+
 const COMPATIBLE_BY_DEFAULT_TYPES = {
   extension: true,
   dictionary: true
@@ -192,9 +197,10 @@ var gLazyObjectsLoaded = false;
 
 function loadLazyObjects() {
   let scope = {};
+  scope.AddonInternal = AddonInternal;
+  scope.XPIProvider = XPIProvider;
   Services.scriptloader.loadSubScript("resource://gre/modules/XPIProviderUtils.js",
                                       scope);
-  scope.XPIProvider = XPIProvider;
 
   for (let name of LAZY_OBJECTS) {
     delete gGlobalScope[name];
@@ -1537,6 +1543,8 @@ var XPIProvider = {
   inactiveAddonIDs: [],
   // Count of unpacked add-ons
   unpackedAddons: 0,
+  // Keep track of startup phases for telemetry
+  runPhase: XPI_STARTING,
 
   /**
    * Adds or updates a URI mapping for an Addon.id.
@@ -1673,6 +1681,7 @@ var XPIProvider = {
    */
   startup: function XPI_startup(aAppChanged, aOldAppVersion, aOldPlatformVersion) {
     LOG("startup");
+    this.runPhase = XPI_STARTING;
     this.installs = [];
     this.installLocations = [];
     this.installLocationsByName = {};
@@ -1847,9 +1856,19 @@ var XPIProvider = {
       }
     }, "quit-application-granted", false);
 
+    // Detect final-ui-startup for telemetry reporting
+    Services.obs.addObserver({
+      observe: function uiStartupObserver(aSubject, aTopic, aData) {
+        AddonManagerPrivate.recordTimestamp("XPI_finalUIStartup");
+        XPIProvider.runPhase = XPI_AFTER_UI_STARTUP;
+        Services.obs.removeObserver(this, "final-ui-startup");
+      }
+    }, "final-ui-startup", false);
+
     AddonManagerPrivate.recordTimestamp("XPI_startup_end");
 
     this.extensionsActive = true;
+    this.runPhase = XPI_BEFORE_UI_STARTUP;
   },
 
   /**
@@ -1934,7 +1953,7 @@ var XPIProvider = {
       var variant = Cc["@mozilla.org/variant;1"].
                     createInstance(Ci.nsIWritableVariant);
       variant.setFromVariant(this.inactiveAddonIDs);
-  
+
       // This *must* be modal as it has to block startup.
       var features = "chrome,centerscreen,dialog,titlebar,modal";
       var ww = Cc["@mozilla.org/embedcomp/window-watcher;1"].
@@ -1978,7 +1997,7 @@ var XPIProvider = {
       Services.appinfo.annotateCrashReport("Add-ons", data);
     }
     catch (e) { }
-    
+
     const TelemetryPing = Cc["@mozilla.org/base/telemetry-ping;1"].getService(Ci.nsITelemetryPing);
     TelemetryPing.setAddOns(data);
   },
@@ -2803,8 +2822,10 @@ var XPIProvider = {
           newAddon = loadManifestFromFile(file);
         }
         // The add-on in the manifest should match the add-on ID.
-        if (newAddon.id != aId)
-          throw new Error("Incorrect id in install manifest");
+        if (newAddon.id != aId) {
+          throw new Error("Invalid addon ID: expected addon ID " + aId +
+                          ", found " + newAddon.id + " in manifest");
+        }
       }
       catch (e) {
         WARN("Add-on is invalid", e);
@@ -3140,9 +3161,12 @@ var XPIProvider = {
     if (aAppChanged !== false)
       this.importPermissions();
 
-    // If the application version has changed then the database information
-    // needs to be updated
-    let updateDatabase = aAppChanged;
+    // Keep track of whether and why we need to open and update the database at
+    // startup time.
+    let updateReasons = [];
+    if (aAppChanged) {
+      updateReasons.push("appChanged");
+    }
 
     // Load the list of bootstrapped add-ons first so processFileChanges can
     // modify it
@@ -3157,7 +3181,10 @@ var XPIProvider = {
     // changes then we must update the database with the information in the
     // install locations
     let manifests = {};
-    updateDatabase = this.processPendingFileChanges(manifests) || updateDatabase;
+    let updated = this.processPendingFileChanges(manifests);
+    if (updated) {
+      updateReasons.push("pendingFileChanges");
+    }
 
     // This will be true if the previous session made changes that affect the
     // active state of add-ons but didn't commit them properly (normally due
@@ -3165,33 +3192,41 @@ var XPIProvider = {
     let hasPendingChanges = Prefs.getBoolPref(PREF_PENDING_OPERATIONS);
 
     // If the schema appears to have changed then we should update the database
-    updateDatabase = updateDatabase || DB_SCHEMA != Prefs.getIntPref(PREF_DB_SCHEMA, 0);
+    if (DB_SCHEMA != Prefs.getIntPref(PREF_DB_SCHEMA, 0)) {
+      updateReasons.push("schemaChanged");
+    }
 
     // If the application has changed then check for new distribution add-ons
     if (aAppChanged !== false &&
         Prefs.getBoolPref(PREF_INSTALL_DISTRO_ADDONS, true))
-      updateDatabase = this.installDistributionAddons(manifests) || updateDatabase;
+    {
+      updated = this.installDistributionAddons(manifests);
+      if (updated) {
+        updateReasons.push("installDistributionAddons");
+      }
+    }
 
     // Telemetry probe added around getInstallLocationStates() to check perf
-    let telemetryCaptureTime = new Date();
+    let telemetryCaptureTime = Date.now();
     let state = this.getInstallLocationStates();
     let telemetry = Services.telemetry;
-    telemetry.getHistogramById("CHECK_ADDONS_MODIFIED_MS").add(new Date() - telemetryCaptureTime);
+    telemetry.getHistogramById("CHECK_ADDONS_MODIFIED_MS").add(Date.now() - telemetryCaptureTime);
 
-    if (!updateDatabase) {
-      // If the state has changed then we must update the database
-      let cache = Prefs.getCharPref(PREF_INSTALL_CACHE, null);
-      updateDatabase = cache != JSON.stringify(state);
+    // If the install directory state has changed then we must update the database
+    let cache = Prefs.getCharPref(PREF_INSTALL_CACHE, null);
+    if (cache != JSON.stringify(state)) {
+      updateReasons.push("directoryState");
     }
 
     // If the database doesn't exist and there are add-ons installed then we
     // must update the database however if there are no add-ons then there is
     // no need to update the database.
     let dbFile = FileUtils.getFile(KEY_PROFILEDIR, [FILE_DATABASE], true);
-    if (!dbFile.exists())
-      updateDatabase = state.length > 0;
+    if (!dbFile.exists() && state.length > 0) {
+      updateReasons.push("needNewDatabase");
+    }
 
-    if (!updateDatabase) {
+    if (updateReasons.length == 0) {
       let bootstrapDescriptors = [this.bootstrappedAddons[b].descriptor
                                   for (b in this.bootstrappedAddons)];
 
@@ -3205,7 +3240,7 @@ var XPIProvider = {
 
       if (bootstrapDescriptors.length > 0) {
         WARN("Bootstrap state is invalid (missing add-ons: " + bootstrapDescriptors.toSource() + ")");
-        updateDatabase = true;
+        updateReasons.push("missingBootstrapAddon");
       }
     }
 
@@ -3214,7 +3249,11 @@ var XPIProvider = {
       let extensionListChanged = false;
       // If the database needs to be updated then open it and then update it
       // from the filesystem
-      if (updateDatabase || hasPendingChanges) {
+      if (hasPendingChanges) {
+        updateReasons.push("hasPendingChanges");
+      }
+      if (updateReasons.length > 0) {
+        AddonManagerPrivate.recordSimpleMeasure("XPIDB_startup_load_reasons", updateReasons);
         XPIDatabase.syncLoadDB(false);
         try {
           extensionListChanged = this.processFileChanges(state, manifests,
@@ -4245,7 +4284,6 @@ var XPIProvider = {
       AddonManagerPrivate.notifyAddonChanged(aAddon.id, aAddon.type, false);
   }
 };
-
 
 function getHashStringForCrypto(aCrypto) {
   // return the two-digit hexadecimal code for a byte

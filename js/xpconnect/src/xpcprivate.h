@@ -92,14 +92,7 @@
 #include <string.h>
 
 #include "xpcpublic.h"
-#include "jsapi.h"
-#include "jsprf.h"
 #include "pldhash.h"
-#include "prprf.h"
-#include "jsdbgapi.h"
-#include "jsfriendapi.h"
-#include "js/HeapAPI.h"
-#include "jswrapper.h"
 #include "nscore.h"
 #include "nsXPCOM.h"
 #include "nsAutoPtr.h"
@@ -134,8 +127,6 @@
 #include "nsReadableUtils.h"
 #include "nsXPIDLString.h"
 #include "nsAutoJSValHolder.h"
-
-#include "js/HashTable.h"
 
 #include "nsThreadUtils.h"
 #include "nsIJSEngineTelemetryStats.h"
@@ -2262,16 +2253,12 @@ public:
     class NS_CYCLE_COLLECTION_INNERCLASS
      : public nsXPCOMCycleCollectionParticipant
     {
-      NS_DECL_CYCLE_COLLECTION_CLASS_BODY_NO_UNLINK(XPCWrappedNative,
-                                                    XPCWrappedNative)
+      NS_DECL_CYCLE_COLLECTION_CLASS_BODY(XPCWrappedNative, XPCWrappedNative)
       NS_IMETHOD Root(void *p) { return NS_OK; }
-      NS_IMETHOD Unlink(void *p);
       NS_IMETHOD Unroot(void *p) { return NS_OK; }
-      static nsXPCOMCycleCollectionParticipant* GetParticipant()
-      {
-        return &XPCWrappedNative::NS_CYCLE_COLLECTION_INNERNAME;
-      }
+      NS_IMPL_GET_XPCOM_CYCLE_COLLECTION_PARTICIPANT(XPCWrappedNative)
     };
+    NS_CHECK_FOR_RIGHT_PARTICIPANT_IMPL(XPCWrappedNative);
     static NS_CYCLE_COLLECTION_INNERCLASS NS_CYCLE_COLLECTION_INNERNAME;
 
     void DeleteCycleCollectable() {}
@@ -3560,13 +3547,15 @@ class ArrayAutoMarkingPtr : public AutoMarkingPtr
 typedef ArrayAutoMarkingPtr<XPCNativeInterface> AutoMarkingNativeInterfacePtrArrayPtr;
 
 /***************************************************************************/
+namespace xpc {
 // Allocates a string that grants all access ("AllAccess")
+char *
+CloneAllAccess();
 
-extern char* xpc_CloneAllAccess();
-/***************************************************************************/
 // Returns access if wideName is in list
-
-extern char * xpc_CheckAccessList(const PRUnichar* wideName, const char* const list[]);
+char *
+CheckAccessList(const PRUnichar *wideName, const char *const list[]);
+} /* namespace xpc */
 
 /***************************************************************************/
 // in xpcvariant.cpp...
@@ -3695,11 +3684,32 @@ xpc_GetSafeJSContext()
 }
 
 namespace xpc {
+
+// Helper function that creates a JSFunction that wraps a native function that
+// forwards the call to the original 'callable'. If the 'doclone' argument is
+// set, it also structure clones non-native arguments for extra security.
+bool
+NewFunctionForwarder(JSContext *cx, JS::HandleId id, JS::HandleObject callable,
+                     bool doclone, JS::MutableHandleValue vp);
+
+// Old fashioned xpc error reporter. Try to use JS_ReportError instead.
+nsresult
+ThrowAndFail(nsresult errNum, JSContext *cx, bool *retval);
+
+// Infallible.
+already_AddRefed<nsIXPCComponents_utils_Sandbox>
+NewSandboxConstructor();
+
+// Returns true if class of 'obj' is SandboxClass.
+bool
+IsSandbox(JSObject *obj);
+
 struct SandboxOptions {
     SandboxOptions(JSContext *cx)
         : wantXrays(true)
         , wantComponents(true)
         , wantXHRConstructor(false)
+        , wantExportHelpers(false)
         , proto(xpc_GetSafeJSContext())
         , sameZoneAs(xpc_GetSafeJSContext())
     { }
@@ -3707,6 +3717,7 @@ struct SandboxOptions {
     bool wantXrays;
     bool wantComponents;
     bool wantXHRConstructor;
+    bool wantExportHelpers;
     JS::RootedObject proto;
     nsCString sandboxName;
     JS::RootedObject sameZoneAs;
@@ -3715,11 +3726,10 @@ struct SandboxOptions {
 JSObject *
 CreateGlobalObject(JSContext *cx, JSClass *clasp, nsIPrincipal *principal,
                    JS::CompartmentOptions& aOptions);
-}
 
 // Helper for creating a sandbox object to use for evaluating
 // untrusted code completely separated from all other code in the
-// system using xpc_EvalInSandbox(). Takes the JSContext on which to
+// system using EvalInSandbox(). Takes the JSContext on which to
 // do setup etc on, puts the sandbox object in *vp (which must be
 // rooted by the caller), and uses the principal that's either
 // directly passed in prinOrSop or indirectly as an
@@ -3727,10 +3737,10 @@ CreateGlobalObject(JSContext *cx, JSClass *clasp, nsIPrincipal *principal,
 // reachable through prinOrSop, a new null principal will be created
 // and used.
 nsresult
-xpc_CreateSandboxObject(JSContext * cx, jsval * vp, nsISupports *prinOrSop,
-                        xpc::SandboxOptions& options);
+CreateSandboxObject(JSContext *cx, jsval *vp, nsISupports *prinOrSop,
+                    xpc::SandboxOptions& options);
 // Helper for evaluating scripts in a sandbox object created with
-// xpc_CreateSandboxObject(). The caller is responsible of ensuring
+// CreateSandboxObject(). The caller is responsible of ensuring
 // that *rval doesn't get collected during the call or usage after the
 // call. This helper will use filename and lineNo for error reporting,
 // and if no filename is provided it will use the codebase from the
@@ -3740,10 +3750,12 @@ xpc_CreateSandboxObject(JSContext * cx, jsval * vp, nsISupports *prinOrSop,
 // an exception to a string, evalInSandbox will return an NS_ERROR_*
 // result, and cx->exception will be empty.
 nsresult
-xpc_EvalInSandbox(JSContext *cx, JS::HandleObject sandbox, const nsAString& source,
-                  const char *filename, int32_t lineNo,
-                  JSVersion jsVersion, bool returnStringOnly,
-                  JS::MutableHandleValue rval);
+EvalInSandbox(JSContext *cx, JS::HandleObject sandbox, const nsAString& source,
+              const char *filename, int32_t lineNo,
+              JSVersion jsVersion, bool returnStringOnly,
+              JS::MutableHandleValue rval);
+
+} /* namespace xpc */
 
 /***************************************************************************/
 // Inlined utilities.

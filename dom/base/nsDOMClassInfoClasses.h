@@ -2,6 +2,7 @@
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+// IWYU pragma: private, include "nsDOMClassInfoID.h"
 
 DOMCI_CLASS(Window)
 DOMCI_CLASS(Location)
@@ -103,7 +104,6 @@ DOMCI_CLASS(MozMobileMessageThread)
 DOMCI_CLASS(MozConnection)
 #ifdef MOZ_B2G_RIL
 DOMCI_CLASS(MozMobileConnection)
-DOMCI_CLASS(MozCellBroadcast)
 #endif
 
 // @font-face in CSS
@@ -139,18 +139,15 @@ DOMCI_CLASS(FMRadio)
 DOMCI_CLASS(BluetoothDevice)
 #endif
 
-DOMCI_CLASS(CameraControl)
 DOMCI_CLASS(CameraCapabilities)
 
-DOMCI_CLASS(OpenWindowEventDetail)
-DOMCI_CLASS(AsyncScrollEventDetail)
+DOMCI_CLASS(DOMWindowResizeEventDetail)
 
 DOMCI_CLASS(LockedFile)
 
 DOMCI_CLASS(CSSFontFeatureValuesRule)
 
 DOMCI_CLASS(UserDataHandler)
-DOMCI_CLASS(GeoPositionError)
 DOMCI_CLASS(LoadStatus)
 DOMCI_CLASS(XPathNamespace)
 DOMCI_CLASS(XULControlElement)

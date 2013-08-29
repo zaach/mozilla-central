@@ -45,6 +45,7 @@
 #include "ipc/IndexedDBParent.h"
 
 #include "IndexedDatabaseInlines.h"
+#include "nsCharSeparatedTokenizer.h"
 
 #define FILE_COPY_BUFFER_SIZE 32768
 
@@ -1493,7 +1494,7 @@ IDBObjectStore::StructuredCloneWriteCallback(JSContext* aCx,
   FileManager* fileManager = transaction->Database()->Manager();
 
   file::FileHandle* fileHandle = nullptr;
-  if (NS_SUCCEEDED(UnwrapObject<file::FileHandle>(aCx, aObj, fileHandle))) {
+  if (NS_SUCCEEDED(UNWRAP_OBJECT(FileHandle, aCx, aObj, fileHandle))) {
     nsRefPtr<FileInfo> fileInfo = fileHandle->GetFileInfo();
 
     // Throw when trying to store non IDB file handles or IDB file handles

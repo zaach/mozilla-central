@@ -12,7 +12,7 @@
 #include "jit/shared/MacroAssembler-x86-shared.h"
 
 namespace js {
-namespace ion {
+namespace jit {
 
 struct ImmShiftedTag : public ImmWord
 {
@@ -821,7 +821,7 @@ class MacroAssemblerX64 : public MacroAssemblerX86Shared
     }
 
     void boxDouble(const FloatRegister &src, const ValueOperand &dest) {
-        movqsd(src, dest.valueReg());
+        movq(src, dest.valueReg());
     }
     void boxNonDouble(JSValueType type, const Register &src, const ValueOperand &dest) {
         JS_ASSERT(src != dest.valueReg());
@@ -868,7 +868,7 @@ class MacroAssemblerX64 : public MacroAssemblerX86Shared
     }
 
     void unboxDouble(const ValueOperand &src, const FloatRegister &dest) {
-        movqsd(src.valueReg(), dest);
+        movq(src.valueReg(), dest);
     }
     void unboxPrivate(const ValueOperand &src, const Register dest) {
         movq(src.valueReg(), dest);
@@ -1134,7 +1134,7 @@ class MacroAssemblerX64 : public MacroAssemblerX86Shared
 
 typedef MacroAssemblerX64 MacroAssemblerSpecific;
 
-} // namespace ion
+} // namespace jit
 } // namespace js
 
 #endif /* jit_x64_MacroAssembler_x64_h */

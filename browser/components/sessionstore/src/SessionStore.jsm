@@ -77,6 +77,9 @@ const TAB_EVENTS = [
   "TabUnpinned"
 ];
 
+// The number of milliseconds in a day
+const MS_PER_DAY = 1000.0 * 60.0 * 60.0 * 24.0;
+
 #ifndef XP_WIN
 #define BROKEN_WM_Z_ORDER
 #endif
@@ -253,6 +256,18 @@ this.SessionStore = {
     SessionStoreInternal.deleteTabValue(aTab, aKey);
   },
 
+  getGlobalValue: function ss_getGlobalValue(aKey) {
+    return SessionStoreInternal.getGlobalValue(aKey);
+  },
+
+  setGlobalValue: function ss_setGlobalValue(aKey, aStringValue) {
+    SessionStoreInternal.setGlobalValue(aKey, aStringValue);
+  },
+
+  deleteGlobalValue: function ss_deleteGlobalValue(aKey) {
+    SessionStoreInternal.deleteGlobalValue(aKey);
+  },
+
   persistTabAttribute: function ss_persistTabAttribute(aName) {
     SessionStoreInternal.persistTabAttribute(aName);
   },
@@ -310,6 +325,9 @@ let SessionStoreInternal = {
 
   // states for all recently closed windows
   _closedWindows: [],
+
+  // state saved globally for a session
+  _globalValues: {},
 
   // collection of session states yet to be restored
   _statesToRestore: {},
@@ -464,10 +482,8 @@ let SessionStoreInternal = {
             }
           }
 
-          // Load the session start time from the previous state
-          this._sessionStartTime = state.session &&
-                                   state.session.startTime ||
-                                   this._sessionStartTime;
+          // Update the session start time using the restored session state.
+          this._updateSessionStartTime(state);
 
           // make sure that at least the first window doesn't have anything hidden
           delete state.windows[0].hidden;
@@ -741,12 +757,11 @@ let SessionStoreInternal = {
           Services.obs.notifyObservers(null, NOTIFY_WINDOWS_RESTORED, "");
         } else {
           TelemetryTimestamps.add("sessionRestoreRestoring");
-          // make sure that the restored tabs are first in the window
-          aInitialState._firstTabs = true;
           this._restoreCount = aInitialState.windows ? aInitialState.windows.length : 0;
 
           let overwrite = this._isCmdLineEmpty(aWindow, aInitialState);
-          this.restoreWindow(aWindow, aInitialState, overwrite);
+          let options = {firstWindow: true, overwriteTabs: overwrite};
+          this.restoreWindow(aWindow, aInitialState, options);
 
           // _loadState changed from "stopped" to "running". Save the session's
           // load state immediately so that crashes happening during startup
@@ -764,8 +779,9 @@ let SessionStoreInternal = {
     }
     // this window was opened by _openWindowWithState
     else if (!this._isWindowLoaded(aWindow)) {
-      let followUp = this._statesToRestore[aWindow.__SS_restoreID].windows.length == 1;
-      this.restoreWindow(aWindow, this._statesToRestore[aWindow.__SS_restoreID], true, followUp);
+      let state = this._statesToRestore[aWindow.__SS_restoreID];
+      let options = {overwriteTabs: true, isFollowUp: state.windows.length == 1};
+      this.restoreWindow(aWindow, state, options);
     }
     // The user opened another, non-private window after starting up with
     // a single private one. Let's restore the session we actually wanted to
@@ -773,10 +789,9 @@ let SessionStoreInternal = {
     else if (this._deferredInitialState && !isPrivateWindow &&
              aWindow.toolbar.visible) {
 
-      this._deferredInitialState._firstTabs = true;
       this._restoreCount = this._deferredInitialState.windows ?
         this._deferredInitialState.windows.length : 0;
-      this.restoreWindow(aWindow, this._deferredInitialState, false);
+      this.restoreWindow(aWindow, this._deferredInitialState, {firstWindow: true});
       this._deferredInitialState = null;
     }
     else if (this._restoreLastWindow && aWindow.toolbar.visible &&
@@ -837,7 +852,8 @@ let SessionStoreInternal = {
           // Ensure that the window state isn't hidden
           this._restoreCount = 1;
           let state = { windows: [newWindowState] };
-          this.restoreWindow(aWindow, state, this._isCmdLineEmpty(aWindow, state));
+          let options = {overwriteTabs: this._isCmdLineEmpty(aWindow, state)};
+          this.restoreWindow(aWindow, state, options);
         }
       }
       // we actually restored the session just now.
@@ -928,7 +944,7 @@ let SessionStoreInternal = {
         winData.title = aWindow.content.document.title || tabbrowser.selectedTab.label;
         winData.title = this._replaceLoadingTitle(winData.title, tabbrowser,
                                                   tabbrowser.selectedTab);
-        this._updateCookies([winData]);
+        SessionCookies.update([winData]);
       }
 
 #ifndef XP_MACOSX
@@ -1399,7 +1415,7 @@ let SessionStoreInternal = {
     this._restoreCount = state.windows ? state.windows.length : 0;
 
     // restore to the given state
-    this.restoreWindow(window, state, true);
+    this.restoreWindow(window, state, {overwriteTabs: true});
   },
 
   getWindowState: function ssi_getWindowState(aWindow) {
@@ -1419,7 +1435,7 @@ let SessionStoreInternal = {
     if (!aWindow.__SSi)
       throw (Components.returnCode = Cr.NS_ERROR_INVALID_ARG);
 
-    this.restoreWindow(aWindow, aState, aOverwrite);
+    this.restoreWindow(aWindow, aState, {overwriteTabs: aOverwrite});
   },
 
   getTabState: function ssi_getTabState(aTab) {
@@ -1700,6 +1716,20 @@ let SessionStoreInternal = {
     this.saveStateDelayed(aTab.ownerDocument.defaultView);
   },
 
+  getGlobalValue: function ssi_getGlobalValue(aKey) {
+    return this._globalValues[aKey] || "";
+  },
+
+  setGlobalValue: function ssi_setGlobalValue(aKey, aStringValue) {
+    this._globalValues[aKey] = aStringValue;
+    this.saveStateDelayed();
+  },
+
+  deleteGlobalValue: function ssi_deleteGlobalValue(aKey) {
+    delete this._globalValues[aKey];
+    this.saveStateDelayed();
+  },
+
   persistTabAttribute: function ssi_persistTabAttribute(aName) {
     if (TabAttributes.persist(aName)) {
       TabStateCache.clear();
@@ -1780,7 +1810,8 @@ let SessionStoreInternal = {
         //        in _preWindowToRestoreInto will prevent most (all?) Panorama
         //        weirdness but we will still merge other extData.
         //        Bug 588217 should make this go away by merging the group data.
-        this.restoreWindow(windowToUse, { windows: [winState] }, canOverwriteTabs, true);
+        let options = {overwriteTabs: canOverwriteTabs, isFollowUp: true};
+        this.restoreWindow(windowToUse, { windows: [winState] }, options);
       }
       else {
         this._openWindowWithState({ windows: [winState] });
@@ -1793,18 +1824,37 @@ let SessionStoreInternal = {
       this._capClosedWindows();
     }
 
-    if (lastSessionState.scratchpads) {
-      ScratchpadManager.restoreSession(lastSessionState.scratchpads);
-    }
+    this._setGlobalValuesFromState(aState);
+    this._restoreScratchPads();
 
     // Set data that persists between sessions
     this._recentCrashes = lastSessionState.session &&
                           lastSessionState.session.recentCrashes || 0;
-    this._sessionStartTime = lastSessionState.session &&
-                             lastSessionState.session.startTime ||
-                             this._sessionStartTime;
+
+    // Update the session start time using the restored session state.
+    this._updateSessionStartTime(lastSessionState);
 
     this._lastSessionState = null;
+  },
+
+  _setGlobalValuesFromState: function ssi_setGlobalValuesFromState(aState) {
+    if (aState && aState.global) {
+      this._globalValues = aState.global;
+    }
+  },
+
+  _restoreScratchPads: function ssi_restoreScratchPads() {
+    let scratchpads;
+    try {
+      scratchpads = JSON.parse(this.getGlobalValue('scratchpads'));
+    } catch (ex) {
+      // Ignore any errors when attempting to decode the scratchpads.
+      Cu.reportError(ex);
+    }
+
+    if (scratchpads) {
+      ScratchpadManager.restoreSession(scratchpads);
+    }
   },
 
   /**
@@ -2321,110 +2371,6 @@ let SessionStoreInternal = {
   },
 
   /**
-   * extract the base domain from a history entry and its children
-   * @param aEntry
-   *        the history entry, serialized
-   * @param aHosts
-   *        the hash that will be used to store hosts eg, { hostname: true }
-   * @param aCheckPrivacy
-   *        should we check the privacy level for https
-   * @param aIsPinned
-   *        is the entry we're evaluating for a pinned tab; used only if
-   *        aCheckPrivacy
-   */
-  _extractHostsForCookiesFromEntry:
-    function ssi_extractHostsForCookiesFromEntry(aEntry, aHosts, aCheckPrivacy, aIsPinned) {
-
-    let host = aEntry._host,
-        scheme = aEntry._scheme;
-
-    // If host & scheme aren't defined, then we are likely here in the startup
-    // process via _splitCookiesFromWindow. In that case, we'll turn aEntry.url
-    // into an nsIURI and get host/scheme from that. This will throw for about:
-    // urls in which case we don't need to do anything.
-    if (!host && !scheme) {
-      try {
-        let uri = this._getURIFromString(aEntry.url);
-        host = uri.host;
-        scheme = uri.scheme;
-        this._extractHostsForCookiesFromHostScheme(host, scheme, aHosts, aCheckPrivacy, aIsPinned);
-      }
-      catch(ex) { }
-    }
-
-    if (aEntry.children) {
-      aEntry.children.forEach(function(entry) {
-        this._extractHostsForCookiesFromEntry(entry, aHosts, aCheckPrivacy, aIsPinned);
-      }, this);
-    }
-  },
-
-  /**
-   * extract the base domain from a host & scheme
-   * @param aHost
-   *        the host of a uri (usually via nsIURI.host)
-   * @param aScheme
-   *        the scheme of a uri (usually via nsIURI.scheme)
-   * @param aHosts
-   *        the hash that will be used to store hosts eg, { hostname: true }
-   * @param aCheckPrivacy
-   *        should we check the privacy level for https
-   * @param aIsPinned
-   *        is the entry we're evaluating for a pinned tab; used only if
-   *        aCheckPrivacy
-   */
-  _extractHostsForCookiesFromHostScheme:
-    function ssi_extractHostsForCookiesFromHostScheme(aHost, aScheme, aHosts, aCheckPrivacy, aIsPinned) {
-    // host and scheme may not be set (for about: urls for example), in which
-    // case testing scheme will be sufficient.
-    if (/https?/.test(aScheme) && !aHosts[aHost] &&
-        (!aCheckPrivacy ||
-         this.checkPrivacyLevel(aScheme == "https", aIsPinned))) {
-      // By setting this to true or false, we can determine when looking at
-      // the host in _updateCookies if we should check for privacy.
-      aHosts[aHost] = aIsPinned;
-    }
-    else if (aScheme == "file") {
-      aHosts[aHost] = true;
-    }
-  },
-
-  /**
-   * Serialize cookie data
-   * @param aWindows
-   *        An array of window data objects
-   *        { tabs: [ ... ], etc. }
-   */
-  _updateCookies: function ssi_updateCookies(aWindows) {
-    for (let window of aWindows) {
-      window.cookies = [];
-
-      // Collect all hosts for the current window.
-      let hosts = {};
-      window.tabs.forEach(function(tab) {
-        tab.entries.forEach(function(entry) {
-          this._extractHostsForCookiesFromEntry(entry, hosts, true, tab.pinned);
-        }, this);
-      }, this);
-
-      for (var [host, isPinned] in Iterator(hosts)) {
-        for (let cookie of SessionCookies.getCookiesForHost(host)) {
-          // window._hosts will only have hosts with the right privacy rules,
-          // so there is no need to do anything special with this call to
-          // checkPrivacyLevel.
-          if (this.checkPrivacyLevel(cookie.secure, isPinned)) {
-            window.cookies.push(cookie);
-          }
-        }
-      }
-
-      // don't include empty cookie sections
-      if (!window.cookies.length)
-        delete window.cookies;
-    }
-  },
-
-  /**
    * Store window dimensions, visibility, sidebar
    * @param aWindow
    *        Window reference
@@ -2494,7 +2440,7 @@ let SessionStoreInternal = {
       if (!this._windows[ix].isPopup)
         nonPopupCount++;
     }
-    this._updateCookies(total);
+    SessionCookies.update(total);
 
     // collect the data for all windows yet to be restored
     for (ix in this._statesToRestore) {
@@ -2541,14 +2487,14 @@ let SessionStoreInternal = {
     };
 
     // get open Scratchpad window states too
-    var scratchpads = ScratchpadManager.getSessionState();
+    this.setGlobalValue('scratchpads', JSON.stringify(ScratchpadManager.getSessionState()));
 
     let state = {
       windows: total,
       selectedWindow: ix + 1,
       _closedWindows: lastClosedWindowsCopy,
       session: session,
-      scratchpads: scratchpads
+      global: this._globalValues
     };
 
     // Persist the last session if we deferred restoring it
@@ -2574,7 +2520,7 @@ let SessionStoreInternal = {
     }
 
     let windows = [this._windows[aWindow.__SSi]];
-    this._updateCookies(windows);
+    SessionCookies.update(windows);
 
     return { windows: windows };
   },
@@ -2613,13 +2559,19 @@ let SessionStoreInternal = {
    *        Window reference
    * @param aState
    *        JS object or its eval'able source
-   * @param aOverwriteTabs
-   *        bool overwrite existing tabs w/ new ones
-   * @param aFollowUp
-   *        bool this isn't the restoration of the first window
+   * @param aOptions
+   *        {overwriteTabs: true} to overwrite existing tabs w/ new ones
+   *        {isFollowUp: true} if this is not the restoration of the 1st window
+   *        {firstWindow: true} if this is the first non-private window we're
+   *                            restoring in this session, that might open an
+   *                            external link as well
    */
-  restoreWindow: function ssi_restoreWindow(aWindow, aState, aOverwriteTabs, aFollowUp) {
-    if (!aFollowUp) {
+  restoreWindow: function ssi_restoreWindow(aWindow, aState, aOptions = {}) {
+    let overwriteTabs = aOptions && aOptions.overwriteTabs;
+    let isFollowUp = aOptions && aOptions.isFollowUp;
+    let firstWindow = aOptions && aOptions.firstWindow;
+
+    if (isFollowUp) {
       this.windowToFocus = aWindow;
     }
     // initialize window if necessary
@@ -2670,13 +2622,13 @@ let SessionStoreInternal = {
     }
     // don't restore a single blank tab when we've had an external
     // URL passed in for loading at startup (cf. bug 357419)
-    else if (root._firstTabs && !aOverwriteTabs && winData.tabs.length == 1 &&
+    else if (firstWindow && !overwriteTabs && winData.tabs.length == 1 &&
              (!winData.tabs[0].entries || winData.tabs[0].entries.length == 0)) {
       winData.tabs = [];
     }
 
     var tabbrowser = aWindow.gBrowser;
-    var openTabCount = aOverwriteTabs ? tabbrowser.browsers.length : -1;
+    var openTabCount = overwriteTabs ? tabbrowser.browsers.length : -1;
     var newTabCount = winData.tabs.length;
     var tabs = [];
 
@@ -2686,14 +2638,14 @@ let SessionStoreInternal = {
     tabstrip.smoothScroll = false;
 
     // unpin all tabs to ensure they are not reordered in the next loop
-    if (aOverwriteTabs) {
+    if (overwriteTabs) {
       for (let t = tabbrowser._numPinnedTabs - 1; t > -1; t--)
         tabbrowser.unpinTab(tabbrowser.tabs[t]);
     }
 
     // make sure that the selected tab won't be closed in order to
     // prevent unnecessary flickering
-    if (aOverwriteTabs && tabbrowser.selectedTab._tPos >= newTabCount)
+    if (overwriteTabs && tabbrowser.selectedTab._tPos >= newTabCount)
       tabbrowser.moveTabTo(tabbrowser.selectedTab, newTabCount - 1);
 
     let numVisibleTabs = 0;
@@ -2703,7 +2655,7 @@ let SessionStoreInternal = {
                 tabbrowser.tabs[t] :
                 tabbrowser.addTab("about:blank", {skipAnimation: true}));
       // when resuming at startup: add additionally requested pages to the end
-      if (!aOverwriteTabs && root._firstTabs) {
+      if (!overwriteTabs && firstWindow) {
         tabbrowser.moveTabTo(tabs[t], t);
       }
 
@@ -2730,7 +2682,7 @@ let SessionStoreInternal = {
     // tabs will be rebuilt and marked if they need to be restored after loading
     // state (in restoreHistoryPrecursor).
     // We also want to invalidate any cached information on the tab state.
-    if (aOverwriteTabs) {
+    if (overwriteTabs) {
       for (let i = 0; i < tabbrowser.tabs.length; i++) {
         let tab = tabbrowser.tabs[i];
         TabStateCache.delete(tab);
@@ -2746,7 +2698,7 @@ let SessionStoreInternal = {
     // count in case there are still tabs restoring.
     if (!aWindow.__SS_tabsToRestore)
       aWindow.__SS_tabsToRestore = 0;
-    if (aOverwriteTabs)
+    if (overwriteTabs)
       aWindow.__SS_tabsToRestore = newTabCount;
     else
       aWindow.__SS_tabsToRestore += newTabCount;
@@ -2759,12 +2711,12 @@ let SessionStoreInternal = {
       aWindow.__SS_lastSessionWindowID = winData.__lastSessionWindowID;
 
     // when overwriting tabs, remove all superflous ones
-    if (aOverwriteTabs && newTabCount < openTabCount) {
+    if (overwriteTabs && newTabCount < openTabCount) {
       Array.slice(tabbrowser.tabs, newTabCount, openTabCount)
            .forEach(tabbrowser.removeTab, tabbrowser);
     }
 
-    if (aOverwriteTabs) {
+    if (overwriteTabs) {
       this.restoreWindowFeatures(aWindow, winData);
       delete this._windows[aWindow.__SSi].extData;
     }
@@ -2779,16 +2731,15 @@ let SessionStoreInternal = {
         this._windows[aWindow.__SSi].extData[key] = winData.extData[key];
       }
     }
-    if (aOverwriteTabs || root._firstTabs) {
+    if (overwriteTabs || firstWindow) {
       this._windows[aWindow.__SSi]._closedTabs = winData._closedTabs || [];
     }
 
     this.restoreHistoryPrecursor(aWindow, tabs, winData.tabs,
-      (aOverwriteTabs ? (parseInt(winData.selected) || 1) : 0), 0, 0);
+      (overwriteTabs ? (parseInt(winData.selected) || 1) : 0), 0, 0);
 
-    if (aState.scratchpads) {
-      ScratchpadManager.restoreSession(aState.scratchpads);
-    }
+    this._setGlobalValuesFromState(aState);
+    this._restoreScratchPads();
 
     // set smoothScroll back to the original value
     tabstrip.smoothScroll = smoothScroll;
@@ -3629,6 +3580,28 @@ let SessionStoreInternal = {
   /* ........ Auxiliary Functions .............. */
 
   /**
+   * Update the session start time and send a telemetry measurement
+   * for the number of days elapsed since the session was started.
+   *
+   * @param state
+   *        The session state.
+   */
+  _updateSessionStartTime: function ssi_updateSessionStartTime(state) {
+    // Attempt to load the session start time from the session state
+    if (state.session && state.session.startTime) {
+      this._sessionStartTime = state.session.startTime;
+
+      // ms to days
+      let sessionLength = (Date.now() - this._sessionStartTime) / MS_PER_DAY;
+
+      if (sessionLength > 0) {
+        // Submit the session length telemetry measurement
+        Services.telemetry.getHistogramById("FX_SESSION_RESTORE_SESSION_LENGTH").add(sessionLength);
+      }
+    }
+  },
+
+  /**
    * call a callback for all currently opened browser windows
    * (might miss the most recent one)
    * @param aFunc
@@ -4063,12 +4036,7 @@ let SessionStoreInternal = {
       return;
 
     // Get the hosts for history entries in aTargetWinState
-    let cookieHosts = {};
-    aTargetWinState.tabs.forEach(function(tab) {
-      tab.entries.forEach(function(entry) {
-        this._extractHostsForCookiesFromEntry(entry, cookieHosts, false);
-      }, this);
-    }, this);
+    let cookieHosts = SessionCookies.getHostsForWindow(aTargetWinState);
 
     // By creating a regex we reduce overhead and there is only one loop pass
     // through either array (cookieHosts and aWinState.cookies).

@@ -761,6 +761,7 @@ nsDocShell::nsDocShell():
     mAllowMedia(true),
     mAllowDNSPrefetch(true),
     mAllowWindowControl(true),
+    mAllowContentRetargeting(true),
     mCreatingDocument(false),
     mUseErrorPages(false),
     mObserveErrorPages(true),
@@ -2347,6 +2348,20 @@ NS_IMETHODIMP nsDocShell::SetAllowWindowControl(bool aAllowWindowControl)
 }
 
 NS_IMETHODIMP
+nsDocShell::GetAllowContentRetargeting(bool* aAllowContentRetargeting)
+{
+    *aAllowContentRetargeting = mAllowContentRetargeting;
+    return NS_OK;
+}
+
+NS_IMETHODIMP
+nsDocShell::SetAllowContentRetargeting(bool aAllowContentRetargeting)
+{
+    mAllowContentRetargeting = aAllowContentRetargeting;
+    return NS_OK;
+}
+
+NS_IMETHODIMP
 nsDocShell::GetFullscreenAllowed(bool* aFullscreenAllowed)
 {
     NS_ENSURE_ARG_POINTER(aFullscreenAllowed);
@@ -2869,6 +2884,8 @@ nsDocShell::SetDocLoaderParent(nsDocLoader * aParent)
         {
             SetAllowWindowControl(value);
         }
+        SetAllowContentRetargeting(
+            parentAsDocShell->GetAllowContentRetargeting());
         if (NS_SUCCEEDED(parentAsDocShell->GetIsActive(&value)))
         {
             SetIsActive(value);
@@ -7783,6 +7800,8 @@ nsDocShell::RestoreFromHistory()
         bool allowDNSPrefetch;
         childShell->GetAllowDNSPrefetch(&allowDNSPrefetch);
 
+        bool allowContentRetargeting = childShell->GetAllowContentRetargeting();
+
         // this.AddChild(child) calls child.SetDocLoaderParent(this), meaning
         // that the child inherits our state. Among other things, this means
         // that the child inherits our mIsActive and mInPrivateBrowsing, which
@@ -7796,6 +7815,7 @@ nsDocShell::RestoreFromHistory()
         childShell->SetAllowImages(allowImages);
         childShell->SetAllowMedia(allowMedia);
         childShell->SetAllowDNSPrefetch(allowDNSPrefetch);
+        childShell->SetAllowContentRetargeting(allowContentRetargeting);
 
         rv = childShell->BeginRestore(nullptr, false);
         NS_ENSURE_SUCCESS(rv, rv);
@@ -8635,6 +8655,7 @@ nsDocShell::InternalLoad(nsIURI * aURI,
     int16_t shouldLoad = nsIContentPolicy::ACCEPT;
     uint32_t contentType;
     bool isNewDocShell = false;
+    bool isTargetTopLevelDocShell = false;
     nsCOMPtr<nsIDocShell> targetDocShell;
     if (aWindowTarget && *aWindowTarget) {
         // Locate the target DocShell.
@@ -8646,8 +8667,23 @@ nsDocShell::InternalLoad(nsIURI * aURI,
         // If the targetDocShell doesn't exist, then this is a new docShell
         // and we should consider this a TYPE_DOCUMENT load
         isNewDocShell = !targetDocShell;
+
+        // If the targetDocShell and the rootDocShell are the same, then the
+        // targetDocShell is the top level document and hence we should
+        // consider this TYPE_DOCUMENT
+        if (targetDocShell) {
+          nsCOMPtr<nsIDocShellTreeItem> sameTypeRoot;
+          targetDocShell->GetSameTypeRootTreeItem(getter_AddRefs(sameTypeRoot));
+          NS_ASSERTION(sameTypeRoot, "No document shell root tree item from targetDocShell!");
+          nsCOMPtr<nsIDocShell> rootShell = do_QueryInterface(sameTypeRoot);
+          NS_ASSERTION(rootShell, "No root docshell from document shell root tree item.");
+
+          if (targetDocShell == rootShell) {
+            isTargetTopLevelDocShell = true;
+          }
+        }
     }
-    if (IsFrame() && !isNewDocShell) {
+    if (IsFrame() && !isNewDocShell && !isTargetTopLevelDocShell) {
         NS_ASSERTION(requestingElement, "A frame but no DOM element!?");
         contentType = nsIContentPolicy::TYPE_SUBDOCUMENT;
     } else {
@@ -9536,9 +9572,20 @@ nsDocShell::DoURILoad(nsIURI * aURI,
     if (mLoadType == LOAD_RELOAD_ALLOW_MIXED_CONTENT) {
           rv = SetMixedContentChannel(channel);
           NS_ENSURE_SUCCESS(rv, rv);
-    } else {
-          rv = SetMixedContentChannel(nullptr);
-          NS_ENSURE_SUCCESS(rv, rv);
+    } else if (mMixedContentChannel) {
+      /*
+       * If the user "Disables Protection on This Page", we call
+       * SetMixedContentChannel for the first time, otherwise
+       * mMixedContentChannel is still null.
+       * Later, if the new channel passes a same orign check, we remember the
+       * users decision by calling SetMixedContentChannel using the new channel.
+       * This way, the user does not have to click the disable protection button
+       * over and over for browsing the same site.
+       */
+      rv = nsContentUtils::CheckSameOrigin(mMixedContentChannel, channel);
+      if (NS_FAILED(rv) || NS_FAILED(SetMixedContentChannel(channel))) {
+        SetMixedContentChannel(nullptr);
+      }
     }
 
     //hack
@@ -9836,9 +9883,14 @@ nsresult nsDocShell::DoChannelLoad(nsIChannel * aChannel,
 
     (void) aChannel->SetLoadFlags(loadFlags);
 
-    rv = aURILoader->OpenURI(aChannel,
-                             (mLoadType == LOAD_LINK),
-                             this);
+    uint32_t openFlags = 0;
+    if (mLoadType == LOAD_LINK) {
+        openFlags |= nsIURILoader::IS_CONTENT_PREFERRED;
+    }
+    if (!mAllowContentRetargeting) {
+        openFlags |= nsIURILoader::DONT_RETARGET;
+    }
+    rv = aURILoader->OpenURI(aChannel, openFlags, this);
     NS_ENSURE_SUCCESS(rv, rv);
 
     return NS_OK;
@@ -11967,7 +12019,7 @@ nsDocShell::GetControllerForCommand(const char * inCommand,
     return root->GetControllerForCommand(inCommand, outController);
 }
 
-nsresult
+NS_IMETHODIMP
 nsDocShell::IsCommandEnabled(const char * inCommand, bool* outEnabled)
 {
   NS_ENSURE_ARG_POINTER(outEnabled);
@@ -11983,7 +12035,7 @@ nsDocShell::IsCommandEnabled(const char * inCommand, bool* outEnabled)
   return rv;
 }
 
-nsresult
+NS_IMETHODIMP
 nsDocShell::DoCommand(const char * inCommand)
 {
   nsresult rv = NS_ERROR_FAILURE;

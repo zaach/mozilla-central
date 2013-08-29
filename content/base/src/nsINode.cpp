@@ -76,7 +76,6 @@
 #include "nsViewManager.h"
 #include "nsIWebNavigation.h"
 #include "nsIWidget.h"
-#include "nsLayoutStatics.h"
 #include "nsLayoutUtils.h"
 #include "nsMutationEvent.h"
 #include "nsNetUtil.h"
@@ -1808,7 +1807,7 @@ nsINode::ReplaceOrInsertBefore(bool aReplace, nsINode* aNewChild,
       }
 
       // Verify that newContent has no parent.
-      if (newContent->GetParent()) {
+      if (newContent->GetParentNode()) {
         aError.Throw(NS_ERROR_DOM_HIERARCHY_REQUEST_ERR);
         return nullptr;
       }
@@ -1885,7 +1884,7 @@ nsINode::ReplaceOrInsertBefore(bool aReplace, nsINode* aNewChild,
 
       // Verify that all the things in fragChildren have no parent.
       for (uint32_t i = 0; i < count; ++i) {
-        if (fragChildren.ref().ElementAt(i)->GetParent()) {
+        if (fragChildren.ref().ElementAt(i)->GetParentNode()) {
           aError.Throw(NS_ERROR_DOM_HIERARCHY_REQUEST_ERR);
           return nullptr;
         }

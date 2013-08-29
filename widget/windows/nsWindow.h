@@ -23,6 +23,7 @@
 #include "nsWindowDbg.h"
 #include "cairo.h"
 #include "nsITimer.h"
+#include "nsRegion.h"
 #include "mozilla/TimeStamp.h"
 
 #ifdef CAIRO_HAS_D2D_SURFACE
@@ -52,6 +53,7 @@
 class nsNativeDragTarget;
 class nsIRollupListener;
 class nsIFile;
+class nsIntRegion;
 class imgIContainer;
 
 namespace mozilla {
@@ -189,6 +191,8 @@ public:
   NS_IMETHOD              GetNonClientMargins(nsIntMargin &margins);
   NS_IMETHOD              SetNonClientMargins(nsIntMargin &margins);
   void                    SetDrawsInTitlebar(bool aState);
+  mozilla::TemporaryRef<mozilla::gfx::DrawTarget> StartRemoteDrawing() MOZ_OVERRIDE;
+  virtual void            EndRemoteDrawing() MOZ_OVERRIDE;
 
   /**
    * Event helpers
@@ -275,7 +279,7 @@ public:
 
   bool                    const DestroyCalled() { return mDestroyCalled; }
 
-  virtual mozilla::layers::LayersBackend GetPreferredCompositorBackend();
+  virtual void GetPreferredCompositorBackends(nsTArray<mozilla::layers::LayersBackend>& aHints);
 
 protected:
 
@@ -514,6 +518,7 @@ protected:
 
   // Graphics
   HDC                   mPaintDC; // only set during painting
+  HDC                   mCompositeDC; // only set during StartRemoteDrawing
 
 #ifdef CAIRO_HAS_D2D_SURFACE
   nsRefPtr<gfxD2DSurface>    mD2DWindowSurface; // Surface for this window.

@@ -102,12 +102,14 @@ class BackendMakeFile(object):
         if self.xpt_name:
             self.fh.write('XPT_NAME := %s\n' % self.xpt_name)
 
+            # We just recompile all xpidls because it's easier and less error
+            # prone.
             self.fh.write('NONRECURSIVE_TARGETS += export\n')
             self.fh.write('NONRECURSIVE_TARGETS_export += xpidl\n')
             self.fh.write('NONRECURSIVE_TARGETS_export_xpidl_DIRECTORY = '
-                '$(DEPTH)/config/makefiles/xpidl\n')
+                '$(DEPTH)/config/makefiles/precompile\n')
             self.fh.write('NONRECURSIVE_TARGETS_export_xpidl_TARGETS += '
-                'xpt/%s' % self.xpt_name)
+                'xpidl\n')
 
         return self.fh.close()
 
@@ -200,7 +202,9 @@ class RecursiveMakeBackend(CommonBackend):
                 if isinstance(v, list):
                     for item in v:
                         backend_file.write('%s += %s\n' % (k, item))
-
+                elif isinstance(v, bool):
+                    if v:
+                        backend_file.write('%s := 1\n' % k)
                 else:
                     backend_file.write('%s := %s\n' % (k, v))
         elif isinstance(obj, Exports):
@@ -332,11 +336,13 @@ class RecursiveMakeBackend(CommonBackend):
 
             if dirs:
                 fh.write('tier_%s_dirs += %s\n' % (tier, ' '.join(dirs)))
+                fh.write('DIRS += $(tier_%s_dirs)\n' % tier)
 
             # tier_static_dirs should have the same keys as tier_dirs.
             if obj.tier_static_dirs[tier]:
                 fh.write('tier_%s_staticdirs += %s\n' % (
                     tier, ' '.join(obj.tier_static_dirs[tier])))
+                fh.write('STATIC_DIRS += $(tier_%s_staticdirs)\n' % tier)
 
                 static = ' '.join(obj.tier_static_dirs[tier])
                 fh.write('EXTERNAL_DIRS += %s\n' % static)
@@ -413,8 +419,19 @@ class RecursiveMakeBackend(CommonBackend):
 
         for module in xpt_modules:
             deps = sorted(modules[module])
+            idl_deps = ['$(dist_idl_dir)/%s.idl' % dep for dep in deps]
             rules.extend([
-                '$(idl_xpt_dir)/%s.xpt:' % module,
+                # It may seem strange to have the .idl files listed as
+                # prerequisites both here and in the auto-generated .pp files.
+                # It is necessary to list them here to handle the case where a
+                # new .idl is added to an xpt. If we add a new .idl and nothing
+                # else has changed, the new .idl won't be referenced anywhere
+                # except in the command invocation. Therefore, the .xpt won't
+                # be rebuilt because the dependencies say it is up to date. By
+                # listing the .idls here, we ensure the make file has a
+                # reference to the new .idl. Since the new .idl presumably has
+                # an mtime newer than the .xpt, it will trigger xpt generation.
+                '$(idl_xpt_dir)/%s.xpt: %s' % (module, ' '.join(idl_deps)),
                 '\t@echo "$(notdir $@)"',
                 '\t$(idlprocess) $(basename $(notdir $@)) %s' % ' '.join(deps),
                 '',

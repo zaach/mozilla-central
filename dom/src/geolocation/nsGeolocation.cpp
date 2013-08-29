@@ -201,7 +201,6 @@ private:
 ////////////////////////////////////////////////////
 // PositionError
 ////////////////////////////////////////////////////
-DOMCI_DATA(GeoPositionError, PositionError)
 
 NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION(PositionError)
   NS_WRAPPERCACHE_INTERFACE_MAP_ENTRY
@@ -1343,6 +1342,17 @@ Geolocation::ClearWatch(int32_t aWatchId)
     if (mWatchingCallbacks[i]->WatchId() == aWatchId) {
       mWatchingCallbacks[i]->Shutdown();
       RemoveRequest(mWatchingCallbacks[i]);
+      break;
+    }
+  }
+
+  // make sure we also search through the pending requests lists for
+  // watches to clear...
+  for (uint32_t i = 0, length = mPendingRequests.Length(); i < length; ++i) {
+    if ((mPendingRequests[i].type == PendingRequest::WatchPosition) &&
+        (mPendingRequests[i].request->WatchId() == aWatchId)) {
+      mPendingRequests[i].request->Shutdown();
+      mPendingRequests.RemoveElementAt(i);
       break;
     }
   }

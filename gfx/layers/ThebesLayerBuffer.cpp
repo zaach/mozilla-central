@@ -3,19 +3,33 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "base/basictypes.h"
-
-#include "BasicLayersImpl.h"
 #include "ThebesLayerBuffer.h"
-#include "Layers.h"
-#include "gfxContext.h"
-#include "gfxPlatform.h"
-#include "gfxTeeSurface.h"
-#include "gfxUtils.h"
-#include "ipc/AutoOpenSurface.h"
-#include "nsDeviceContext.h"
-#include "GeckoProfiler.h"
-#include <algorithm>
+#include <sys/types.h>                  // for int32_t
+#include <algorithm>                    // for max
+#include "BasicImplData.h"              // for BasicImplData
+#include "BasicLayersImpl.h"            // for ToData
+#include "GeckoProfiler.h"              // for PROFILER_LABEL
+#include "Layers.h"                     // for ThebesLayer, Layer, etc
+#include "gfxColor.h"                   // for gfxRGBA
+#include "gfxContext.h"                 // for gfxContext, etc
+#include "gfxMatrix.h"                  // for gfxMatrix
+#include "gfxPattern.h"                 // for gfxPattern
+#include "gfxPlatform.h"                // for gfxPlatform
+#include "gfxPoint.h"                   // for gfxPoint
+#include "gfxRect.h"                    // for gfxRect
+#include "gfxTeeSurface.h"              // for gfxTeeSurface
+#include "gfxUtils.h"                   // for gfxUtils
+#include "mozilla/Util.h"               // for ArrayLength
+#include "mozilla/gfx/BasePoint.h"      // for BasePoint
+#include "mozilla/gfx/BaseRect.h"       // for BaseRect
+#include "mozilla/gfx/BaseSize.h"       // for BaseSize
+#include "mozilla/gfx/Matrix.h"         // for Matrix
+#include "mozilla/gfx/Point.h"          // for Point, IntPoint
+#include "mozilla/gfx/Rect.h"           // for Rect, IntRect
+#include "mozilla/gfx/Types.h"          // for ExtendMode::EXTEND_CLAMP, etc
+#include "mozilla/layers/ShadowLayers.h"  // for ShadowableLayer
+#include "mozilla/layers/TextureClient.h"  // for DeprecatedTextureClient
+#include "nsSize.h"                     // for nsIntSize
 
 namespace mozilla {
 
@@ -263,6 +277,7 @@ ThebesLayerBuffer::DrawTo(ThebesLayer* aLayer,
     aTarget->Restore();
   } else {
     RefPtr<DrawTarget> dt = aTarget->GetDrawTarget();
+    bool clipped = false;
 
     // If the entire buffer is valid, we can just draw the whole thing,
     // no need to clip. But we'll still clip if clipping is cheap ---
@@ -278,11 +293,24 @@ ThebesLayerBuffer::DrawTo(ThebesLayer* aLayer,
       // we might sample pixels outside GetEffectiveVisibleRegion(), which is wrong
       // and may cause gray lines.
       gfxUtils::ClipToRegionSnapped(dt, aLayer->GetEffectiveVisibleRegion());
+      clipped = true;
     }
 
-    DrawBufferWithRotation(aTarget, BUFFER_BLACK, aOpacity, aMask, aMaskTransform);
-    aTarget->Restore();
-   }
+    RefPtr<SourceSurface> mask;
+    if (aMask) {
+      mask = gfxPlatform::GetPlatform()->GetSourceSurfaceForSurface(dt, aMask);
+    }
+
+    Matrix maskTransform;
+    if (aMaskTransform) {
+      maskTransform = ToMatrix(*aMaskTransform);
+    }
+
+    DrawBufferWithRotation(dt, BUFFER_BLACK, aOpacity, mask, &maskTransform);
+    if (clipped) {
+      dt->PopClip();
+    }
+  }
 }
 
 static void

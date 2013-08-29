@@ -25,13 +25,11 @@ WebGLContext::Disable(WebGLenum cap)
     if (!ValidateCapabilityEnum(cap, "disable"))
         return;
 
-    switch(cap) {
-        case LOCAL_GL_SCISSOR_TEST:
-            mScissorTestEnabled = 0;
-            break;
-        case LOCAL_GL_DITHER:
-            mDitherEnabled = 0;
-            break;
+    realGLboolean* trackingSlot = GetStateTrackingSlot(cap);
+
+    if (trackingSlot)
+    {
+        *trackingSlot = 0;
     }
 
     MakeContextCurrent();
@@ -47,13 +45,11 @@ WebGLContext::Enable(WebGLenum cap)
     if (!ValidateCapabilityEnum(cap, "enable"))
         return;
 
-    switch(cap) {
-        case LOCAL_GL_SCISSOR_TEST:
-            mScissorTestEnabled = 1;
-            break;
-        case LOCAL_GL_DITHER:
-            mDitherEnabled = 1;
-            break;
+    realGLboolean* trackingSlot = GetStateTrackingSlot(cap);
+
+    if (trackingSlot)
+    {
+        *trackingSlot = 1;
     }
 
     MakeContextCurrent();
@@ -302,6 +298,13 @@ WebGLContext::GetParameter(JSContext* cx, WebGLenum pname, ErrorResult& rv)
             }
             return JS::ObjectOrNullValue(obj);
         }
+        case LOCAL_GL_MAX_TRANSFORM_FEEDBACK_SEPARATE_ATTRIBS:
+        {
+            if (!IsWebGL2()) {
+                break;
+            }
+            return JS::Int32Value(mGLMaxTransformFeedbackSeparateAttribs);
+        }
 
         // unsigned int. here we may have to return very large values like 2^32-1 that can't be represented as
         // javascript integer values. We just return them as doubles and javascript doesn't care.
@@ -435,6 +438,14 @@ WebGLContext::GetParameter(JSContext* cx, WebGLenum pname, ErrorResult& rv)
             return WebGLObjectAsJSValue(cx, mBoundArrayBuffer.get(), rv);
         }
 
+        case LOCAL_GL_TRANSFORM_FEEDBACK_BUFFER_BINDING:
+        {
+            if (!IsWebGL2()) {
+                break;
+            }
+            return WebGLObjectAsJSValue(cx, mBoundTransformFeedbackBuffer.get(), rv);
+        }
+
         case LOCAL_GL_ELEMENT_ARRAY_BUFFER_BINDING:
         {
             return WebGLObjectAsJSValue(cx, mBoundVertexArray->mBoundElementArrayBuffer.get(), rv);
@@ -472,6 +483,32 @@ WebGLContext::GetParameter(JSContext* cx, WebGLenum pname, ErrorResult& rv)
     return JS::NullValue();
 }
 
+JS::Value
+WebGLContext::GetParameterIndexed(JSContext* cx, WebGLenum pname, WebGLuint index)
+{
+    if (!IsContextStable())
+        return JS::NullValue();
+
+    MakeContextCurrent();
+
+    switch (pname) {
+        case LOCAL_GL_TRANSFORM_FEEDBACK_BUFFER_BINDING:
+        {
+            if (index >= mGLMaxTransformFeedbackSeparateAttribs) {
+                ErrorInvalidValue("getParameterIndexed: index should be less than MAX_TRANSFORM_FEEDBACK_SEPARATE_ATTRIBS", index);
+                return JS::NullValue();
+            }
+            return JS::NullValue(); // See bug 903594
+        }
+
+        default:
+            break;
+    }
+
+    ErrorInvalidEnumInfo("getParameterIndexed: parameter", pname);
+    return JS::NullValue();
+}
+
 bool
 WebGLContext::IsEnabled(WebGLenum cap)
 {
@@ -505,4 +542,19 @@ WebGLContext::ValidateCapabilityEnum(WebGLenum cap, const char* info)
             ErrorInvalidEnumInfo(info, cap);
             return false;
     }
+}
+
+realGLboolean*
+WebGLContext::GetStateTrackingSlot(WebGLenum cap)
+{
+    switch (cap) {
+        case LOCAL_GL_SCISSOR_TEST:
+            return &mScissorTestEnabled;
+        case LOCAL_GL_DITHER:
+            return &mDitherEnabled;
+        case LOCAL_GL_RASTERIZER_DISCARD:
+            return &mRasterizerDiscardEnabled;
+    }
+
+    return nullptr;
 }

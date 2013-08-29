@@ -125,6 +125,7 @@ MOCHITEST_FILES = \
 		test_bug448534.html \
 		test_bug463162.xhtml \
 		test_decoder_disable.html \
+		test_mediarecorder_record_no_timeslice.html \
 		test_mediarecorder_reload_crash.html \
 		test_media_selection.html \
 		test_playback.html \
@@ -145,6 +146,7 @@ MOCHITEST_FILES = \
 		test_VideoPlaybackQuality_disabled.html \
 		test_webvtt_disabled.html \
 		test_playback_rate_playpause.html \
+		test_bug895305.html \
 		$(NULL)
 
 # Disabled on Windows for frequent intermittent failures

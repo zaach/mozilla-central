@@ -6,20 +6,57 @@
 #ifndef MOZILLA_GFX_COMPOSITOROGL_H
 #define MOZILLA_GFX_COMPOSITOROGL_H
 
-#include "mozilla/layers/Compositor.h"
-#include "GLContext.h"
-#include "LayerManagerOGLProgram.h"
-#include "mozilla/layers/Effects.h"
-#include "nsTArray.h"
+#include "./../mozilla-config.h"        // for MOZ_DUMP_PAINTING
+#include "GLContext.h"                  // for GLContext
+#include "GLContextTypes.h"             // for GLuint, GLenum, GLint
+#include "GLDefs.h"                     // for GLintptr, GLvoid, etc
+#include "LayerManagerOGLProgram.h"     // for ShaderProgramOGL, etc
+#include "Units.h"                      // for ScreenPoint
+#include "gfxContext.h"                 // for gfxContext
+#include "gfxPoint.h"                   // for gfxIntSize
+#include "mozilla/Assertions.h"         // for MOZ_ASSERT, etc
+#include "mozilla/Attributes.h"         // for MOZ_OVERRIDE, MOZ_FINAL
+#include "mozilla/RefPtr.h"             // for TemporaryRef, RefPtr
+#include "mozilla/gfx/BaseSize.h"       // for BaseSize
+#include "mozilla/gfx/Point.h"          // for IntSize, Point
+#include "mozilla/gfx/Rect.h"           // for Rect, IntRect
+#include "mozilla/gfx/Types.h"          // for Float, SurfaceFormat, etc
+#include "mozilla/layers/Compositor.h"  // for SurfaceInitMode, Compositor, etc
+#include "mozilla/layers/CompositorTypes.h"  // for MaskType::NumMaskTypes, etc
+#include "mozilla/layers/LayersTypes.h"
+#include "nsAutoPtr.h"                  // for nsRefPtr, nsAutoPtr
+#include "nsCOMPtr.h"                   // for already_AddRefed
+#include "nsDebug.h"                    // for NS_ASSERTION, NS_WARNING
+#include "nsISupportsImpl.h"            // for gfxContext::AddRef, etc
+#include "nsSize.h"                     // for nsIntSize
+#include "nsTArray.h"                   // for nsAutoTArray, nsTArray, etc
+#include "nsThreadUtils.h"              // for nsRunnable
+#include "nsTraceRefcnt.h"              // for MOZ_COUNT_CTOR, etc
+#include "nsXULAppAPI.h"                // for XRE_GetProcessType
+#include "nscore.h"                     // for NS_IMETHOD
+#include "VBOArena.h"                   // for gl::VBOArena
 
-#include "mozilla/TimeStamp.h"
+class gfx3DMatrix;
+class nsIWidget;
+struct gfxMatrix;
 
 namespace mozilla {
+class TimeStamp;
+
+namespace gfx {
+class Matrix4x4;
+}
+
 namespace layers {
 
-struct FPSState;
+class CompositingRenderTarget;
 class CompositingRenderTargetOGL;
+class DataTextureSource;
 class GLManagerCompositor;
+class TextureSource;
+struct Effect;
+struct EffectChain;
+struct FPSState;
 
 class CompositorOGL : public Compositor
 {
@@ -199,6 +236,11 @@ private:
    *  including vertex coords and texcoords for both
    *  flipped and unflipped textures */
   GLuint mQuadVBO;
+
+  /**
+   * When we can't use mQuadVBO, we allocate VBOs from this arena instead.
+   */
+  gl::VBOArena mVBOs;
 
   bool mHasBGRA;
 

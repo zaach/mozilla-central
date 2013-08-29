@@ -319,7 +319,7 @@ pref("gfx.font_rendering.opentype_svg.enabled", false);
 // comma separated list of backends to use in order of preference
 // e.g., pref("gfx.canvas.azure.backends", "direct2d,skia,cairo");
 pref("gfx.canvas.azure.backends", "direct2d,skia,cairo");
-pref("gfx.content.azure.backends", "direct2d");
+pref("gfx.content.azure.backends", "direct2d,cairo");
 pref("gfx.content.azure.enabled", true);
 #else
 pref("gfx.content.azure.enabled", false);
@@ -474,9 +474,6 @@ pref("view_source.editor.args", "");
 
 // When true this will word-wrap plain text documents.
 pref("plain_text.wrap_long_lines", false);
-
-// dispatch left clicks only to content in browser (still allows clicks to chrome/xul)
-pref("nglayout.events.dispatchLeftClickOnly", true);
 
 // whether or not to draw images while dragging
 pref("nglayout.enable_drag_images", true);
@@ -779,9 +776,6 @@ pref("dom.min_timeout_value", 4);
 // And for background windows
 pref("dom.min_background_timeout_value", 1000);
 
-// Stop defining the Components object in content.
-pref("dom.omit_components_in_content", true);
-
 // Don't use new input types
 pref("dom.experimental_forms", false);
 
@@ -825,10 +819,13 @@ pref("javascript.options.strict.debug",     true);
 pref("javascript.options.baselinejit.content", true);
 pref("javascript.options.baselinejit.chrome",  true);
 pref("javascript.options.ion.content",      true);
+pref("javascript.options.ion.chrome",       false);
 pref("javascript.options.asmjs",            true);
+pref("javascript.options.parallel_parsing", true);
 pref("javascript.options.ion.parallel_compilation", true);
 pref("javascript.options.jit_hardening", true);
-pref("javascript.options.typeinference", true);
+pref("javascript.options.typeinference.content", true);
+pref("javascript.options.typeinference.chrome", false);
 // This preference limits the memory usage of javascript.
 // If you want to change these values for your device,
 // please find Bug 417052 comment 17 and Bug 456721
@@ -3912,6 +3909,7 @@ pref("signon.SignonFileName3",              "signons3.txt"); // obsolete
 pref("signon.autofillForms",                true);
 pref("signon.autologin.proxy",              false);
 pref("signon.debug",                        false);
+pref("signon.useDOMFormHasPassword",        true);
 
 // Satchel (Form Manager) prefs
 pref("browser.formfill.debug",            false);
@@ -4071,9 +4069,6 @@ pref("layers.async-video.enabled",false);
 // Whether to disable acceleration for all widgets.
 pref("layers.acceleration.disabled", false);
 
-// Whether to use the deprecated texture architecture rather than the new one.
-pref("layers.use-deprecated-textures", true);
-
 // Whether to force acceleration on, ignoring blacklists.
 #ifdef ANDROID
 // bug 838603 -- on Android, accidentally blacklisting OpenGL layers
@@ -4094,8 +4089,11 @@ pref("layers.max-active", -1);
 
 #ifdef XP_MACOSX
 pref("layers.offmainthreadcomposition.enabled", true);
+// Whether to use the deprecated texture architecture rather than the new one.
+pref("layers.use-deprecated-textures", false);
 #else
 pref("layers.offmainthreadcomposition.enabled", false);
+pref("layers.use-deprecated-textures", true);
 #endif
 // same effect as layers.offmainthreadcomposition.enabled, but specifically for
 // use with tests.
@@ -4112,6 +4110,10 @@ pref("layers.prefer-memory-over-shmem", true);
 pref("layers.bufferrotation.enabled", true);
 
 pref("layers.componentalpha.enabled", true);
+
+#ifdef ANDROID
+pref("gfx.apitrace.enabled",false);
+#endif
 
 #ifdef MOZ_X11
 #ifdef MOZ_WIDGET_GTK2
@@ -4324,6 +4326,11 @@ pref("dom.placeholder.show_on_focus", true);
 // UAProfile settings
 pref("wap.UAProf.url", "");
 pref("wap.UAProf.tagname", "x-wap-profile");
+
+// MMS version 1.1 = 0x11 (or decimal 17)
+// MMS version 1.3 = 0x13 (or decimal 19)
+// @see OMA-TS-MMS_ENC-V1_3-20110913-A clause 7.3.34
+pref("dom.mms.version", 19);
 
 // Retrieval mode for MMS
 // manual: Manual retrieval mode.

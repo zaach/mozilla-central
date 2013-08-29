@@ -24,7 +24,7 @@
 #endif
 
 namespace js {
-namespace ion {
+namespace jit {
 
 class LIRGenerator : public LIRGeneratorSpecific
 {
@@ -119,7 +119,6 @@ class LIRGenerator : public LIRGeneratorSpecific
     bool visitTest(MTest *test);
     bool visitFunctionDispatch(MFunctionDispatch *ins);
     bool visitTypeObjectDispatch(MTypeObjectDispatch *ins);
-    bool visitPolyInlineDispatch(MPolyInlineDispatch *ins);
     bool visitCompare(MCompare *comp);
     bool visitTypeOf(MTypeOf *ins);
     bool visitToId(MToId *ins);
@@ -207,6 +206,7 @@ class LIRGenerator : public LIRGeneratorSpecific
     bool visitGuardClass(MGuardClass *ins);
     bool visitGuardObject(MGuardObject *ins);
     bool visitGuardString(MGuardString *ins);
+    bool visitAssertRange(MAssertRange *ins);
     bool visitCallGetProperty(MCallGetProperty *ins);
     bool visitDeleteProperty(MDeleteProperty *ins);
     bool visitGetNameCache(MGetNameCache *ins);
@@ -250,7 +250,7 @@ class LIRGenerator : public LIRGeneratorSpecific
     bool visitGetDOMProperty(MGetDOMProperty *ins);
 };
 
-} // namespace ion
+} // namespace jit
 } // namespace js
 
 #endif /* jit_Lowering_h */

@@ -13,18 +13,11 @@
 #include <stdarg.h>
 
 #include "nsTArray.h"
-#include "nsDataHashtable.h"
-#include "nsHashKeys.h"
 #include "nsCycleCollectionNoteChild.h"
-
-#include "nsIDocShell.h"
 
 #include "nsIDOMWebGLRenderingContext.h"
 #include "nsICanvasRenderingContextInternal.h"
 #include "mozilla/dom/HTMLCanvasElement.h"
-#include "nsIDOMHTMLElement.h"
-#include "nsIMemoryReporter.h"
-#include "nsIJSNativeInitializer.h"
 #include "nsWrapperCache.h"
 #include "nsIObserver.h"
 
@@ -32,16 +25,15 @@
 
 #include "mozilla/LinkedList.h"
 #include "mozilla/CheckedInt.h"
-#include "mozilla/dom/ImageData.h"
 
 #ifdef XP_MACOSX
 #include "ForceDiscreteGPUHelperCGL.h"
 #endif
 
 #include "mozilla/dom/TypedArray.h"
-#include "mozilla/dom/Nullable.h"
 #include "mozilla/ErrorResult.h"
-#include "mozilla/dom/BindingUtils.h"
+
+class nsIDocShell;
 
 /* 
  * Minimum value constants defined in 6.2 State Tables of OpenGL ES - 2.0.25
@@ -80,8 +72,11 @@ class WebGLTexture;
 class WebGLVertexArray;
 
 namespace dom {
+class ImageData;
+
 struct WebGLContextAttributes;
 struct WebGLContextAttributesInitializer;
+template<typename> class Nullable;
 }
 
 using WebGLTexelConversions::WebGLTexelFormat;
@@ -153,8 +148,6 @@ public:
 
     virtual JSObject* WrapObject(JSContext *cx,
                                  JS::Handle<JSObject*> scope) = 0;
-
-    virtual bool IsWebGL2() const = 0;
 
     NS_DECL_NSIDOMWEBGLRENDERINGCONTEXT
 
@@ -322,7 +315,6 @@ public:
     void AttachShader(WebGLProgram* program, WebGLShader* shader);
     void BindAttribLocation(WebGLProgram* program, WebGLuint location,
                             const nsAString& name);
-    void BindBuffer(WebGLenum target, WebGLBuffer* buf);
     void BindFramebuffer(WebGLenum target, WebGLFramebuffer* wfb);
     void BindRenderbuffer(WebGLenum target, WebGLRenderbuffer* wrb);
     void BindTexture(WebGLenum target, WebGLTexture *tex);
@@ -338,16 +330,6 @@ public:
     void BlendFunc(WebGLenum sfactor, WebGLenum dfactor);
     void BlendFuncSeparate(WebGLenum srcRGB, WebGLenum dstRGB,
                            WebGLenum srcAlpha, WebGLenum dstAlpha);
-    void BufferData(WebGLenum target, WebGLsizeiptr size, WebGLenum usage);
-    void BufferData(WebGLenum target, const dom::ArrayBufferView &data,
-                    WebGLenum usage);
-    void BufferData(WebGLenum target,
-                    const Nullable<dom::ArrayBuffer> &maybeData,
-                    WebGLenum usage);
-    void BufferSubData(WebGLenum target, WebGLsizeiptr byteOffset,
-                       const dom::ArrayBufferView &data);
-    void BufferSubData(WebGLenum target, WebGLsizeiptr byteOffset,
-                       const Nullable<dom::ArrayBuffer> &maybeData);
     WebGLenum CheckFramebufferStatus(WebGLenum target);
     void Clear(WebGLbitfield mask);
     void ClearColor(WebGLclampf r, WebGLclampf g, WebGLclampf b, WebGLclampf a);
@@ -370,7 +352,6 @@ public:
     void CopyTexSubImage2D(WebGLenum target, WebGLint level, WebGLint xoffset,
                            WebGLint yoffset, WebGLint x, WebGLint y,
                            WebGLsizei width, WebGLsizei height);
-    already_AddRefed<WebGLBuffer> CreateBuffer();
     already_AddRefed<WebGLFramebuffer> CreateFramebuffer();
     already_AddRefed<WebGLProgram> CreateProgram();
     already_AddRefed<WebGLRenderbuffer> CreateRenderbuffer();
@@ -378,7 +359,6 @@ public:
     already_AddRefed<WebGLShader> CreateShader(WebGLenum type);
     already_AddRefed<WebGLVertexArray> CreateVertexArray();
     void CullFace(WebGLenum face);
-    void DeleteBuffer(WebGLBuffer *buf);
     void DeleteFramebuffer(WebGLFramebuffer *fbuf);
     void DeleteProgram(WebGLProgram *prog);
     void DeleteRenderbuffer(WebGLRenderbuffer *rbuf);
@@ -459,7 +439,6 @@ public:
     already_AddRefed<WebGLUniformLocation>
       GetUniformLocation(WebGLProgram *prog, const nsAString& name);
     void Hint(WebGLenum target, WebGLenum mode);
-    bool IsBuffer(WebGLBuffer *buffer);
     bool IsFramebuffer(WebGLFramebuffer *fb);
     bool IsProgram(WebGLProgram *prog);
     bool IsRenderbuffer(WebGLRenderbuffer *rb);
@@ -751,8 +730,46 @@ public:
     JS::Value GetQueryObject(JSContext* cx, WebGLQuery *query, WebGLenum pname);
 
 private:
-    bool ValidateTargetParameter(WebGLenum target, const char* infos);
-    WebGLRefPtr<WebGLQuery>& GetActiveQueryByTarget(WebGLenum target);
+    // ANY_SAMPLES_PASSED(_CONSERVATIVE) slot
+    WebGLRefPtr<WebGLQuery> mActiveOcclusionQuery;
+
+    // LOCAL_GL_TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN slot
+    WebGLRefPtr<WebGLQuery> mActiveTransformFeedbackQuery;
+
+    WebGLRefPtr<WebGLQuery>* GetQueryTargetSlot(WebGLenum target, const char* infos);
+
+// -----------------------------------------------------------------------------
+// Buffer Objects (WebGLContextBuffers.cpp)
+public:
+    void BindBuffer(WebGLenum target, WebGLBuffer* buf);
+    void BindBufferBase(WebGLenum target, WebGLuint index, WebGLBuffer* buffer);
+    void BindBufferRange(WebGLenum target, WebGLuint index, WebGLBuffer* buffer,
+                         WebGLintptr offset, WebGLsizeiptr size);
+    void BufferData(WebGLenum target, WebGLsizeiptr size, WebGLenum usage);
+    void BufferData(WebGLenum target, const dom::ArrayBufferView &data,
+                    WebGLenum usage);
+    void BufferData(WebGLenum target,
+                    const Nullable<dom::ArrayBuffer> &maybeData,
+                    WebGLenum usage);
+    void BufferSubData(WebGLenum target, WebGLsizeiptr byteOffset,
+                       const dom::ArrayBufferView &data);
+    void BufferSubData(WebGLenum target, WebGLsizeiptr byteOffset,
+                       const Nullable<dom::ArrayBuffer> &maybeData);
+    already_AddRefed<WebGLBuffer> CreateBuffer();
+    void DeleteBuffer(WebGLBuffer *buf);
+    bool IsBuffer(WebGLBuffer *buffer);
+
+private:
+    // ARRAY_BUFFER slot
+    WebGLRefPtr<WebGLBuffer> mBoundArrayBuffer;
+
+    // TRANSFORM_FEEDBACK_BUFFER slot
+    WebGLRefPtr<WebGLBuffer> mBoundTransformFeedbackBuffer;
+
+    // these two functions emit INVALID_ENUM for invalid `target`.
+    WebGLRefPtr<WebGLBuffer>* GetBufferSlotByTarget(GLenum target, const char* infos);
+    WebGLRefPtr<WebGLBuffer>* GetBufferSlotByTargetIndexed(GLenum target, GLuint index, const char* infos);
+    bool ValidateBufferUsageEnum(WebGLenum target, const char* infos);
 
 // -----------------------------------------------------------------------------
 // State and State Requests (WebGLContextState.cpp)
@@ -760,10 +777,17 @@ public:
     void Disable(WebGLenum cap);
     void Enable(WebGLenum cap);
     JS::Value GetParameter(JSContext* cx, WebGLenum pname, ErrorResult& rv);
+    JS::Value GetParameterIndexed(JSContext* cx, WebGLenum pname, WebGLuint index);
     bool IsEnabled(WebGLenum cap);
 
 private:
+    // State tracking slots
+    realGLboolean mDitherEnabled;
+    realGLboolean mRasterizerDiscardEnabled;
+    realGLboolean mScissorTestEnabled;
+
     bool ValidateCapabilityEnum(WebGLenum cap, const char* info);
+    realGLboolean* GetStateTrackingSlot(WebGLenum cap);
 
 // -----------------------------------------------------------------------------
 // Vertices Feature (WebGLContextVertices.cpp)
@@ -848,6 +872,7 @@ private:
     void VertexAttrib4fv_base(WebGLuint idx, uint32_t arrayLength, const WebGLfloat* ptr);
 
     bool ValidateBufferFetching(const char *info);
+    bool BindArrayAttribToLocation0(WebGLProgram *program);
 
 // -----------------------------------------------------------------------------
 // PROTECTED
@@ -916,6 +941,7 @@ protected:
     int32_t mGLMaxVertexUniformVectors;
     int32_t mGLMaxColorAttachments;
     int32_t mGLMaxDrawBuffers;
+    uint32_t mGLMaxTransformFeedbackSeparateAttribs;
 
     // Represents current status, or state, of the context. That is, is it lost
     // or stable and what part of the context lost process are we currently at.
@@ -936,7 +962,8 @@ protected:
         ContextLostAwaitingRestore
     };
 
-    // extensions
+    // -------------------------------------------------------------------------
+    // WebGL extensions (implemented in WebGLContextExtensions.cpp)
     enum WebGLExtensionID {
         EXT_texture_filter_anisotropic,
         OES_element_index_uint,
@@ -952,6 +979,7 @@ protected:
         WEBGL_lose_context,
         WEBGL_draw_buffers,
         ANGLE_instanced_arrays,
+        WebGLExtensionID_max,
         WebGLExtensionID_unknown_extension
     };
     nsTArray<nsRefPtr<WebGLExtensionBase> > mExtensions;
@@ -966,7 +994,18 @@ protected:
     bool IsExtensionSupported(JSContext *cx, WebGLExtensionID ext) const;
     bool IsExtensionSupported(WebGLExtensionID ext) const;
 
+    static const char* GetExtensionString(WebGLExtensionID ext);
+
     nsTArray<WebGLenum> mCompressedTextureFormats;
+
+
+    // -------------------------------------------------------------------------
+    // WebGL 2 specifics (implemented in WebGL2Context.cpp)
+
+    virtual bool IsWebGL2() const = 0;
+
+    bool InitWebGL2();
+
 
     // -------------------------------------------------------------------------
     // Validation functions (implemented in WebGLContextValidate.cpp)
@@ -979,7 +1018,6 @@ protected:
     bool ValidateComparisonEnum(WebGLenum target, const char *info);
     bool ValidateStencilOpEnum(WebGLenum action, const char *info);
     bool ValidateFaceEnum(WebGLenum face, const char *info);
-    bool ValidateBufferUsageEnum(WebGLenum target, const char *info);
     bool ValidateTexFormatAndType(WebGLenum format, WebGLenum type, int jsArrayType,
                                       uint32_t *texelSize, const char *info);
     bool ValidateDrawModeEnum(WebGLenum mode, const char *info);
@@ -1110,8 +1148,6 @@ protected:
     nsTArray<WebGLRefPtr<WebGLTexture> > mBound2DTextures;
     nsTArray<WebGLRefPtr<WebGLTexture> > mBoundCubeMapTextures;
 
-    WebGLRefPtr<WebGLBuffer> mBoundArrayBuffer;
-
     WebGLRefPtr<WebGLProgram> mCurrentProgram;
 
     uint32_t mMaxFramebufferColorAttachments;
@@ -1119,7 +1155,6 @@ protected:
     WebGLRefPtr<WebGLFramebuffer> mBoundFramebuffer;
     WebGLRefPtr<WebGLRenderbuffer> mBoundRenderbuffer;
     WebGLRefPtr<WebGLVertexArray> mBoundVertexArray;
-    WebGLRefPtr<WebGLQuery> mActiveOcclusionQuery;
 
     LinkedList<WebGLTexture> mTextures;
     LinkedList<WebGLBuffer> mBuffers;
@@ -1152,8 +1187,6 @@ protected:
               mStencilWriteMaskFront, mStencilWriteMaskBack;
     realGLboolean mColorWriteMask[4];
     realGLboolean mDepthWriteMask;
-    realGLboolean mScissorTestEnabled;
-    realGLboolean mDitherEnabled;
     WebGLfloat mColorClearValue[4];
     WebGLint mStencilClearValue;
     WebGLfloat mDepthClearValue;

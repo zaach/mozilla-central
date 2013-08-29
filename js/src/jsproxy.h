@@ -7,8 +7,12 @@
 #ifndef jsproxy_h
 #define jsproxy_h
 
+#include "mozilla/Maybe.h"
+
 #include "jsapi.h"
 #include "jsfriendapi.h"
+
+#include "js/CallNonGenericMethod.h"
 
 namespace js {
 
@@ -149,7 +153,7 @@ class JS_FRIEND_API(BaseProxyHandler)
                                      uint32_t index, MutableHandleValue vp, bool *present);
     virtual bool getPrototypeOf(JSContext *cx, HandleObject proxy, MutableHandleObject protop);
 
-    /* See comment for weakmapKeyDelegateOp in jsclass.h. */
+    /* See comment for weakmapKeyDelegateOp in js/Class.h. */
     virtual JSObject *weakmapKeyDelegate(JSObject *proxy);
 };
 
@@ -262,6 +266,12 @@ class Proxy
 
     static JSObject * const LazyProto;
 };
+
+// These are equal to |&{Function,Object,OuterWindow}ProxyObject::class_|.  Use
+// them in places where you don't want to #include vm/ProxyObject.h.
+extern JS_FRIEND_DATA(js::Class* const) FunctionProxyClassPtr;
+extern JS_FRIEND_DATA(js::Class* const) ObjectProxyClassPtr;
+extern JS_FRIEND_DATA(js::Class* const) OuterWindowProxyClassPtr;
 
 inline bool IsObjectProxyClass(const Class *clasp)
 {

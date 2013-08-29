@@ -18,7 +18,7 @@ namespace js {
 class DeclEnvObject;
 class ForkJoinSlice;
 
-namespace ion {
+namespace jit {
 
 enum DataType {
     Type_Void,
@@ -614,7 +614,7 @@ bool CharCodeAt(JSContext *cx, HandleString str, int32_t index, uint32_t *code);
 JSFlatString *StringFromCharCode(JSContext *cx, int32_t code);
 
 bool SetProperty(JSContext *cx, HandleObject obj, HandlePropertyName name, HandleValue value,
-                 bool strict, int jsop);
+                 bool strict, jsbytecode *pc);
 
 bool InterruptCheck(JSContext *cx);
 
@@ -663,7 +663,7 @@ bool LeaveBlock(JSContext *cx, BaselineFrame *frame);
 bool InitBaselineFrameForOsr(BaselineFrame *frame, StackFrame *interpFrame,
                              uint32_t numStackValues);
 
-} // namespace ion
+} // namespace jit
 } // namespace js
 
 #endif /* jit_VMFunctions_h */

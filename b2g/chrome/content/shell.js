@@ -757,6 +757,9 @@ var AlertsHelper = {
             return helper.resolveFromOrigin(message["notification"]);
           }
         }
+
+        // No message found...
+        return null;
       }
 
       listener.target = getNotificationURLFor(manifest.messages);
@@ -833,7 +836,7 @@ var AlertsHelper = {
     if (!aMessage.target.assertAppHasPermission("desktop-notification")) {
       Cu.reportError("Desktop-notification message " + aMessage.name +
                      " from a content process with no desktop-notification privileges.");
-      return null;
+      return;
     }
 
     let data = aMessage.data;
@@ -997,6 +1000,7 @@ let RemoteDebugger = {
       }
       DebuggerServer.addActors('chrome://browser/content/dbg-browser-actors.js');
       DebuggerServer.addActors("resource://gre/modules/devtools/server/actors/webapps.js");
+      DebuggerServer.registerModule("devtools/server/actors/device");
     }
 
     let port = Services.prefs.getIntPref('devtools.debugger.remote-port') || 6000;

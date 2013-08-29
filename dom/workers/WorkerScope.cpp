@@ -7,7 +7,7 @@
 #include "WorkerScope.h"
 
 #include "jsapi.h"
-#include "jsdbgapi.h"
+#include "js/OldDebugAPI.h"
 #include "mozilla/Util.h"
 #include "mozilla/dom/DOMJSClass.h"
 #include "mozilla/dom/EventTargetBinding.h"
@@ -863,7 +863,7 @@ DOMJSClass DedicatedWorkerGlobalScope::sClass = {
     // have an Xray wrapper to a worker global scope.
     "DedicatedWorkerGlobalScope",
     JSCLASS_DOM_GLOBAL | JSCLASS_IS_DOMJSCLASS | JSCLASS_IMPLEMENTS_BARRIERS |
-    JSCLASS_GLOBAL_FLAGS_WITH_SLOTS(3) | JSCLASS_NEW_RESOLVE,
+    JSCLASS_GLOBAL_FLAGS_WITH_SLOTS(DOM_GLOBAL_SLOTS) | JSCLASS_NEW_RESOLVE,
     JS_PropertyStub, JS_DeletePropertyStub, JS_PropertyStub, JS_StrictPropertyStub,
     JS_EnumerateStub, reinterpret_cast<JSResolveOp>(Resolve), JS_ConvertStub,
     Finalize, NULL, NULL, NULL, NULL, Trace
@@ -1020,8 +1020,8 @@ CreateDedicatedWorkerGlobalScope(JSContext* aCx)
   // Init other paris-bindings.
   if (!FileReaderSyncBinding_workers::GetConstructorObject(aCx, global) ||
       !ImageDataBinding::GetConstructorObject(aCx, global) ||
-      !TextDecoderBinding_workers::GetConstructorObject(aCx, global) ||
-      !TextEncoderBinding_workers::GetConstructorObject(aCx, global) ||
+      !TextDecoderBinding::GetConstructorObject(aCx, global) ||
+      !TextEncoderBinding::GetConstructorObject(aCx, global) ||
       !XMLHttpRequestBinding_workers::GetConstructorObject(aCx, global) ||
       !XMLHttpRequestUploadBinding_workers::GetConstructorObject(aCx, global) ||
       !URLBinding_workers::GetConstructorObject(aCx, global) ||

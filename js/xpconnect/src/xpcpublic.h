@@ -8,10 +8,6 @@
 #ifndef xpcpublic_h
 #define xpcpublic_h
 
-#include "jsapi.h"
-#include "jsclass.h"
-#include "jsfriendapi.h"
-#include "jspubtd.h"
 #include "jsproxy.h"
 #include "js/HeapAPI.h"
 #include "js/GCAPI.h"
@@ -22,7 +18,7 @@
 #include "nsWrapperCache.h"
 #include "nsStringGlue.h"
 #include "nsTArray.h"
-#include "mozilla/dom/DOMJSClass.h"
+#include "mozilla/dom/JSSlots.h"
 #include "nsMathUtils.h"
 #include "nsStringBuffer.h"
 #include "nsIGlobalObject.h"
@@ -66,6 +62,8 @@ AllowXBLScope(JSCompartment *c);
 bool
 IsSandboxPrototypeProxy(JSObject *obj);
 
+bool
+IsReflector(JSObject *obj);
 } /* namespace xpc */
 
 namespace JS {
@@ -74,10 +72,14 @@ struct RuntimeStats;
 
 }
 
-#define XPCONNECT_GLOBAL_FLAGS                                                \
+#define XPCONNECT_GLOBAL_FLAGS_WITH_EXTRA_SLOTS(n)                            \
     JSCLASS_DOM_GLOBAL | JSCLASS_HAS_PRIVATE |                                \
     JSCLASS_PRIVATE_IS_NSISUPPORTS | JSCLASS_IMPLEMENTS_BARRIERS |            \
-    JSCLASS_GLOBAL_FLAGS_WITH_SLOTS(2)
+    JSCLASS_GLOBAL_FLAGS_WITH_SLOTS(DOM_GLOBAL_SLOTS + n)
+
+#define XPCONNECT_GLOBAL_EXTRA_SLOT_OFFSET (JSCLASS_GLOBAL_SLOT_COUNT + DOM_GLOBAL_SLOTS)
+
+#define XPCONNECT_GLOBAL_FLAGS XPCONNECT_GLOBAL_FLAGS_WITH_EXTRA_SLOTS(0)
 
 void
 TraceXPCGlobal(JSTracer *trc, JSObject *obj);
@@ -444,21 +446,6 @@ SimulateActivityCallback(bool aActive);
 
 namespace mozilla {
 namespace dom {
-
-extern int HandlerFamily;
-inline void* ProxyFamily() { return &HandlerFamily; }
-
-inline bool IsDOMProxy(JSObject *obj, const js::Class* clasp)
-{
-    MOZ_ASSERT(js::GetObjectClass(obj) == clasp);
-    return (js::IsObjectProxyClass(clasp) || js::IsFunctionProxyClass(clasp)) &&
-           js::GetProxyHandler(obj)->family() == ProxyFamily();
-}
-
-inline bool IsDOMProxy(JSObject *obj)
-{
-    return IsDOMProxy(obj, js::GetObjectClass(obj));
-}
 
 typedef JSObject*
 (*DefineInterface)(JSContext *cx, JS::Handle<JSObject*> global,

@@ -72,7 +72,6 @@
     _(TestOAndBranch)               \
     _(FunctionDispatch)             \
     _(TypeObjectDispatch)           \
-    _(PolyInlineDispatch)           \
     _(Compare)                      \
     _(CompareAndBranch)             \
     _(CompareD)                     \
@@ -246,8 +245,9 @@
     _(AsmJSCall)                    \
     _(AsmJSCheckOverRecursed)       \
     _(CheckInterruptPar)            \
-    _(RangeAssert)                  \
-    _(DoubleRangeAssert)
+    _(AssertRangeI)                 \
+    _(AssertRangeD)                 \
+    _(AssertRangeV)
 
 #if defined(JS_CPU_X86)
 # include "jit/x86/LOpcodes-x86.h"

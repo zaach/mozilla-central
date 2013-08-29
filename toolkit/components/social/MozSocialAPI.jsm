@@ -49,7 +49,7 @@ function injectController(doc, topic, data) {
       return;
     }
 
-    var containingBrowser = window.QueryInterface(Ci.nsIInterfaceRequestor)
+    let containingBrowser = window.QueryInterface(Ci.nsIInterfaceRequestor)
                                   .getInterface(Ci.nsIWebNavigation)
                                   .QueryInterface(Ci.nsIDocShell)
                                   .chromeEventHandler;
@@ -67,7 +67,7 @@ function injectController(doc, topic, data) {
     }
 
     SocialService.getProvider(doc.nodePrincipal.origin, function(provider) {
-      if (provider && provider.workerURL && provider.enabled) {
+      if (provider && provider.enabled) {
         attachToWindow(provider, window);
       }
     });
@@ -88,7 +88,7 @@ function attachToWindow(provider, targetWindow) {
     return;
   }
 
-  var port = provider.getWorkerPort(targetWindow);
+  let port = provider.workerURL ? provider.getWorkerPort(targetWindow) : null;
 
   let mozSocialObj = {
     // Use a method for backwards compat with existing providers, but we
@@ -206,12 +206,14 @@ function attachToWindow(provider, targetWindow) {
     return targetWindow.navigator.wrappedJSObject.mozSocial = contentObj;
   });
 
-  targetWindow.addEventListener("unload", function () {
-    // We want to close the port, but also want the target window to be
-    // able to use the port during an unload event they setup - so we
-    // set a timer which will fire after the unload events have all fired.
-    schedule(function () { port.close(); });
-  });
+  if (port) {
+    targetWindow.addEventListener("unload", function () {
+      // We want to close the port, but also want the target window to be
+      // able to use the port during an unload event they setup - so we
+      // set a timer which will fire after the unload events have all fired.
+      schedule(function () { port.close(); });
+    });
+  }
 
   // We allow window.close() to close the panel, so add an event handler for
   // this, then cancel the event (so the window itself doesn't die) and
@@ -273,12 +275,23 @@ function findChromeWindowForChats(preferredWindow) {
   // no good - we just use the "most recent" browser window which can host
   // chats (we used to try and "group" all chats in the same browser window,
   // but that didn't work out so well - see bug 835111
+
+  // Try first the most recent window as getMostRecentWindow works
+  // even on platforms where getZOrderDOMWindowEnumerator is broken
+  // (ie. Linux).  This will handle most cases, but won't work if the
+  // foreground window is a popup.
+
+  let mostRecent = Services.wm.getMostRecentWindow("navigator:browser");
+  if (isWindowGoodForChats(mostRecent))
+    return mostRecent;
+
   let topMost, enumerator;
-  // *sigh* - getZOrderDOMWindowEnumerator is broken everywhere other than
-  // Windows.  We use BROKEN_WM_Z_ORDER as that is what the c++ code uses
+  // *sigh* - getZOrderDOMWindowEnumerator is broken except on Mac and
+  // Windows.  We use BROKEN_WM_Z_ORDER as that is what some other code uses
   // and a few bugs recommend searching mxr for this symbol to identify the
   // workarounds - we want this code to be hit in such searches.
-  const BROKEN_WM_Z_ORDER = Services.appinfo.OS != "WINNT";
+  let os = Services.appinfo.OS;
+  const BROKEN_WM_Z_ORDER = os != "WINNT" && os != "Darwin";
   if (BROKEN_WM_Z_ORDER) {
     // this is oldest to newest and no way to change the order.
     enumerator = Services.wm.getEnumerator("navigator:browser");

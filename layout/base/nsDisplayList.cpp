@@ -10,11 +10,7 @@
  * used during painting and hit testing
  */
 
-// include PBrowserChild explicitly because TabChild won't include it
-// because we're in layout :(
-#include "mozilla/dom/PBrowserChild.h"
 #include "mozilla/dom/TabChild.h"
-
 #include "mozilla/layers/PLayerTransaction.h"
 
 #include "nsDisplayList.h"
@@ -24,8 +20,6 @@
 #include "nsISelectionController.h"
 #include "nsIPresShell.h"
 #include "nsRegion.h"
-#include "nsFrameManager.h"
-#include "gfxContext.h"
 #include "nsStyleStructInlines.h"
 #include "nsStyleTransformMatrix.h"
 #include "gfxMatrix.h"
@@ -36,7 +30,6 @@
 #include "LayerTreeInvalidation.h"
 
 #include "imgIContainer.h"
-#include "nsIInterfaceRequestorUtils.h"
 #include "BasicLayers.h"
 #include "nsBoxFrame.h"
 #include "nsViewportFrame.h"
@@ -683,6 +676,16 @@ static void RecordFrameMetrics(nsIFrame* aForFrame,
     widget->GetBounds(bounds);
     metrics.mCompositionBounds = ScreenIntRect::FromUnknownRect(
       mozilla::gfx::IntRect(bounds.x, bounds.y, bounds.width, bounds.height));
+  }
+
+  // Adjust for the size of scroll bars.
+  if (scrollableFrame) {
+    nsMargin sizes = scrollableFrame->GetActualScrollbarSizes();
+    ScreenIntMargin boundMargins(nsPresContext::AppUnitsToIntCSSPixels(sizes.top),
+                                 nsPresContext::AppUnitsToIntCSSPixels(sizes.right),
+                                 nsPresContext::AppUnitsToIntCSSPixels(sizes.bottom),
+                                 nsPresContext::AppUnitsToIntCSSPixels(sizes.left));
+    metrics.mCompositionBounds.Deflate(boundMargins);
   }
 
   metrics.mPresShellId = presShell->GetPresShellId();
@@ -2615,6 +2618,33 @@ nsDisplayBoxShadowOuter::ComputeVisibility(nsDisplayListBuilder* aBuilder,
 
   return !RoundedRectContainsRect(frameRect, twipsRadii, visibleBounds);
 }
+
+void
+nsDisplayBoxShadowOuter::ComputeInvalidationRegion(nsDisplayListBuilder* aBuilder,
+                                                   const nsDisplayItemGeometry* aGeometry,
+                                                   nsRegion* aInvalidRegion)
+{
+  const nsDisplayItemGenericGeometry* geometry =
+    static_cast<const nsDisplayItemGenericGeometry*>(aGeometry);
+  bool snap;
+  if (!geometry->mBounds.IsEqualInterior(GetBounds(aBuilder, &snap)) ||
+      !geometry->mBorderRect.IsEqualInterior(GetBorderRect())) {
+    nsRegion oldShadow, newShadow;
+    nscoord dontCare[8];
+    bool hasBorderRadius = mFrame->GetBorderRadii(dontCare);
+    if (hasBorderRadius) {
+      // If we have rounded corners then we need to invalidate the frame area
+      // too since we paint into it.
+      oldShadow = geometry->mBounds;
+      newShadow = GetBounds(aBuilder, &snap);
+    } else {
+      oldShadow = oldShadow.Sub(geometry->mBounds, geometry->mBorderRect);
+      newShadow = newShadow.Sub(GetBounds(aBuilder, &snap), GetBorderRect());
+    }
+    aInvalidRegion->Or(oldShadow, newShadow);
+  }
+}
+
 
 void
 nsDisplayBoxShadowInner::Paint(nsDisplayListBuilder* aBuilder,

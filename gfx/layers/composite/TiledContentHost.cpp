@@ -4,13 +4,25 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "TiledContentHost.h"
-#include "mozilla/layers/Effects.h"
-#include "nsPrintfCString.h"
-#include "ThebesLayerComposite.h"
+#include "ThebesLayerComposite.h"       // for ThebesLayerComposite
+#include "mozilla/gfx/BaseSize.h"       // for BaseSize
+#include "mozilla/gfx/Matrix.h"         // for Matrix4x4
+#include "mozilla/layers/Compositor.h"  // for Compositor
+#include "mozilla/layers/Effects.h"     // for TexturedEffect, Effect, etc
+#include "nsAString.h"
+#include "nsDebug.h"                    // for NS_WARNING
+#include "nsPoint.h"                    // for nsIntPoint
+#include "nsPrintfCString.h"            // for nsPrintfCString
+#include "nsRect.h"                     // for nsIntRect
+#include "nsSize.h"                     // for nsIntSize
+
+class gfxReusableSurfaceWrapper;
 
 namespace mozilla {
 using namespace gfx;
 namespace layers {
+
+class Layer;
 
 void
 TiledLayerBufferComposite::Upload(const BasicTiledLayerBuffer* aMainMemoryTiledBuffer,
@@ -54,39 +66,31 @@ TiledLayerBufferComposite::ValidateTile(TiledTexture aTile,
   return aTile;
 }
 
-TiledContentHost::~TiledContentHost()
-{
-  mMainMemoryTiledBuffer.ReadUnlock();
-  mLowPrecisionMainMemoryTiledBuffer.ReadUnlock();
-}
-
 void
-TiledContentHost::Attach(Layer* aLayer, Compositor* aCompositor)
+TiledContentHost::Attach(Layer* aLayer,
+                         Compositor* aCompositor,
+                         AttachFlags aFlags /* = NO_FLAGS */)
 {
-  CompositableHost::Attach(aLayer, aCompositor);
+  CompositableHost::Attach(aLayer, aCompositor, aFlags);
   static_cast<ThebesLayerComposite*>(aLayer)->EnsureTiled();
 }
 
 void
-TiledContentHost::PaintedTiledLayerBuffer(const BasicTiledLayerBuffer* mTiledBuffer)
+TiledContentHost::PaintedTiledLayerBuffer(ISurfaceAllocator* aAllocator,
+                                          const SurfaceDescriptorTiles& aTiledDescriptor)
 {
-  if (mTiledBuffer->IsLowPrecision()) {
-    mLowPrecisionMainMemoryTiledBuffer.ReadUnlock();
-    mLowPrecisionMainMemoryTiledBuffer = *mTiledBuffer;
+  if (aTiledDescriptor.resolution() < 1) {
+    mLowPrecisionMainMemoryTiledBuffer = BasicTiledLayerBuffer::OpenDescriptor(aAllocator, aTiledDescriptor);
     mLowPrecisionRegionToUpload.Or(mLowPrecisionRegionToUpload,
                                    mLowPrecisionMainMemoryTiledBuffer.GetPaintedRegion());
     mLowPrecisionMainMemoryTiledBuffer.ClearPaintedRegion();
     mPendingLowPrecisionUpload = true;
   } else {
-    mMainMemoryTiledBuffer.ReadUnlock();
-    mMainMemoryTiledBuffer = *mTiledBuffer;
+    mMainMemoryTiledBuffer = BasicTiledLayerBuffer::OpenDescriptor(aAllocator, aTiledDescriptor);
     mRegionToUpload.Or(mRegionToUpload, mMainMemoryTiledBuffer.GetPaintedRegion());
     mMainMemoryTiledBuffer.ClearPaintedRegion();
     mPendingUpload = true;
   }
-
-  // TODO: Remove me once Bug 747811 lands.
-  delete mTiledBuffer;
 }
 
 void
@@ -108,8 +112,6 @@ TiledContentHost::ProcessLowPrecisionUploadQueue()
                                  mLowPrecisionRegionToUpload,
                                  mVideoMemoryTiledBuffer.GetFrameResolution());
   nsIntRegion validRegion = mLowPrecisionVideoMemoryTiledBuffer.GetValidRegion();
-
-  mLowPrecisionMainMemoryTiledBuffer.ReadUnlock();
 
   mLowPrecisionMainMemoryTiledBuffer = BasicTiledLayerBuffer();
   mLowPrecisionRegionToUpload = nsIntRegion();
@@ -133,12 +135,8 @@ TiledContentHost::ProcessUploadQueue(nsIntRegion* aNewValidRegion,
 
   *aNewValidRegion = mVideoMemoryTiledBuffer.GetValidRegion();
 
-  mMainMemoryTiledBuffer.ReadUnlock();
   // Release all the tiles by replacing the tile buffer with an empty
-  // tiled buffer. This will prevent us from doing a double unlock when
-  // calling  ~TiledThebesLayerComposite.
-  // XXX: This wont be needed when we do progressive upload and lock
-  // tile by tile.
+  // tiled buffer.
   mMainMemoryTiledBuffer = BasicTiledLayerBuffer();
   mRegionToUpload = nsIntRegion();
   mPendingUpload = false;

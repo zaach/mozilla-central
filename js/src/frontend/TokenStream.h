@@ -18,7 +18,6 @@
 
 #include "jscntxt.h"
 #include "jspubtd.h"
-#include "jsversion.h"
 
 #include "js/Vector.h"
 #include "vm/RegExpObject.h"
@@ -406,6 +405,13 @@ class MOZ_STACK_CLASS TokenStream
     JSPrincipals *getOriginPrincipals() const { return originPrincipals; }
     JSVersion versionNumber() const { return VersionNumber(options().version); }
     JSVersion versionWithFlags() const { return options().version; }
+
+    PropertyName *currentName() const {
+        if (isCurrentTokenType(TOK_YIELD))
+            return cx->names().yield;
+        JS_ASSERT(isCurrentTokenType(TOK_NAME));
+        return currentToken().name();
+    }
 
     bool isCurrentTokenAssignment() const {
         return TokenKindIsAssignment(currentToken().type);

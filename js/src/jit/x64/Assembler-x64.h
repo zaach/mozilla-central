@@ -14,7 +14,7 @@
 #include "jit/shared/Assembler-shared.h"
 
 namespace js {
-namespace ion {
+namespace jit {
 
 static MOZ_CONSTEXPR_VAR Register rax = { JSC::X86Registers::eax };
 static MOZ_CONSTEXPR_VAR Register rbx = { JSC::X86Registers::ebx };
@@ -257,13 +257,13 @@ class Operand
     }
 };
 
-} // namespace ion
+} // namespace jit
 } // namespace js
 
 #include "jit/shared/Assembler-x86-shared.h"
 
 namespace js {
-namespace ion {
+namespace jit {
 
 // Return operand from a JS -> JS call.
 static MOZ_CONSTEXPR_VAR ValueOperand JSReturnOperand = ValueOperand(JSReturnReg);
@@ -434,10 +434,10 @@ class Assembler : public AssemblerX86Shared
             MOZ_ASSUME_UNREACHABLE("unexpected operand kind");
         }
     }
-    void movqsd(const Register &src, const FloatRegister &dest) {
+    void movq(const Register &src, const FloatRegister &dest) {
         masm.movq_rr(src.code(), dest.code());
     }
-    void movqsd(const FloatRegister &src, const Register &dest) {
+    void movq(const FloatRegister &src, const Register &dest) {
         masm.movq_rr(src.code(), dest.code());
     }
     void movq(const Register &src, const Register &dest) {
@@ -775,7 +775,7 @@ GetFloatArgReg(uint32_t intArg, uint32_t floatArg, FloatRegister *out)
     return true;
 }
 
-} // namespace ion
+} // namespace jit
 } // namespace js
 
 #endif /* jit_x64_Assembler_x64_h */

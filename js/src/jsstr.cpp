@@ -37,7 +37,6 @@
 #include "jsopcode.h"
 #include "jstypes.h"
 #include "jsutil.h"
-#include "jsversion.h"
 
 #include "builtin/RegExp.h"
 #include "vm/GlobalObject.h"
@@ -460,7 +459,7 @@ ThisToStringForStringProto(JSContext *cx, CallReceiver call)
 }
 
 JS_ALWAYS_INLINE bool
-IsString(const Value &v)
+IsString(HandleValue v)
 {
     return v.isString() || (v.isObject() && v.toObject().is<StringObject>());
 }

@@ -15,7 +15,7 @@
 #include "jit/MIR.h"
 
 namespace js {
-namespace ion {
+namespace jit {
 
 class MBasicBlock;
 class MIRGraph;
@@ -81,6 +81,7 @@ class RangeAnalysis
         graph_(graph) {}
     bool addBetaNobes();
     bool analyze();
+    bool addRangeAssertions();
     bool removeBetaNobes();
     bool truncate();
 
@@ -174,6 +175,9 @@ class Range : public TempObject {
           symbolicLower_(NULL),
           symbolicUpper_(NULL)
     {
+        JS_ASSERT(e >= (h == INT64_MIN ? MaxDoubleExponent : mozilla::FloorLog2(mozilla::Abs(h))));
+        JS_ASSERT(e >= (l == INT64_MIN ? MaxDoubleExponent : mozilla::FloorLog2(mozilla::Abs(l))));
+
         setLowerInit(l);
         setUpperInit(h);
         rectifyExponent();
@@ -397,7 +401,7 @@ class Range : public TempObject {
     }
 };
 
-} // namespace ion
+} // namespace jit
 } // namespace js
 
 #endif /* jit_RangeAnalysis_h */

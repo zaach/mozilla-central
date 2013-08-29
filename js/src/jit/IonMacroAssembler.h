@@ -27,7 +27,7 @@
 #include "vm/TypedArrayObject.h"
 
 namespace js {
-namespace ion {
+namespace jit {
 
 // The public entrypoint for emitting assembly. Note that a MacroAssembler can
 // use cx->lifoAlloc, so take care not to interleave masm use with other
@@ -104,7 +104,7 @@ class MacroAssembler : public MacroAssemblerSpecific
         sps_(NULL)
     {
         constructRoot(cx);
-        ionContext_.construct(cx, (js::ion::TempAllocator *)NULL);
+        ionContext_.construct(cx, (js::jit::TempAllocator *)NULL);
         alloc_.construct(cx);
 #ifdef JS_CPU_ARM
         initWithAllocator();
@@ -579,8 +579,12 @@ class MacroAssembler : public MacroAssemblerSpecific
         }
     }
 
-    template<typename S, typename T>
-    void storeToTypedFloatArray(int arrayType, const S &value, const T &dest) {
+    template<typename T>
+    void storeToTypedFloatArray(int arrayType, FloatRegister value, const T &dest) {
+#ifdef JS_MORE_DETERMINISTIC
+        // See the comment in ToDoubleForTypedArray.
+        canonicalizeDouble(value);
+#endif
         switch (arrayType) {
           case TypedArrayObject::TYPE_FLOAT32:
             convertDoubleToFloat(value, ScratchFloatReg);
@@ -1047,7 +1051,7 @@ JSOpToCondition(JSOp op, bool isSigned)
     }
 }
 
-} // namespace ion
+} // namespace jit
 } // namespace js
 
 #endif // JS_ION

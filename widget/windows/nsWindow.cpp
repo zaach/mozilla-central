@@ -73,6 +73,7 @@
 #include "prtime.h"
 #include "prprf.h"
 #include "prmem.h"
+#include "prenv.h"
 
 #include "mozilla/WidgetTraceEvent.h"
 #include "nsIAppShell.h"
@@ -121,6 +122,7 @@
 #include "WidgetUtils.h"
 #include "nsIWidgetListener.h"
 #include "mozilla/dom/Touch.h"
+#include "mozilla/gfx/2D.h"
 
 #ifdef MOZ_ENABLE_D3D9_LAYER
 #include "LayerManagerD3D9.h"
@@ -316,6 +318,7 @@ nsWindow::nsWindow() : nsWindowBase()
   mIconBig              = nullptr;
   mWnd                  = nullptr;
   mPaintDC              = nullptr;
+  mCompositeDC          = nullptr;
   mPrevWndProc          = nullptr;
   mNativeDragTarget     = nullptr;
   mInDtor               = false;
@@ -3529,6 +3532,39 @@ nsWindow::OverrideSystemMouseScrollSpeed(double aOriginalDeltaX,
   return NS_OK;
 }
 
+mozilla::TemporaryRef<mozilla::gfx::DrawTarget>
+nsWindow::StartRemoteDrawing()
+{
+  MOZ_ASSERT(!mCompositeDC);
+
+  HDC dc = GetDC(mWnd);
+  if (!dc) {
+    return nullptr;
+  }
+
+  uint32_t flags = (mTransparencyMode == eTransparencyOpaque) ? 0 :
+      gfxWindowsSurface::FLAG_IS_TRANSPARENT;
+  nsRefPtr<gfxASurface> surf = new gfxWindowsSurface(dc, flags);
+
+  mozilla::gfx::IntSize size(surf->GetSize().width, surf->GetSize().height);
+  if (size.width <= 0 || size.height <= 0) {
+    ReleaseDC(mWnd, dc);
+    return nullptr;
+  }
+
+  MOZ_ASSERT(!mCompositeDC);
+  mCompositeDC = dc;
+
+  return mozilla::gfx::Factory::CreateDrawTargetForCairoSurface(surf->CairoSurface(), size);
+}
+
+void
+nsWindow::EndRemoteDrawing()
+{
+  ReleaseDC(mWnd, mCompositeDC);
+  mCompositeDC = nullptr;
+}
+
 /**************************************************************
  **************************************************************
  **
@@ -6558,18 +6594,19 @@ nsWindow::StartAllowingD3D9(bool aReinitialize)
   }
 }
 
-mozilla::layers::LayersBackend
-nsWindow::GetPreferredCompositorBackend()
+void
+nsWindow::GetPreferredCompositorBackends(nsTArray<LayersBackend>& aHints)
 {
   LayerManagerPrefs prefs;
   GetLayerManagerPrefs(&prefs);
-  if (prefs.mDisableAcceleration) {
-    return mozilla::layers::LAYERS_BASIC;
+
+  if (!prefs.mDisableAcceleration) {
+    if (!prefs.mPreferD3D9) {
+      aHints.AppendElement(LAYERS_D3D11);
+    }
+    aHints.AppendElement(LAYERS_D3D9);
   }
-  if (prefs.mPreferD3D9) {
-    return mozilla::layers::LAYERS_D3D9;
-  }
-  return mozilla::layers::LAYERS_D3D11;
+  aHints.AppendElement(LAYERS_BASIC);
 }
 
 void

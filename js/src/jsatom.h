@@ -92,6 +92,7 @@ struct AtomHasher
 
     static HashNumber hash(const Lookup &l) { return mozilla::HashString(l.chars, l.length); }
     static inline bool match(const AtomStateEntry &entry, const Lookup &lookup);
+    static void rekey(AtomStateEntry &k, const AtomStateEntry& newKey) { k = newKey; }
 };
 
 typedef HashSet<AtomStateEntry, AtomHasher, SystemAllocPolicy> AtomSet;
@@ -153,7 +154,6 @@ extern const char js_typeof_str[];
 extern const char js_void_str[];
 extern const char js_while_str[];
 extern const char js_with_str[];
-extern const char js_yield_str[];
 
 namespace js {
 

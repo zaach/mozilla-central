@@ -31,6 +31,7 @@ browser.jar:
   skin/classic/browser/identity-icons-https.png
   skin/classic/browser/identity-icons-https-ev.png
   skin/classic/browser/identity-icons-https-mixed-active.png
+  skin/classic/browser/identity-icons-https-mixed-display.png
   skin/classic/browser/Info.png
   skin/classic/browser/mixed-content-blocked-16.png
   skin/classic/browser/mixed-content-blocked-64.png
@@ -179,7 +180,6 @@ browser.jar:
   skin/classic/browser/devtools/magnifying-glass.png  (devtools/magnifying-glass.png)
   skin/classic/browser/devtools/option-icon.png       (devtools/option-icon.png)
   skin/classic/browser/devtools/itemToggle.png        (devtools/itemToggle.png)
-  skin/classic/browser/devtools/blackbox.png          (devtools/blackbox.png)
   skin/classic/browser/devtools/blackBoxMessageEye.png (devtools/blackBoxMessageEye.png)
   skin/classic/browser/devtools/itemArrow-rtl.png     (devtools/itemArrow-rtl.png)
   skin/classic/browser/devtools/itemArrow-ltr.png     (devtools/itemArrow-ltr.png)

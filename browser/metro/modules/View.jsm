@@ -27,11 +27,25 @@ function View() {
 }
 
 View.prototype = {
+  _adjustDOMforViewState: function _adjustDOMforViewState(aState) {
+    if (this._set) {
+      if (undefined == aState)
+        aState = this._set.getAttribute("viewstate");
+
+      this._set.setAttribute("suppressonselect", (aState == "snapped"));
+
+      if (aState == "portrait") {
+        this._set.setAttribute("vertical", true);
+      } else {
+        this._set.removeAttribute("vertical");
+      }
+
+      this._set.arrangeItems();
+    }
+  },
 
   onViewStateChange: function (aState) {
-    if (this._set) {
-      this._set.setAttribute("suppressonselect", (aState == "snapped"));
-    }
+    this._adjustDOMforViewState(aState);
   },
 
   _updateFavicon: function pv__updateFavicon(aItem, aUri) {

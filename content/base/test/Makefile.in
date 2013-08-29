@@ -615,6 +615,8 @@ MOCHITEST_FILES_C= \
 		file_mixed_content_frameNavigation_secure.html \
 		file_mixed_content_frameNavigation_secure_grandchild.html \
 		file_mixed_content_frameNavigation_blankTarget.html \
+		file_bug902350.html \
+		file_bug902350_frame.html \
 		test_bug789856.html \
 		file_bug804395.jar \
 		test_bug804395.html \
@@ -662,17 +664,18 @@ MOCHITEST_FILES_C= \
 		file_CSP_bug802872.html^headers^ \
 		file_CSP_bug802872.js \
 		file_CSP_bug802872.sjs \
+		test_bug907892.html \
+		file_bug907892.html \
 		$(NULL)
 
 # OOP tests don't work on Windows (bug 763081) or native-fennec
-# (see Bug 774939)
-ifneq ($(OS_ARCH),WINNT)
-ifndef MOZ_ANDROID_OMTC
+# (see Bug 774939). App permission checks are also disabled on
+# anything but B2G (Bug 900707).
+ifdef MOZ_CHILD_PERMISSIONS
 MOCHITEST_FILES_B += \
 		test_messagemanager_assertpermission.html \
 		test_child_process_shutdown_message.html \
 		$(NULL)
-endif
 endif
 
 MOCHITEST_CHROME_FILES =	\
@@ -705,6 +708,7 @@ MOCHITEST_FILES_PARTS = $(foreach s,A B C,MOCHITEST_FILES_$(s))
 
 MOCHITEST_BROWSER_FILES = \
 		browser_bug593387.js \
+		browser_bug902350.js \
 		$(NULL)
 
 include $(topsrcdir)/config/rules.mk

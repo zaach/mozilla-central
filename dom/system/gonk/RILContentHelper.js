@@ -92,6 +92,7 @@ const RIL_IPC_MSG_NAMES = [
   "RIL:GetCallForwardingOption",
   "RIL:SetCallBarringOption",
   "RIL:GetCallBarringOption",
+  "RIL:ChangeCallBarringPassword",
   "RIL:SetCallWaitingOption",
   "RIL:GetCallWaitingOption",
   "RIL:SetCallingLineIdRestriction",
@@ -108,7 +109,9 @@ const RIL_IPC_MSG_NAMES = [
   "RIL:CdmaCallWaiting",
   "RIL:ExitEmergencyCbMode",
   "RIL:SetVoicePrivacyMode",
-  "RIL:GetVoicePrivacyMode"
+  "RIL:GetVoicePrivacyMode",
+  "RIL:ConferenceCallStateChanged",
+  "RIL:OtaStatusChanged"
 ];
 
 XPCOMUtils.defineLazyServiceGetter(this, "cpmm",
@@ -1101,6 +1104,31 @@ RILContentHelper.prototype = {
     return request;
   },
 
+  changeCallBarringPassword: function changeCallBarringPassword(window, info) {
+    if (window == null) {
+      throw Components.Exception("Can't get window object",
+                                  Cr.NS_ERROR_UNEXPECTED);
+    }
+    let request = Services.DOMRequest.createRequest(window);
+    let requestId = this.getRequestId(request);
+
+    // Checking valid PIN for supplementary services. See TS.22.004 clause 5.2.
+    if (info.pin == null || !info.pin.match(/^\d{4}$/) ||
+        info.newPin == null || !info.newPin.match(/^\d{4}$/)) {
+      this.dispatchFireRequestError(requestId, "InvalidPassword");
+      return request;
+    }
+
+    if (DEBUG) debug("changeCallBarringPassword: " + JSON.stringify(info));
+    info.requestId = requestId;
+    cpmm.sendAsyncMessage("RIL:ChangeCallBarringPassword", {
+      clientId: 0,
+      data: info
+    });
+
+    return request;
+  },
+
   getCallWaitingOption: function getCallWaitingOption(window) {
     if (window == null) {
       throw Components.Exception("Can't get window object",
@@ -1392,6 +1420,31 @@ RILContentHelper.prototype = {
     });
   },
 
+  conferenceCall: function conferenceCall() {
+    cpmm.sendAsyncMessage("RIL:ConferenceCall", {
+      clientId: 0
+    });
+  },
+
+  separateCall: function separateCall(callIndex) {
+    cpmm.sendAsyncMessage("RIL:SeparateCall", {
+      clientId: 0,
+      data: callIndex
+    });
+  },
+
+  holdConference: function holdConference() {
+    cpmm.sendAsyncMessage("RIL:HoldConference", {
+      clientId: 0
+    });
+  },
+
+  resumeConference: function resumeConference() {
+    cpmm.sendAsyncMessage("RIL:ResumeConference", {
+      clientId: 0
+    });
+  },
+
   get microphoneMuted() {
     return cpmm.sendSyncMessage("RIL:GetMicrophoneMuted", {clientId: 0})[0];
   },
@@ -1505,6 +1558,11 @@ RILContentHelper.prototype = {
                            "notifyDataChanged",
                            null);
         break;
+      case "RIL:OtaStatusChanged":
+        this._deliverEvent("_mobileConnectionListeners",
+                           "notifyOtaStatusChanged",
+                           [msg.json.data]);
+        break;
       case "RIL:EnumerateCalls":
         this.handleEnumerateCalls(msg.json.calls);
         break;
@@ -1528,7 +1586,15 @@ RILContentHelper.prototype = {
                            "callStateChanged",
                            [data.callIndex, data.state,
                             data.number, data.isActive,
-                            data.isOutgoing, data.isEmergency]);
+                            data.isOutgoing, data.isEmergency,
+                            data.isConference]);
+        break;
+      }
+      case "RIL:ConferenceCallStateChanged": {
+        let data = msg.json.data;
+        this._deliverEvent("_telephonyListeners",
+                           "conferenceCallStateChanged",
+                           [data]);
         break;
       }
       case "RIL:CallError": {
@@ -1624,6 +1690,9 @@ RILContentHelper.prototype = {
       case "RIL:SetCallBarringOption":
         this.handleSimpleRequest(msg.json.requestId, msg.json.errorMsg, null);
         break;
+      case "RIL:ChangeCallBarringPassword":
+        this.handleSimpleRequest(msg.json.requestId, msg.json.errorMsg, null);
+        break;
       case "RIL:GetCallWaitingOption":
         this.handleSimpleRequest(msg.json.requestId, msg.json.errorMsg,
                                  msg.json.enabled);
@@ -1699,7 +1768,7 @@ RILContentHelper.prototype = {
         keepGoing =
           callback.enumerateCallState(call.callIndex, call.state, call.number,
                                       call.isActive, call.isOutgoing,
-                                      call.isEmergency);
+                                      call.isEmergency, call.isConference);
       } catch (e) {
         debug("callback handler for 'enumerateCallState' threw an " +
               " exception: " + e);

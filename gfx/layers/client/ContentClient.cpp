@@ -4,13 +4,29 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "mozilla/layers/ContentClient.h"
-#include "mozilla/gfx/2D.h"
-#include "BasicThebesLayer.h"
-#include "nsIWidget.h"
-#include "gfxUtils.h"
-#include "gfxPlatform.h"
+#include "BasicLayers.h"                // for BasicLayerManager
+#include "Layers.h"                     // for ThebesLayer, Layer, etc
+#include "gfxColor.h"                   // for gfxRGBA
+#include "gfxContext.h"                 // for gfxContext, etc
+#include "gfxPlatform.h"                // for gfxPlatform
+#include "gfxPoint.h"                   // for gfxIntSize, gfxPoint
+#include "gfxTeeSurface.h"              // for gfxTeeSurface
+#include "gfxUtils.h"                   // for gfxUtils
+#include "ipc/ShadowLayers.h"           // for ShadowLayerForwarder
+#include "mozilla/Util.h"               // for ArrayLength
+#include "mozilla/gfx/2D.h"             // for DrawTarget, Factory
+#include "mozilla/gfx/BasePoint.h"      // for BasePoint
+#include "mozilla/gfx/BaseSize.h"       // for BaseSize
+#include "mozilla/gfx/Rect.h"           // for Rect
+#include "mozilla/gfx/Types.h"
 #include "mozilla/layers/LayerManagerComposite.h"
-#include "gfxTeeSurface.h"
+#include "mozilla/layers/LayerTransaction.h"  // for ThebesBufferData
+#include "mozilla/layers/LayersTypes.h"
+#include "nsAutoPtr.h"                  // for nsRefPtr
+#include "nsDebug.h"                    // for NS_ASSERTION, NS_WARNING, etc
+#include "nsISupportsImpl.h"            // for gfxContext::Release, etc
+#include "nsIWidget.h"                  // for nsIWidget
+#include "prenv.h"                      // for PR_GetEnv
 #ifdef XP_WIN
 #include "gfxWindowsPlatform.h"
 #endif
@@ -67,6 +83,7 @@ ContentClientBasic::CreateBuffer(ContentType aType,
                                  uint32_t aFlags,
                                  gfxASurface**)
 {
+  MOZ_ASSERT(!(aFlags & BUFFER_COMPONENT_ALPHA));
   nsRefPtr<gfxASurface> referenceSurface = GetBuffer();
   if (!referenceSurface) {
     gfxContext* defaultTarget = mManager->GetDefaultTarget();
@@ -89,9 +106,13 @@ ContentClientBasic::CreateDTBuffer(ContentType aType,
                                    uint32_t aFlags,
                                    RefPtr<DrawTarget>* aWhiteDT)
 {
-  NS_RUNTIMEABORT("ContentClientBasic does not support Moz2D drawing yet!");
-  // TODO[Bas] - Implement me!?
-  return nullptr;
+  MOZ_ASSERT(!(aFlags & BUFFER_COMPONENT_ALPHA));
+  gfxASurface::gfxImageFormat format =
+    gfxPlatform::GetPlatform()->OptimalFormatForContent(aType);
+
+  return gfxPlatform::GetPlatform()->CreateOffscreenContentDrawTarget(
+    IntSize(aRect.width, aRect.height),
+    ImageFormatToSurfaceFormat(format));
 }
 
 void
@@ -193,6 +214,12 @@ ContentClientRemoteBuffer::BuildDeprecatedTextureClients(ContentType aType,
   }
 
   CreateFrontBufferAndNotify(aRect);
+}
+
+bool
+ContentClientBasic::SupportsAzureContent() const
+{
+  return gfxPlatform::GetPlatform()->SupportsAzureContent();
 }
  
 bool
@@ -472,14 +499,20 @@ ContentClientDoubleBuffered::SyncFrontBufferToBackBuffer()
   AutoDeprecatedTextureClient autoTextureFront;
   AutoDeprecatedTextureClient autoTextureFrontOnWhite;
   if (SupportsAzureContent()) {
-    RotatedBuffer frontBuffer(autoTextureFront.GetDrawTarget(mFrontClient),
-                              autoTextureFrontOnWhite.GetDrawTarget(mFrontClientOnWhite),
+    // We need to ensure that we lock these two buffers in the same
+    // order as the compositor to prevent deadlocks.
+    DrawTarget* dt = autoTextureFront.GetDrawTarget(mFrontClient);
+    DrawTarget* dtOnWhite = autoTextureFrontOnWhite.GetDrawTarget(mFrontClientOnWhite);
+    RotatedBuffer frontBuffer(dt,
+                              dtOnWhite,
                               mFrontBufferRect,
                               mFrontBufferRotation);
     UpdateDestinationFrom(frontBuffer, updateRegion);
   } else {
-    RotatedBuffer frontBuffer(autoTextureFront.GetSurface(mFrontClient),
-                              autoTextureFrontOnWhite.GetSurface(mFrontClientOnWhite),
+    gfxASurface* surf = autoTextureFront.GetSurface(mFrontClient);
+    gfxASurface* surfOnWhite = autoTextureFrontOnWhite.GetSurface(mFrontClientOnWhite);
+    RotatedBuffer frontBuffer(surf,
+                              surfOnWhite,
                               mFrontBufferRect,
                               mFrontBufferRotation);
     UpdateDestinationFrom(frontBuffer, updateRegion);

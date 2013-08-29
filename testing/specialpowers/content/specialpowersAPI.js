@@ -561,7 +561,7 @@ SpecialPowersAPI.prototype = {
      [{'type': 'SystemXHR', 'allow': 1, 'context': document}, 
       {'type': 'SystemXHR', 'allow': Ci.nsIPermissionManager.PROMPT_ACTION, 'context': document}]
 
-    allow is a boolean and can be true/false or 1/0
+     Allow can be a boolean value of true/false or ALLOW_ACTION/DENY_ACTION/PROMPT_ACTION/UNKNOWN_ACTION
   */
   pushPermissions: function(inPermissions, callback) {
     var pendingPermissions = [];
@@ -591,7 +591,12 @@ SpecialPowersAPI.prototype = {
         if (originalValue == perm) {
           continue;
         }
-        pendingPermissions.push({'op': 'add', 'type': permission.type, 'permission': perm, 'value': perm, 'url': url, 'appId': appId, 'isInBrowserElement': isInBrowserElement});
+
+        var todo = {'op': 'add', 'type': permission.type, 'permission': perm, 'value': perm, 'url': url, 'appId': appId, 'isInBrowserElement': isInBrowserElement};
+        if (permission.remove == true)
+          todo.op = 'remove';
+
+        pendingPermissions.push(todo);
 
         /* Push original permissions value or clear into cleanup array */
         var cleanupTodo = {'op': 'add', 'type': permission.type, 'permission': perm, 'value': perm, 'url': url, 'appId': appId, 'isInBrowserElement': isInBrowserElement};
@@ -1289,6 +1294,12 @@ SpecialPowersAPI.prototype = {
     Components.classes["@mozilla.org/categorymanager;1"].
       getService(Components.interfaces.nsICategoryManager).
       addCategoryEntry(category, entry, value, persists, replace);
+  },
+
+  deleteCategoryEntry: function(category, entry, persists) {
+    Components.classes["@mozilla.org/categorymanager;1"].
+      getService(Components.interfaces.nsICategoryManager).
+      deleteCategoryEntry(category, entry, persists);
   },
 
   copyString: function(str, doc) {

@@ -216,6 +216,10 @@ if test -n "$gonkdir" ; then
         ;;
     18)
         GONK_INCLUDES="-I$gonkdir/frameworks/native/include"
+        if test -d "$gonkdir/external/bluetooth/bluez"; then
+            GONK_INCLUDES+=" -I$gonkdir/external/dbus -I$gonkdir/external/bluetooth/bluez/lib"
+            MOZ_B2G_BT=1
+        fi
         ;;
     *)
         AC_MSG_ERROR([Unsupported platform version: $ANDROID_VERSION])
@@ -2072,7 +2076,10 @@ ia64*-hpux*)
         XPCOM_FROZEN_LDOPTS='$(LIBXUL_DIST)/lib/xul.lib $(LIBXUL_DIST)/lib/mozalloc.lib'
         LIBXUL_LIBS='$(LIBXUL_DIST)/lib/xul.lib $(LIBXUL_DIST)/lib/mozalloc.lib'
         MOZ_COMPONENT_NSPR_LIBS='$(NSPR_LIBS)'
-        LDFLAGS="$LDFLAGS -LARGEADDRESSAWARE -NXCOMPAT -RELEASE"
+        LDFLAGS="$LDFLAGS -LARGEADDRESSAWARE -NXCOMPAT"
+        if test -z "$DEVELOPER_OPTIONS"; then
+            LDFLAGS="$LDFLAGS -RELEASE"
+        fi
         dnl For profile-guided optimization
         PROFILE_GEN_CFLAGS="-GL"
         PROFILE_GEN_LDFLAGS="-LTCG:PGINSTRUMENT"
@@ -4108,6 +4115,22 @@ if test -n "$MOZ_NATIVE_FFI"; then
 fi
 
 dnl ========================================================
+dnl System ICU Support
+dnl ========================================================
+MOZ_NATIVE_ICU=
+MOZ_ARG_WITH_BOOL(system-icu,
+[  --with-system-icu
+                          Use system ICU (located with pkgconfig)],
+    MOZ_NATIVE_ICU=1)
+
+if test -n "$MOZ_NATIVE_ICU"; then
+    PKG_CHECK_MODULES(MOZ_ICU, icu-i18n >= 50.1)
+    MOZ_JS_STATIC_LIBS="$MOZ_JS_STATIC_LIBS $MOZ_ICU_LIBS"
+fi
+
+AC_SUBST(MOZ_NATIVE_ICU)
+
+dnl ========================================================
 dnl Java SDK support
 dnl ========================================================
 
@@ -5253,7 +5276,7 @@ dnl --enable-webrtc to override.  Can disable for everything in
 dnl the master list above.
 if test -n "$MOZ_WEBRTC"; then
     case "$target" in
-    *-linux*|*-mingw*|*-darwin*|*-android*|*-linuxandroid*)
+    *-linux*|*-mingw*|*-darwin*|*-android*|*-linuxandroid*|*-dragonfly*|*-freebsd*|*-netbsd*|*-openbsd*)
         dnl Leave enabled
         ;;
     *)
@@ -5798,6 +5821,18 @@ MOZ_ARG_DISABLE_BOOL(permissions,
     MOZ_PERMISSIONS=,
     MOZ_PERMISSIONS=1
 )
+
+dnl ========================================================
+dnl Child permissions, currently only used for b2g
+dnl ========================================================
+if test -n "$MOZ_B2G"; then
+    if test -n "$MOZ_PERMISSIONS"; then
+        MOZ_CHILD_PERMISSIONS=1
+    else
+        AC_MSG_ERROR([You need to enable MOZ_PERMISSIONS for MOZ_CHILD_PERMISSIONS])
+    fi
+fi
+AC_SUBST(MOZ_CHILD_PERMISSIONS)
 
 dnl ========================================================
 dnl NegotiateAuth
@@ -8086,7 +8121,8 @@ if test "${OS_TARGET}" = "WINNT" -o \
         "${OS_ARCH}" = "Darwin" -o \
         "${MOZ_WIDGET_TOOLKIT}" = "android" -o \
         "${MOZ_WIDGET_TOOLKIT}" = "gonk" -o \
-        "${MOZ_WIDGET_TOOLKIT}" = "gtk2"; then
+        "${MOZ_WIDGET_TOOLKIT}" = "gtk2" -o \
+        "${MOZ_WIDGET_TOOLKIT}" = "gtk3"; then
     case "${target_cpu}" in
     i*86*|x86_64|arm)
         MOZ_ENABLE_SKIA=1

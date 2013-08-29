@@ -8,6 +8,8 @@
  * Base class for all our document implementations.
  */
 
+#include "nsDocument.h"
+
 #include "mozilla/DebugOnly.h"
 #include "mozilla/MemoryReporting.h"
 #include "mozilla/Util.h"
@@ -25,7 +27,6 @@
 #include "mozilla/Telemetry.h"
 #include "nsIInterfaceRequestor.h"
 #include "nsIInterfaceRequestorUtils.h"
-#include "nsDocument.h"
 #include "nsUnicharUtils.h"
 #include "nsContentList.h"
 #include "nsIObserver.h"
@@ -34,7 +35,6 @@
 #include "mozilla/css/ImageLoader.h"
 #include "nsIDocShell.h"
 #include "nsIDocShellTreeItem.h"
-#include "nsIScriptRuntime.h"
 #include "nsCOMArray.h"
 #include "nsDOMClassInfo.h"
 #include "nsCxPusher.h"
@@ -209,8 +209,10 @@
 #include "nsIEditor.h"
 #include "nsIDOMCSSStyleRule.h"
 #include "mozilla/css/Rule.h"
+#include "nsIDOMLocation.h"
 #include "nsIHttpChannelInternal.h"
 #include "nsISecurityConsoleMessage.h"
+#include "nsCharSeparatedTokenizer.h"
 
 using namespace mozilla;
 using namespace mozilla::dom;
@@ -2464,7 +2466,7 @@ CSPErrorQueue::Flush(nsIDocument* aDocument)
 {
   for (uint32_t i = 0; i < mErrors.Length(); i++) {
     nsContentUtils::ReportToConsole(nsIScriptError::warningFlag,
-        "CSP", aDocument,
+        NS_LITERAL_CSTRING("CSP"), aDocument,
         nsContentUtils::eSECURITY_PROPERTIES,
         mErrors[i]);
   }
@@ -3255,6 +3257,13 @@ nsIDocument::ReleaseCapture() const
   if (node && nsContentUtils::CanCallerAccess(node)) {
     nsIPresShell::SetCapturingContent(nullptr, 0);
   }
+}
+
+already_AddRefed<nsIURI>
+nsIDocument::GetBaseURI() const
+{
+  nsCOMPtr<nsIURI> uri = GetDocBaseURI();
+  return uri.forget();
 }
 
 nsresult
@@ -4497,7 +4506,7 @@ void
 nsDocument::ReportEmptyGetElementByIdArg()
 {
   nsContentUtils::ReportToConsole(nsIScriptError::warningFlag,
-                                  "DOM", this,
+                                  NS_LITERAL_CSTRING("DOM"), this,
                                   nsContentUtils::eDOM_PROPERTIES,
                                   "EmptyGetElementByIdParam");
 }
@@ -6152,7 +6161,7 @@ nsDocument::GetBoxObjectFor(Element* aElement, ErrorResult& aRv)
   if (!mHasWarnedAboutBoxObjects && !aElement->IsXUL()) {
     mHasWarnedAboutBoxObjects = true;
     nsContentUtils::ReportToConsole(nsIScriptError::warningFlag,
-                                    "BoxObjects", this,
+                                    NS_LITERAL_CSTRING("BoxObjects"), this,
                                     nsContentUtils::eDOM_PROPERTIES,
                                     "UseOfGetBoxObjectForWarning");
   }
@@ -9049,7 +9058,7 @@ nsIDocument::WarnOnceAbout(DeprecatedOperations aOperation,
   uint32_t flags = asError ? nsIScriptError::errorFlag
                            : nsIScriptError::warningFlag;
   nsContentUtils::ReportToConsole(flags,
-                                  "DOM Core", this,
+                                  NS_LITERAL_CSTRING("DOM Core"), this,
                                   nsContentUtils::eDOM_PROPERTIES,
                                   kWarnings[aOperation]);
 }
@@ -10033,7 +10042,7 @@ LogFullScreenDenied(bool aLogFailure, const char* aMessage, nsIDocument* aDoc)
                         false);
   e->PostDOMEvent();
   nsContentUtils::ReportToConsole(nsIScriptError::warningFlag,
-                                  "DOM", aDoc,
+                                  NS_LITERAL_CSTRING("DOM"), aDoc,
                                   nsContentUtils::eDOM_PROPERTIES,
                                   aMessage);
 }
@@ -11231,15 +11240,16 @@ nsDocument::QuerySelectorAll(const nsAString& aSelector, nsIDOMNodeList **aRetur
 }
 
 already_AddRefed<nsIDocument>
-nsIDocument::Constructor(const GlobalObject& aGlobal, ErrorResult& rv)
+nsIDocument::Constructor(const GlobalObject& aGlobal,
+                         ErrorResult& rv)
 {
-  nsCOMPtr<nsIScriptGlobalObject> global = do_QueryInterface(aGlobal.Get());
+  nsCOMPtr<nsIScriptGlobalObject> global = do_QueryInterface(aGlobal.GetAsSupports());
   if (!global) {
     rv.Throw(NS_ERROR_UNEXPECTED);
     return nullptr;
   }
 
-  nsCOMPtr<nsIScriptObjectPrincipal> prin = do_QueryInterface(aGlobal.Get());
+  nsCOMPtr<nsIScriptObjectPrincipal> prin = do_QueryInterface(aGlobal.GetAsSupports());
   if (!prin) {
     rv.Throw(NS_ERROR_UNEXPECTED);
     return nullptr;

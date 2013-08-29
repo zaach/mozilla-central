@@ -571,6 +571,14 @@ dnl ========================================================
 AC_PROG_INSTALL
 AC_PROG_LN_S
 
+AC_MSG_CHECKING([for tar archiver])
+AC_CHECK_PROGS(TAR, gnutar gtar tar, "")
+if test -z "$TAR"; then
+    AC_MSG_WARN([no tar archiver found in \$PATH])
+fi
+AC_MSG_RESULT([$TAR])
+AC_SUBST(TAR)
+
 if test -z "$TINDERBOX_SKIP_PERL_VERSION_CHECK"; then
 AC_MSG_CHECKING([for minimum required perl version >= $PERL_VERSION])
 _perl_version=`PERL_VERSION=$PERL_VERSION $PERL -e 'print "$]"; if ($] >= $ENV{PERL_VERSION}) { exit(0); } else { exit(1); }' 2>&5`
@@ -1629,7 +1637,10 @@ ia64*-hpux*)
         XPCOM_FROZEN_LDOPTS='$(LIBXUL_DIST)/lib/xpcom.lib $(LIBXUL_DIST)/lib/mozalloc.lib'
         LIBXUL_LIBS='$(LIBXUL_DIST)/lib/xpcom.lib $(LIBXUL_DIST)/lib/xul.lib $(LIBXUL_DIST)/lib/mozalloc.lib'
         MOZ_COMPONENT_NSPR_LIBS='$(NSPR_LIBS)'
-        LDFLAGS="$LDFLAGS -LARGEADDRESSAWARE -NXCOMPAT -RELEASE"
+        LDFLAGS="$LDFLAGS -LARGEADDRESSAWARE -NXCOMPAT"
+        if test -z "$DEVELOPER_OPTIONS"; then
+            LDFLAGS="$LDFLAGS -RELEASE"
+        fi
         dnl For profile-guided optimization
         PROFILE_GEN_CFLAGS="-GL"
         PROFILE_GEN_LDFLAGS="-LTCG:PGINSTRUMENT"
@@ -4252,6 +4263,16 @@ fi
 dnl ========================================================
 dnl ECMAScript Internationalization API Support (uses ICU)
 dnl ========================================================
+ICU_LIB_NAMES=
+MOZ_NATIVE_ICU=
+MOZ_ARG_WITH_BOOL(system-icu,
+[  --with-system-icu
+                          Use system ICU (located with pkgconfig)],
+    MOZ_NATIVE_ICU=1)
+
+if test -n "$MOZ_NATIVE_ICU"; then
+    PKG_CHECK_MODULES(MOZ_ICU, icu-i18n >= 50.1)
+fi
 
 MOZ_ARG_WITH_STRING(intl-api,
 [  --with-intl-api, --with-intl-api=build, --without-intl-api
@@ -4286,37 +4307,36 @@ fi
 dnl Settings for the implementation of the ECMAScript Internationalization API
 if test -n "$ENABLE_INTL_API"; then
     AC_DEFINE(ENABLE_INTL_API)
-    # We build ICU as a static library.
-    AC_DEFINE(U_STATIC_IMPLEMENTATION)
 
-    case "$OS_TARGET" in
-        WINNT)
-            ICU_LIB_NAMES="icuin icuuc icudt"
-            ;;
-        Darwin|Linux|DragonFly|FreeBSD|NetBSD|OpenBSD)
-            ICU_LIB_NAMES="icui18n icuuc icudata"
-            ;;
-        *)
-            AC_MSG_ERROR([ECMAScript Internationalization API is not yet supported on this platform])
-    esac
-
-    ICU_LIBS='$(call EXPAND_LIBNAME_PATH,$(ICU_LIB_NAMES),$(DEPTH)/intl/icu/lib)'
-else
-    ICU_LIB_NAMES=
-    ICU_LIBS=
+    if test -z "$MOZ_NATIVE_ICU"; then
+        case "$OS_TARGET" in
+            WINNT)
+                ICU_LIB_NAMES="icuin icuuc icudt"
+                ;;
+            Darwin|Linux|DragonFly|FreeBSD|NetBSD|OpenBSD)
+                ICU_LIB_NAMES="icui18n icuuc icudata"
+                ;;
+            *)
+                AC_MSG_ERROR([ECMAScript Internationalization API is not yet supported on this platform])
+        esac
+        MOZ_ICU_LIBS='$(call EXPAND_LIBNAME_PATH,$(ICU_LIB_NAMES),$(DEPTH)/intl/icu/lib)'
+    fi
 fi
 
 AC_SUBST(ENABLE_INTL_API)
 AC_SUBST(ICU_LIB_NAMES)
-AC_SUBST(ICU_LIBS)
-
-dnl Source files that use ICU should have control over which parts of the ICU
-dnl namespace they want to use.
-AC_DEFINE(U_USING_ICU_NAMESPACE,0)
-
+AC_SUBST(MOZ_ICU_LIBS)
+AC_SUBST(MOZ_NATIVE_ICU)
 
 dnl Settings for ICU
-if test -n "$ENABLE_INTL_API" ; then
+if test -n "$ENABLE_INTL_API" -a -z "$MOZ_NATIVE_ICU"; then
+    dnl We build ICU as a static library.
+    AC_DEFINE(U_STATIC_IMPLEMENTATION)
+
+    dnl Source files that use ICU should have control over which parts of the ICU
+    dnl namespace they want to use.
+    AC_DEFINE(U_USING_ICU_NAMESPACE,0)
+
     # Set ICU compile options
     ICU_CPPFLAGS=""
     # don't use icu namespace automatically in client code
@@ -4361,7 +4381,8 @@ if test -n "$ENABLE_INTL_API" ; then
 
     abs_srcdir=`(cd $srcdir; pwd)`
     mkdir -p $_objdir/intl/icu
-    (cd $_objdir/intl/icu; \
+    (cd $_objdir/intl/icu
+     MOZ_SUBCONFIGURE_WRAP([.],[
      CC="$CC" CXX="$CXX" \
      CFLAGS="$ICU_CFLAGS" CPPFLAGS="$ICU_CPPFLAGS" CXXFLAGS="$ICU_CXXFLAGS" \
             $SHELL $abs_srcdir/../../intl/icu/source/runConfigureICU \
@@ -4370,6 +4391,7 @@ if test -n "$ENABLE_INTL_API" ; then
             $ICU_LINK_OPTS \
             --enable-extras=no --enable-icuio=no  --enable-layout=no \
             --enable-tests=no --enable-samples=no || exit 1
+     ])
     ) || exit 1
 fi
 

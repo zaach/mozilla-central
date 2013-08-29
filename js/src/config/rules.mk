@@ -24,12 +24,16 @@ _MOZBUILD_EXTERNAL_VARIABLES := \
   GTEST_CSRCS \
   HOST_CSRCS \
   HOST_LIBRARY_NAME \
+  LIBXUL_LIBRARY \
   MODULE \
+  MSVC_ENABLE_PGO \
   NO_DIST_INSTALL \
   PARALLEL_DIRS \
+  SIMPLE_PROGRAMS \
   TEST_DIRS \
   TIERS \
   TOOL_DIRS \
+  XPCSHELL_TESTS \
   XPIDL_MODULE \
   $(NULL)
 
@@ -61,11 +65,6 @@ ifndef STANDALONE_MAKEFILE
 GLOBAL_DEPS += backend.mk
 include backend.mk
 endif
-endif
-
-ifdef TIERS
-DIRS += $(foreach tier,$(TIERS),$(tier_$(tier)_dirs))
-STATIC_DIRS += $(foreach tier,$(TIERS),$(tier_$(tier)_staticdirs))
 endif
 
 ifndef MOZILLA_DIR
@@ -303,10 +302,6 @@ LIBRARY := $(NULL)
 endif
 endif
 
-ifdef JAVA_LIBRARY_NAME
-JAVA_LIBRARY := $(JAVA_LIBRARY_NAME).jar
-endif
-
 ifeq ($(OS_ARCH),WINNT)
 ifndef GNU_CC
 
@@ -406,7 +401,6 @@ ALL_TRASH_DIRS = \
 
 ifdef QTDIR
 GARBAGE                 += $(MOCSRCS)
-GARBAGE                 += $(RCCSRCS)
 endif
 
 ifdef SIMPLE_PROGRAMS
@@ -433,8 +427,11 @@ UPDATE_TITLE = printf "\033]0;%s in %s\007" $(1) $(shell $(BUILD_TOOLS)/print-de
 endif
 
 ifdef MACH
-BUILDSTATUS=@echo BUILDSTATUS $1
+ifndef NO_BUILDSTATUS_MESSAGES
+BUILDSTATUS=@echo "BUILDSTATUS $1"
 endif
+endif
+
 # Static directories are largely independent of our build system. But, they
 # could share the same build mechanism (like moz.build files). We need to
 # prevent leaking of our backend state to these independent build systems. This
@@ -447,9 +444,9 @@ define SUBMAKE # $(call SUBMAKE,target,directory,static)
 endef # The extra line is important here! don't delete it
 
 define TIER_DIR_SUBMAKE
-$(call BUILDSTATUS,TIERDIR_START  $(2))
-$(call SUBMAKE,$(1),$(2),$(3))
-$(call BUILDSTATUS,TIERDIR_FINISH $(2))
+$(call BUILDSTATUS,TIERDIR_START  $(1) $(2) $(3))
+$(call SUBMAKE,$(4),$(3),$(5))
+$(call BUILDSTATUS,TIERDIR_FINISH $(1) $(2) $(3))
 
 endef # Ths empty line is important.
 
@@ -683,12 +680,7 @@ SUBMAKEFILES += $(addsuffix /Makefile, $(DIRS) $(TOOL_DIRS) $(PARALLEL_DIRS))
 # of something else. Makefiles which use this var *must* provide a sensible
 # default rule before including rules.mk
 ifndef SUPPRESS_DEFAULT_RULES
-ifdef TIERS
-default all alldep::
-	$(call BUILDSTATUS,TIERS $(TIERS))
-	$(foreach tier,$(TIERS),$(call SUBMAKE,tier_$(tier)))
-else
-
+ifndef TIERS
 default all::
 ifneq (,$(strip $(STATIC_DIRS)))
 	$(foreach dir,$(STATIC_DIRS),$(call SUBMAKE,,$(dir),1))
@@ -707,45 +699,13 @@ alldep::
 endif # TIERS
 endif # SUPPRESS_DEFAULT_RULES
 
-ifeq ($(filter s,$(MAKEFLAGS)),)
+ifeq ($(findstring s,$(filter-out --%, $(MAKEFLAGS))),)
 ECHO := echo
 QUIET :=
 else
 ECHO := true
 QUIET := -q
 endif
-
-# This function is called and evaluated to produce the rule to build the
-# specified tier. Each tier begins by building the "static" directories.
-# The BUILDSTATUS echo commands are used to faciliate easier parsing
-# of build output. Build drivers are encouraged to filter these lines
-# from the user.
-define CREATE_TIER_RULE
-tier_$(1)::
-	$(call BUILDSTATUS,TIER_START $(1))
-	$(call BUILDSTATUS,SUBTIERS $(if $(tier_$(1)_staticdirs),static )$(if $(tier_$(1)_dirs),export libs tools))
-	$(call BUILDSTATUS,STATICDIRS $$($$@_staticdirs))
-	$(call BUILDSTATUS,DIRS $$($$@_dirs))
-ifneq (,$(tier_$(1)_staticdirs))
-	$(call BUILDSTATUS,SUBTIER_START $(1) static)
-	$$(foreach dir,$$($$@_staticdirs),$$(call TIER_DIR_SUBMAKE,,$$(dir),1))
-	$(call BUILDSTATUS,SUBTIER_FINISH $(1) static)
-endif
-ifneq (,$(tier_$(1)_dirs))
-	$(call BUILDSTATUS,SUBTIER_START $(1) export)
-	$$(MAKE) export_$$@
-	$(call BUILDSTATUS,SUBTIER_FINISH $(1) export)
-	$(call BUILDSTATUS,SUBTIER_START $(1) libs)
-	$$(MAKE) libs_$$@
-	$(call BUILDSTATUS,SUBTIER_FINISH $(1) libs)
-	$(call BUILDSTATUS,SUBTIER_START $(1) tools)
-	$$(MAKE) tools_$$@
-	$(call BUILDSTATUS,SUBTIER_FINISH $(1) tools)
-	$(call BUILDSTATUS TIER_FINISH $(1))
-endif
-endef
-
-$(foreach tier,$(TIERS),$(eval $(call CREATE_TIER_RULE,$(tier))))
 
 # Do everything from scratch
 everything::
@@ -763,8 +723,34 @@ ifneq (,$(DIRS)$(TOOL_DIRS)$(PARALLEL_DIRS))
 	$(LOOP_OVER_TOOL_DIRS)
 endif
 
-include $(topsrcdir)/config/makefiles/target_export.mk
-include $(topsrcdir)/config/makefiles/target_tools.mk
+#########################
+# Tier traversal handling
+#########################
+define CREATE_SUBTIER_TRAVERSAL_RULE
+PARALLEL_DIRS_$(1) = $$(addsuffix _$(1),$$(PARALLEL_DIRS))
+
+.PHONY: $(1) $$(PARALLEL_DIRS_$(1))
+
+ifdef PARALLEL_DIRS
+$(1):: $$(PARALLEL_DIRS_$(1))
+
+$$(PARALLEL_DIRS_$(1)): %_$(1): %/Makefile
+	+@$$(call SUBMAKE,$(1),$$*)
+endif
+
+endef
+
+$(foreach subtier,export libs tools,$(eval $(call CREATE_SUBTIER_TRAVERSAL_RULE,$(subtier))))
+
+export:: $(SUBMAKEFILES) $(MAKE_DIRS)
+	$(LOOP_OVER_DIRS)
+	$(LOOP_OVER_TOOL_DIRS)
+
+
+tools:: $(SUBMAKEFILES) $(MAKE_DIRS)
+	$(LOOP_OVER_DIRS)
+	$(foreach dir,$(TOOL_DIRS),$(call SUBMAKE,libs,$(dir)))
+
 
 ifneq (,$(filter-out %.$(LIB_SUFFIX),$(SHARED_LIBRARY_LIBS)))
 $(error SHARED_LIBRARY_LIBS must contain .$(LIB_SUFFIX) files only)
@@ -1136,15 +1122,15 @@ $(COBJS):
 # DEFINES and ACDEFINES are needed here to enable conditional compilation of Q_OBJECTs:
 # 'moc' only knows about #defines it gets on the command line (-D...), not in
 # included headers like mozilla-config.h
-moc_%.cpp: %.h
+$(filter moc_%.cpp,$(CPPSRCS)): moc_%.cpp: %.h
 	$(REPORT_BUILD)
 	$(ELOG) $(MOC) $(DEFINES) $(ACDEFINES) $< $(OUTOPTION)$@
 
-moc_%.cc: %.cc
+$(filter moc_%.cc,$(CPPSRCS)): moc_%.cc: %.cc
 	$(REPORT_BUILD)
 	$(ELOG) $(MOC) $(DEFINES) $(ACDEFINES) $(_VPATH_SRCS:.cc=.h) $(OUTOPTION)$@
 
-qrc_%.cpp: %.qrc
+$(filter qrc_%.cpp,$(CPPSRCS)): qrc_%.cpp: %.qrc
 	$(REPORT_BUILD)
 	$(ELOG) $(RCC) -name $* $< $(OUTOPTION)$@
 
@@ -1175,35 +1161,35 @@ $(CMOBJS):
 	@$(MAKE_DEPS_AUTO_CC)
 	$(ELOG) $(CC) -o $@ -c $(COMPILE_CFLAGS) $(COMPILE_CMFLAGS) $(TARGET_LOCAL_INCLUDES) $(_VPATH_SRCS)
 
-%.s: %.cpp $(call mkdir_deps,$(MDDEPDIR))
+$(filter %.s,$(CPPSRCS:%.cpp=%.s)): %.s: %.cpp $(call mkdir_deps,$(MDDEPDIR))
 	$(REPORT_BUILD)
 	$(CCC) -S $(COMPILE_CXXFLAGS) $(TARGET_LOCAL_INCLUDES) $(_VPATH_SRCS)
 
-%.s: %.cc $(call mkdir_deps,$(MDDEPDIR))
+$(filter %.s,$(CPPSRCS:%.cc=%.s)): %.s: %.cc $(call mkdir_deps,$(MDDEPDIR))
 	$(REPORT_BUILD)
 	$(CCC) -S $(COMPILE_CXXFLAGS) $(TARGET_LOCAL_INCLUDES) $(_VPATH_SRCS)
 
-%.s: %.c $(call mkdir_deps,$(MDDEPDIR))
+$(filter %.s,$(CSRCS:%.c=%.s)): %.s: %.c $(call mkdir_deps,$(MDDEPDIR))
 	$(REPORT_BUILD)
 	$(CC) -S $(COMPILE_CFLAGS) $(TARGET_LOCAL_INCLUDES) $(_VPATH_SRCS)
 
-%.i: %.cpp $(call mkdir_deps,$(MDDEPDIR))
+$(filter %.i,$(CPPSRCS:%.cpp=%.i)): %.i: %.cpp $(call mkdir_deps,$(MDDEPDIR))
 	$(REPORT_BUILD)
 	$(CCC) -C -E $(COMPILE_CXXFLAGS) $(TARGET_LOCAL_INCLUDES) $(_VPATH_SRCS) > $*.i
 
-%.i: %.cc $(call mkdir_deps,$(MDDEPDIR))
+$(filter %.i,$(CPPSRCS:%.cc=%.i)): %.i: %.cc $(call mkdir_deps,$(MDDEPDIR))
 	$(REPORT_BUILD)
 	$(CCC) -C -E $(COMPILE_CXXFLAGS) $(TARGET_LOCAL_INCLUDES) $(_VPATH_SRCS) > $*.i
 
-%.i: %.c $(call mkdir_deps,$(MDDEPDIR))
+$(filter %.i,$(CSRCS:%.c=%.i)): %.i: %.c $(call mkdir_deps,$(MDDEPDIR))
 	$(REPORT_BUILD)
 	$(CC) -C -E $(COMPILE_CFLAGS) $(TARGET_LOCAL_INCLUDES) $(_VPATH_SRCS) > $*.i
 
-%.i: %.mm $(call mkdir_deps,$(MDDEPDIR))
+$(filter %.i,$(CMMSRCS:%.mm=%.i)): %.i: %.mm $(call mkdir_deps,$(MDDEPDIR))
 	$(REPORT_BUILD)
 	$(CCC) -C -E $(COMPILE_CXXFLAGS) $(COMPILE_CMMFLAGS) $(TARGET_LOCAL_INCLUDES) $(_VPATH_SRCS) > $*.i
 
-%.res: %.rc
+$(RESFILE): %.res: %.rc
 	$(REPORT_BUILD)
 	@echo Creating Resource file: $@
 ifeq ($(OS_ARCH),OS2)
@@ -1216,21 +1202,11 @@ else
 endif
 endif
 
-# Cancel these implicit rules
-#
-%: %,v
+# Cancel GNU make built-in implicit rules
+ifndef .PYMAKE
+MAKEFLAGS += -r
+endif
 
-%: RCS/%,v
-
-%: RCS/%
-
-%: s.%
-
-%: SCCS/s.%
-
-###############################################################################
-# Java rules
-###############################################################################
 ifneq (,$(filter OS2 WINNT,$(OS_ARCH)))
 SEP := ;
 else
@@ -1255,39 +1231,12 @@ else
 normalizepath = $(1)
 endif
 
+###############################################################################
+# Java rules
+###############################################################################
 ifneq (,$(value JAVAFILES)$(value RESFILES))
   include $(topsrcdir)/config/makefiles/java-build.mk
 endif
-
-_srcdir = $(call normalizepath,$(srcdir))
-ifdef JAVA_SOURCEPATH
-SP = $(subst $(SPACE),$(SEP),$(call normalizepath,$(strip $(JAVA_SOURCEPATH))))
-_JAVA_SOURCEPATH = ".$(SEP)$(_srcdir)$(SEP)$(SP)"
-else
-_JAVA_SOURCEPATH = ".$(SEP)$(_srcdir)"
-endif
-
-ifdef JAVA_CLASSPATH
-CP = $(subst $(SPACE),$(SEP),$(call normalizepath,$(strip $(JAVA_CLASSPATH))))
-_JAVA_CLASSPATH = ".$(SEP)$(CP)"
-else
-_JAVA_CLASSPATH = .
-endif
-
-_JAVA_DIR = _java
-$(_JAVA_DIR)::
-	$(NSINSTALL) -D $@
-
-$(_JAVA_DIR)/%.class: %.java $(GLOBAL_DEPS) $(_JAVA_DIR)
-	$(REPORT_BUILD)
-	$(JAVAC) $(JAVAC_FLAGS) -classpath $(_JAVA_CLASSPATH) \
-			-sourcepath $(_JAVA_SOURCEPATH) -d $(_JAVA_DIR) $(_VPATH_SRCS)
-
-$(JAVA_LIBRARY): $(addprefix $(_JAVA_DIR)/,$(JAVA_SRCS:.java=.class)) $(GLOBAL_DEPS)
-	$(REPORT_BUILD)
-	$(JAR) cf $@ -C $(_JAVA_DIR) .
-
-GARBAGE_DIRS += $(_JAVA_DIR)
 
 ###############################################################################
 # Update Files Managed by Build Backend
@@ -1621,11 +1570,7 @@ ifneq (,$(filter-out all chrome default export realchrome tools clean clobber cl
 MDDEPEND_FILES		:= $(strip $(wildcard $(foreach file,$(sort $(OBJS) $(PROGOBJS) $(HOST_OBJS) $(HOST_PROGOBJS) $(TARGETS)),$(MDDEPDIR)/$(notdir $(file)).pp) $(addprefix $(MDDEPDIR)/,$(EXTRA_MDDEPEND_FILES))))
 
 ifneq (,$(MDDEPEND_FILES))
-ifdef .PYMAKE
-includedeps $(MDDEPEND_FILES)
-else
-include $(MDDEPEND_FILES)
-endif
+$(call include_deps,$(MDDEPEND_FILES))
 endif
 
 endif
@@ -1635,11 +1580,7 @@ ifneq (,$(filter export,$(MAKECMDGOALS)))
 MDDEPEND_FILES		:= $(strip $(wildcard $(addprefix $(MDDEPDIR)/,$(EXTRA_EXPORT_MDDEPEND_FILES))))
 
 ifneq (,$(MDDEPEND_FILES))
-ifdef .PYMAKE
-includedeps $(MDDEPEND_FILES)
-else
-include $(MDDEPEND_FILES)
-endif
+$(call include_deps,$(MDDEPEND_FILES))
 endif
 
 endif

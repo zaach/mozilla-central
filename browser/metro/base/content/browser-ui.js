@@ -598,7 +598,7 @@ var BrowserUI = {
         }
         break;
       case "metro_viewstate_changed":
-        this._adjustDOMforViewState();
+        this._adjustDOMforViewState(aData);
         if (aData == "snapped") {
           FlyoutPanelsUI.hide();
           Elements.autocomplete.setAttribute("orient", "vertical");
@@ -646,9 +646,9 @@ var BrowserUI = {
     pullDesktopControlledPrefType(Ci.nsIPrefBranch.PREF_STRING, "setCharPref");
   },
 
-  _adjustDOMforViewState: function() {
-    if (MetroUtils.immersive) {
-      let currViewState = "";
+  _adjustDOMforViewState: function(aState) {
+    let currViewState = aState;
+    if (!currViewState && MetroUtils.immersive) {
       switch (MetroUtils.snappedState) {
         case Ci.nsIWinMetroUtils.fullScreenLandscape:
           currViewState = "landscape";
@@ -663,8 +663,9 @@ var BrowserUI = {
           currViewState = "snapped";
           break;
       }
-      Elements.windowState.setAttribute("viewstate", currViewState);
     }
+
+    Elements.windowState.setAttribute("viewstate", currViewState);
   },
 
   _titleChanged: function(aBrowser) {
@@ -1079,6 +1080,8 @@ var BrowserUI = {
         break;
       case "cmd_newTab":
         this.newTab(null, null, true);
+        // Make sure navbar is displayed before setting focus on url bar. Bug 907244
+        ContextUI.displayNavbar();
         this._edit.beginEditing(false);
         break;
       case "cmd_closeTab":
@@ -1095,14 +1098,6 @@ var BrowserUI = {
         break;
       case "cmd_panel":
         PanelUI.toggle();
-        break;
-      case "cmd_volumeLeft":
-        // Zoom in (portrait) or out (landscape)
-        Browser.zoom(Util.isPortrait() ? -1 : 1);
-        break;
-      case "cmd_volumeRight":
-        // Zoom out (portrait) or in (landscape)
-        Browser.zoom(Util.isPortrait() ? 1 : -1);
         break;
       case "cmd_openFile":
         this.openFile();

@@ -4,25 +4,36 @@
 * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "TextureHostOGL.h"
-#include "ipc/AutoOpenSurface.h"
-#include "gfx2DGlue.h"
+#include "GLContext.h"                  // for GLContext, etc
+#include "SharedSurface.h"              // for SharedSurface
+#include "SharedSurfaceEGL.h"           // for SharedSurface_EGLImage
+#include "SharedSurfaceGL.h"            // for SharedSurface_GLTexture, etc
+#include "SurfaceStream.h"              // for SurfaceStream
+#include "SurfaceTypes.h"               // for SharedSurfaceType, etc
+#include "TiledLayerBuffer.h"           // for TILEDLAYERBUFFER_TILE_SIZE
+#include "gfx2DGlue.h"                  // for ContentForFormat, etc
+#include "gfxImageSurface.h"            // for gfxImageSurface
+#include "gfxPoint.h"                   // for gfxIntSize
+#include "gfxReusableSurfaceWrapper.h"  // for gfxReusableSurfaceWrapper
+#include "ipc/AutoOpenSurface.h"        // for AutoOpenSurface
+#include "mozilla/gfx/2D.h"             // for DataSourceSurface
+#include "mozilla/gfx/BaseSize.h"       // for BaseSize
+#include "mozilla/layers/CompositorOGL.h"  // for CompositorOGL
+#include "mozilla/layers/ISurfaceAllocator.h"
 #include "mozilla/layers/YCbCrImageDataSerializer.h"
-#include "GLContext.h"
-#include "gfxImageSurface.h"
-#include "SurfaceStream.h"
-#include "SharedSurface.h"
-#include "SharedSurfaceGL.h"
-#include "SharedSurfaceEGL.h"
+#include "nsPoint.h"                    // for nsIntPoint
+#include "nsRegion.h"                   // for nsIntRegion
 #ifdef XP_MACOSX
 #include "SharedSurfaceIO.h"
 #endif
-#include "mozilla/layers/CompositorOGL.h"
 
 using namespace mozilla::gl;
 using namespace mozilla::gfx;
 
 namespace mozilla {
 namespace layers {
+
+class Compositor; 
 
 TemporaryRef<DeprecatedTextureHost>
 CreateDeprecatedTextureHostOGL(SurfaceDescriptorType aDescriptorType,
@@ -338,6 +349,7 @@ void
 SharedTextureHostOGL::SetCompositor(Compositor* aCompositor)
 {
   CompositorOGL* glCompositor = static_cast<CompositorOGL*>(aCompositor);
+  mCompositor = glCompositor;
   if (mTextureSource) {
     mTextureSource->SetCompositor(glCompositor);
   }
@@ -618,7 +630,11 @@ SurfaceStreamHostOGL::UpdateImpl(const SurfaceDescriptor& aImage,
   const SurfaceStreamDescriptor& streamDesc =
       aImage.get_SurfaceStreamDescriptor();
 
-  mStream = SurfaceStream::FromHandle(streamDesc.handle());
+  SurfaceStream *stream = SurfaceStream::FromHandle(streamDesc.handle());
+  if (stream == mStream) {
+    return;
+  }
+  mStream = stream;
   MOZ_ASSERT(mStream);
   mStreamGL = dont_AddRef(mStream->GLContext());
 }
@@ -832,8 +848,9 @@ TiledDeprecatedTextureHostOGL::DeleteTextures()
     mGL->MakeCurrent();
     mGL->fDeleteTextures(1, &mTextureHandle);
 
-    gl::GLContext::UpdateTextureMemoryUsage(gl::GLContext::MemoryFreed, mGLFormat,
-                                            GetTileType(), TILEDLAYERBUFFER_TILE_SIZE);
+    gl::GfxTexturesReporter::UpdateAmount(gl::GfxTexturesReporter::MemoryFreed,
+                                          mGLFormat, GetTileType(),
+                                          TILEDLAYERBUFFER_TILE_SIZE);
     mTextureHandle = 0;
   }
 }
@@ -855,8 +872,9 @@ TiledDeprecatedTextureHostOGL::Update(gfxReusableSurfaceWrapper* aReusableSurfac
     mGL->fBindTexture(LOCAL_GL_TEXTURE_2D, mTextureHandle);
     // We're re-using a texture, but the format may change. Update the memory
     // reporter with a free and alloc (below) using the old and new formats.
-    gl::GLContext::UpdateTextureMemoryUsage(gl::GLContext::MemoryFreed, mGLFormat,
-                                            GetTileType(), TILEDLAYERBUFFER_TILE_SIZE);
+    gl::GfxTexturesReporter::UpdateAmount(gl::GfxTexturesReporter::MemoryFreed,
+                                          mGLFormat, GetTileType(),
+                                          TILEDLAYERBUFFER_TILE_SIZE);
   }
 
   GLenum type;
@@ -867,8 +885,9 @@ TiledDeprecatedTextureHostOGL::Update(gfxReusableSurfaceWrapper* aReusableSurfac
                    TILEDLAYERBUFFER_TILE_SIZE, TILEDLAYERBUFFER_TILE_SIZE, 0,
                    mGLFormat, type, buf);
 
-  gl::GLContext::UpdateTextureMemoryUsage(gl::GLContext::MemoryAllocated, mGLFormat,
-                                          type, TILEDLAYERBUFFER_TILE_SIZE);
+  gl::GfxTexturesReporter::UpdateAmount(gl::GfxTexturesReporter::MemoryAllocated,
+                                        mGLFormat, type,
+                                        TILEDLAYERBUFFER_TILE_SIZE);
 
   if (mGLFormat == LOCAL_GL_RGB) {
     mFormat = FORMAT_R8G8B8X8;

@@ -9,7 +9,6 @@
 #define nsPresContext_h___
 
 #include "mozilla/Attributes.h"
-#include "nsISupports.h"
 #include "nsColor.h"
 #include "nsCoord.h"
 #include "nsCOMPtr.h"
@@ -17,12 +16,12 @@
 #include "nsRect.h"
 #include "nsDeviceContext.h"
 #include "nsFont.h"
+#include "nsIAtom.h"
 #include "nsIObserver.h"
 #include "nsITimer.h"
 #include "nsCRT.h"
 #include "FramePropertyTable.h"
 #include "nsGkAtoms.h"
-#include "nsRefPtrHashtable.h"
 #include "nsCycleCollectionParticipant.h"
 #include "nsChangeHint.h"
 #include <algorithm>
@@ -30,19 +29,15 @@
 #include "gfxRect.h"
 #include "nsTArray.h"
 #include "nsAutoPtr.h"
-#include "nsIWidget.h"
 #include "mozilla/MemoryReporting.h"
 #include "mozilla/TimeStamp.h"
 #include "prclist.h"
 #include "nsThreadUtils.h"
+#include "ScrollbarStyles.h"
 
 #ifdef IBMBIDI
 class nsBidiPresUtils;
 #endif // IBMBIDI
-
-struct nsRect;
-
-class imgIRequest;
 
 class nsAString;
 class nsIPrintSettings;
@@ -50,14 +45,11 @@ class nsIDocument;
 class nsILanguageAtomService;
 class nsITheme;
 class nsIContent;
-class nsFontMetrics;
 class nsIFrame;
 class nsFrameManager;
 class nsILinkHandler;
-class nsStyleContext;
 class nsIAtom;
 class nsEventStateManager;
-class nsIURI;
 class nsICSSPseudoComparator;
 struct nsStyleBackground;
 struct nsStyleBorder;
@@ -68,13 +60,9 @@ struct nsFontFaceRuleContainer;
 class nsObjectFrame;
 class nsTransitionManager;
 class nsAnimationManager;
-class imgIContainer;
 class nsIDOMMediaQueryList;
 class nsRefreshDriver;
-
-#ifdef MOZ_REFLOW_PERF
-class nsRenderingContext;
-#endif
+class nsIWidget;
 
 namespace mozilla {
 class RestyleManager;
@@ -641,25 +629,12 @@ public:
   nscoord RoundAppUnitsToNearestDevPixels(nscoord aAppUnits) const
   { return DevPixelsToAppUnits(AppUnitsToDevPixels(aAppUnits)); }
 
-  struct ScrollbarStyles {
-    // Always one of NS_STYLE_OVERFLOW_SCROLL, NS_STYLE_OVERFLOW_HIDDEN,
-    // or NS_STYLE_OVERFLOW_AUTO.
-    uint8_t mHorizontal, mVertical;
-    ScrollbarStyles(uint8_t h, uint8_t v) : mHorizontal(h), mVertical(v) {}
-    ScrollbarStyles() {}
-    bool operator==(const ScrollbarStyles& aStyles) const {
-      return aStyles.mHorizontal == mHorizontal && aStyles.mVertical == mVertical;
-    }
-    bool operator!=(const ScrollbarStyles& aStyles) const {
-      return aStyles.mHorizontal != mHorizontal || aStyles.mVertical != mVertical;
-    }
-  };
   void SetViewportOverflowOverride(uint8_t aX, uint8_t aY)
   {
     mViewportStyleOverflow.mHorizontal = aX;
     mViewportStyleOverflow.mVertical = aY;
   }
-  ScrollbarStyles GetViewportOverflowOverride()
+  mozilla::ScrollbarStyles GetViewportOverflowOverride()
   {
     return mViewportStyleOverflow;
   }
@@ -1236,7 +1211,7 @@ protected:
 
   nscolor               mBodyTextColor;
 
-  ScrollbarStyles       mViewportStyleOverflow;
+  mozilla::ScrollbarStyles mViewportStyleOverflow;
   uint8_t               mFocusRingWidth;
 
   bool mExistThrottledUpdates;

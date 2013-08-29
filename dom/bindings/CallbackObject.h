@@ -20,7 +20,6 @@
 #include "nsISupports.h"
 #include "nsISupportsImpl.h"
 #include "nsCycleCollectionParticipant.h"
-#include "jsapi.h"
 #include "jswrapper.h"
 #include "mozilla/Assertions.h"
 #include "mozilla/ErrorResult.h"
@@ -30,8 +29,6 @@
 #include "nsWrapperCache.h"
 #include "nsJSEnvironment.h"
 #include "xpcpublic.h"
-#include "nsLayoutStatics.h"
-#include "js/RootingAPI.h"
 
 namespace mozilla {
 namespace dom {

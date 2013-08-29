@@ -303,6 +303,7 @@ var DebuggerServer = {
     this.addActors("resource://gre/modules/devtools/server/actors/webapps.js");
     this.registerModule("devtools/server/actors/inspector");
     this.registerModule("devtools/server/actors/tracer");
+    this.registerModule("devtools/server/actors/device");
   },
 
   /**
@@ -834,13 +835,12 @@ DebuggerServerConnection.prototype = {
   },
 
   _unknownError: function DSC__unknownError(aPrefix, aError) {
-    let errorString = safeErrorString(aError);
-    errorString += "\n" + aError.stack;
+    let errorString = aPrefix + ": " + safeErrorString(aError);
     Cu.reportError(errorString);
     dumpn(errorString);
     return {
       error: "unknownError",
-      message: (aPrefix + "': " + errorString)
+      message: errorString
     };
   },
 
@@ -902,7 +902,8 @@ DebuggerServerConnection.prototype = {
     let actor = this.getActor(aPacket.to);
     if (!actor) {
       this.transport.send({ from: aPacket.to ? aPacket.to : "root",
-                            error: "noSuchActor" });
+                            error: "noSuchActor",
+                            message: "No such actor for ID: " + aPacket.to });
       return;
     }
 

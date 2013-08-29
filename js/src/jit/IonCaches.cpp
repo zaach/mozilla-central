@@ -8,6 +8,8 @@
 
 #include "mozilla/DebugOnly.h"
 
+#include "jsproxy.h"
+
 #include "jit/CodeGenerator.h"
 #include "jit/Ion.h"
 #include "jit/IonLinker.h"
@@ -19,7 +21,7 @@
 #include "vm/Interpreter-inl.h"
 
 using namespace js;
-using namespace js::ion;
+using namespace js::jit;
 
 using mozilla::DebugOnly;
 
@@ -397,9 +399,9 @@ IonCache::linkAndAttachStub(JSContext *cx, MacroAssembler &masm, StubAttacher &a
 
     attachStub(masm, attacher, code);
 
-    if (pc) {
+    if (pc_) {
         IonSpew(IonSpew_InlineCaches, "Cache %p(%s:%d/%d) generated %s %s stub at %p",
-                this, script->filename(), script->lineno, pc - script->code,
+                this, script_->filename(), script_->lineno, pc_ - script_->code,
                 attachKind, CacheName(kind()), code->raw());
     } else {
         IonSpew(IonSpew_InlineCaches, "Cache %p generated %s %s stub at %p",
@@ -1078,6 +1080,22 @@ GenerateTypedArrayLength(JSContext *cx, MacroAssembler &masm, IonCache::StubAtta
     attacher.jumpNextStub(masm);
 }
 
+static bool
+IsCacheableArrayLength(JSContext *cx, HandleObject obj, HandlePropertyName name,
+                       TypedOrValueRegister output)
+{
+    if (!obj->is<ArrayObject>())
+        return false;
+
+    if (output.type() != MIRType_Value && output.type() != MIRType_Int32) {
+        // The stub assumes that we always output Int32, so make sure our output
+        // is equipped to handle that.
+        return false;
+    }
+
+    return true;
+}
+
 template <class GetPropCache>
 static GetPropertyIC::NativeGetPropCacheability
 CanAttachNativeGetProp(typename GetPropCache::Context cx, const GetPropCache &cache,
@@ -1111,7 +1129,9 @@ CanAttachNativeGetProp(typename GetPropCache::Context cx, const GetPropCache &ca
         return GetPropertyIC::CanAttachReadSlot;
     }
 
-    if (obj->is<ArrayObject>() && cx->names().length == name) {
+    if (cx->names().length == name &&
+        IsCacheableArrayLength(cx, obj, name, cache.output()))
+    {
         // The array length property is non-configurable, which means both that
         // checking the class of the object and the name of the property is enough
         // and that we don't need to worry about monitoring, since we know the
@@ -2287,7 +2307,7 @@ SetPropertyIC::update(JSContext *cx, size_t cacheIndex, HandleObject obj,
     RootedShape oldShape(cx, obj->lastProperty());
 
     // Set/Add the property on the object, the inlined cache are setup for the next execution.
-    if (!SetProperty(cx, obj, name, value, cache.strict(), cache.isSetName()))
+    if (!SetProperty(cx, obj, name, value, cache.strict(), cache.pc()))
         return false;
 
     // The property did not exist before, now we can try to inline the property add.

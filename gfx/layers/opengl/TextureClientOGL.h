@@ -6,12 +6,18 @@
 #ifndef MOZILLA_GFX_TEXTURECLIENTOGL_H
 #define MOZILLA_GFX_TEXTURECLIENTOGL_H
 
-#include "mozilla/layers/TextureClient.h"
-#include "ISurfaceAllocator.h" // For IsSurfaceDescriptorValid
-#include "GLContext.h" // For SharedTextureHandle
+#include "GLContext.h"                  // for SharedTextureHandle, etc
+#include "gfxASurface.h"                // for gfxASurface, etc
+#include "mozilla/Attributes.h"         // for MOZ_OVERRIDE
+#include "mozilla/gfx/Point.h"          // for IntSize
+#include "mozilla/layers/CompositorTypes.h"
+#include "mozilla/layers/LayersSurfaces.h"  // for SurfaceDescriptor
+#include "mozilla/layers/TextureClient.h"  // for DeprecatedTextureClient, etc
 
 namespace mozilla {
 namespace layers {
+
+class CompositableForwarder;
 
 /**
  * A TextureClient implementation to share TextureMemory that is already
@@ -20,7 +26,7 @@ namespace layers {
 class SharedTextureClientOGL : public TextureClient
 {
 public:
-  SharedTextureClientOGL();
+  SharedTextureClientOGL(TextureFlags aFlags);
 
   ~SharedTextureClientOGL();
 
@@ -30,15 +36,15 @@ public:
 
   void InitWith(gl::SharedTextureHandle aHandle,
                 gfx::IntSize aSize,
-                bool aIsCrossProcess = false,
+                gl::GLContext::SharedTextureShareType aShareType,
                 bool aInverted = false);
 
   virtual gfx::IntSize GetSize() const { return mSize; }
 
 protected:
-  gfx::IntSize mSize;
   gl::SharedTextureHandle mHandle;
-  bool mIsCrossProcess;
+  gfx::IntSize mSize;
+  gl::GLContext::SharedTextureShareType mShareType;
   bool mInverted;
 };
 
