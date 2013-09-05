@@ -18,7 +18,6 @@ const {classes: Cc, interfaces: Ci, utils: Cu} = Components;
 
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
-Cu.import("resource://gre/modules/MessagePortBase.jsm");
 Cu.import("resource://gre/modules/Promise.jsm");
 
 XPCOMUtils.defineLazyModuleGetter(this, "SocialService",
@@ -52,16 +51,17 @@ this.getFrameWorkerHandle =
     existingWorker = workerCache[url] = new _Worker(browserPromise, options);
   }
 
+  // XXX - this pref will die eventually...
+  Services.prefs.setBoolPref("dom.messageChannel.enabled", true);
+  // XXX - it seems strange the channel needs a window...
+  let someWindow = Services.wm.getMostRecentWindow('navigator:browser');
+  let channel = new someWindow.MessageChannel();
   // message the content so it can establish a new connection with the worker.
-  let portid = _nextPortId++;
   existingWorker.browserPromise.then(browser => {
     browser.messageManager.sendAsyncMessage("frameworker:connect",
-                                            { portId: portid });
+                                            { port: channel.port2 });
   });
-  // return the pseudo worker object.
-  let port = new ParentPort(portid, existingWorker.browserPromise, clientWindow);
-  existingWorker.ports.set(portid, port);
-  return new WorkerHandle(port, existingWorker);
+  return new WorkerHandle(channel.port1, existingWorker);
 };
 
 // A "_Worker" is an internal representation of a worker.  It's never returned
@@ -69,14 +69,12 @@ this.getFrameWorkerHandle =
 function _Worker(browserPromise, options) {
   this.browserPromise = browserPromise;
   this.options = options;
-  this.ports = new Map();
   browserPromise.then(browser => {
     let mm = browser.messageManager;
     // execute the content script and send the message to bootstrap the content
     // side of the world.
     mm.loadFrameScript("resource://gre/modules/FrameWorkerContent.js", true);
     mm.sendAsyncMessage("frameworker:init", this.options);
-    mm.addMessageListener("frameworker:port-message", this);
     mm.addMessageListener("frameworker:notify-worker-error", this);
   });
 }
@@ -85,10 +83,6 @@ _Worker.prototype = {
   // Message handler.
   receiveMessage: function(msg) {
     switch (msg.name) {
-      case "frameworker:port-message":
-        let port = this.ports.get(msg.data.portId);
-        port._onmessage(msg.data.data);
-        break;
       case "frameworker:notify-worker-error":
         notifyWorkerError(msg.data.origin);
         break;
@@ -131,33 +125,16 @@ WorkerHandle.prototype = {
   }
 };
 
-// The port that lives in the parent chrome process.  The other end of this
-// port is the "client" port in the content process, which itself is just a
-// shim which shuttles messages to/from the worker itself.
-function ParentPort(portid, browserPromise, clientWindow) {
-  this._clientWindow = clientWindow;
-  this._browserPromise = browserPromise;
-  AbstractPort.call(this, portid);
+function PortShim(port) {
+  this.port = port;
 }
 
-ParentPort.prototype = {
-  __exposedProps__: {
-    onmessage: "rw",
-    postMessage: "r",
-    close: "r",
-    toString: "r"
-  },
-  __proto__: AbstractPort.prototype,
-  _portType: "parent",
-
-  _dopost: function(data) {
-    this._browserPromise.then(browser => {
-      browser.messageManager.sendAsyncMessage("frameworker:port-message", data);
-    });
-  },
-
-  _onerror: function(err) {
-    Cu.reportError("FrameWorker: Port " + this + " handler failed: " + err + "\n" + err.stack);
+PortShim.prototype = {
+  close: function() {
+    // a leaky abstraction due to the worker spec not specifying how the
+    // other end of a port knows it is closing.
+    this.port.postMessage({topic: "social.port-closing"});
+    this.port = null;
   },
 
   _JSONParse: function(data) {
@@ -167,18 +144,6 @@ ParentPort.prototype = {
     return JSON.parse(data);
   },
 
-  close: function() {
-    if (this._closed) {
-      return; // already closed.
-    }
-    // a leaky abstraction due to the worker spec not specifying how the
-    // other end of a port knows it is closing.
-    this.postMessage({topic: "social.port-closing"});
-    AbstractPort.prototype.close.call(this);
-    this._clientWindow = null;
-    // this._pendingMessagesOutgoing should still be drained, as a closed
-    // port will still get "entangled" quickly enough to deliver the messages.
-  }
 }
 
 // Make the <browser remote="true"> element that hosts the worker.

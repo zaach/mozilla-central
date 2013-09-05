@@ -11,7 +11,6 @@ if CONFIG['MOZ_SOCIAL']:
     EXTRA_JS_MODULES = [
         'FrameWorker.jsm',
         'FrameWorkerContent.js',
-        'MessagePortBase.jsm',
         'MessagePortWorker.js',
         'MozSocialAPI.jsm',
         'SocialService.jsm',
