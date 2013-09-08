@@ -79,9 +79,10 @@ class OutOfLineUpdateCache :
     }
 
     // ICs' visit functions delegating the work to the CodeGen visit funtions.
-#define VISIT_CACHE_FUNCTION(op)                                \
-    bool visit##op##IC(CodeGenerator *codegen, op##IC *ic) {    \
-        return codegen->visit##op##IC(this, ic);                \
+#define VISIT_CACHE_FUNCTION(op)                                        \
+    bool visit##op##IC(CodeGenerator *codegen) {                        \
+        CodeGenerator::DataPtr<op##IC> ic(codegen, getCacheIndex());    \
+        return codegen->visit##op##IC(this, ic);                        \
     }
 
     IONCACHE_KIND_LIST(VISIT_CACHE_FUNCTION)
@@ -95,7 +96,7 @@ class OutOfLineUpdateCache :
 bool
 CodeGeneratorShared::addCache(LInstruction *lir, size_t cacheIndex)
 {
-    IonCache *cache = static_cast<IonCache *>(getCache(cacheIndex));
+    DataPtr<IonCache> cache(this, cacheIndex);
     MInstruction *mir = lir->mirRaw()->toInstruction();
     if (mir->resumePoint())
         cache->setScriptedLocation(mir->block()->info().script(),
@@ -119,8 +120,7 @@ CodeGeneratorShared::addCache(LInstruction *lir, size_t cacheIndex)
 bool
 CodeGenerator::visitOutOfLineCache(OutOfLineUpdateCache *ool)
 {
-    size_t cacheIndex = ool->getCacheIndex();
-    IonCache *cache = static_cast<IonCache *>(getCache(cacheIndex));
+    DataPtr<IonCache> cache(this, ool->getCacheIndex());
 
     // Register the location of the OOL path in the IC.
     cache->setFallbackLabel(masm.labelForPatch());
@@ -1786,6 +1786,9 @@ CodeGenerator::visitCallGeneric(LCallGeneric *call)
         if (!emitCallToUncompiledScriptPar(call, calleereg))
             return false;
         break;
+
+      default:
+        MOZ_ASSUME_UNREACHABLE("No such execution mode");
     }
 
     masm.bind(&end);
@@ -1911,6 +1914,9 @@ CodeGenerator::visitCallKnown(LCallKnown *call)
         if (!emitCallToUncompiledScriptPar(call, calleereg))
             return false;
         break;
+
+      default:
+        MOZ_ASSUME_UNREACHABLE("No such execution mode");
     }
 
     masm.bind(&end);
@@ -4346,7 +4352,13 @@ IonCompartment::generateStringConcatStub(JSContext *cx, ExecutionMode mode)
     masm.ret();
 
     Linker linker(masm);
-    return linker.newCode(cx, JSC::OTHER_CODE);
+    IonCode *code = linker.newCode(cx, JSC::OTHER_CODE);
+
+#ifdef JS_ION_PERF
+    writePerfSpewerIonCodeProfile(code, "StringConcatStub");
+#endif
+
+    return code;
 }
 
 typedef bool (*CharCodeAtFn)(JSContext *, HandleString, int32_t, uint32_t *);
@@ -4800,7 +4812,7 @@ CodeGenerator::visitOutOfLineStoreElementHole(OutOfLineStoreElementHole *ool)
         masm.jump(ool->rejoin());
         return true;
 
-      case ParallelExecution:
+      case ParallelExecution: {
         //////////////////////////////////////////////////////////////
         // If the problem is that we do not have sufficient capacity,
         // try to reallocate the elements array and then branch back
@@ -4855,6 +4867,10 @@ CodeGenerator::visitOutOfLineStoreElementHole(OutOfLineStoreElementHole *ool)
             return false;
         masm.jump(bail1->entry());
         return true;
+      }
+
+      default:
+        MOZ_ASSUME_UNREACHABLE("No such execution mode");
     }
 
     JS_ASSERT(false);
@@ -5433,6 +5449,10 @@ CodeGenerator::generateAsmJS()
         return false;
     if (!generateEpilogue())
         return false;
+#if defined(JS_ION_PERF)
+    // Note the end of the inline code and start of the OOL code.
+    gen->perfSpewer().noteEndInlineCode(masm);
+#endif
     if (!generateOutOfLineCode())
         return false;
 
@@ -5451,7 +5471,6 @@ CodeGenerator::generateAsmJS()
     JS_ASSERT(osiIndices_.empty());
     JS_ASSERT(cacheList_.empty());
     JS_ASSERT(safepoints_.size() == 0);
-    JS_ASSERT(graph.mir().numScripts() == 0);
     return true;
 }
 
@@ -5501,6 +5520,10 @@ CodeGenerator::generate()
         return false;
     if (!generateInvalidateEpilogue())
         return false;
+#if defined(JS_ION_PERF)
+    // Note the end of the inline code and start of the OOL code.
+    perfSpewer_.noteEndInlineCode(masm);
+#endif
     if (!generateOutOfLineCode())
         return false;
 
@@ -5537,8 +5560,8 @@ CodeGenerator::link()
                      bailouts_.length(), graph.numConstants(),
                      safepointIndices_.length(), osiIndices_.length(),
                      cacheList_.length(), runtimeData_.length(),
-                     safepoints_.size(), graph.mir().numScripts(),
-                     callTargets.length(), patchableBackedges_.length());
+                     safepoints_.size(), callTargets.length(),
+                     patchableBackedges_.length());
     if (!ionScript)
         return false;
 
@@ -5559,8 +5582,12 @@ CodeGenerator::link()
     IonCode *code = (executionMode == SequentialExecution)
                     ? linker.newCodeForIonScript(cx)
                     : linker.newCode(cx, JSC::ION_CODE);
-    if (!code)
+    if (!code) {
+        // Use js_free instead of IonScript::Destroy: the cache list and
+        // backedge list are still uninitialized.
+        js_free(ionScript);
         return false;
+    }
 
     JSScript *script = gen->info().script();
     JS_ASSERT(!HasIonScript(script, executionMode));
@@ -5596,8 +5623,10 @@ CodeGenerator::link()
 
     ionScript->setDeoptTable(deoptTable_);
 
+#if defined(JS_ION_PERF)
     if (PerfEnabled())
         perfSpewer_.writeProfile(script, code, masm);
+#endif
 
     // for generating inline caches during the execution.
     if (runtimeData_.length())
@@ -5620,8 +5649,6 @@ CodeGenerator::link()
         ionScript->copySnapshots(&snapshots_);
     if (graph.numConstants())
         ionScript->copyConstants(graph.constantPool());
-    JS_ASSERT(graph.mir().numScripts() > 0);
-    ionScript->copyScriptEntries(graph.mir().scripts());
     if (callTargets.length() > 0)
         ionScript->copyCallTargetEntries(callTargets.begin());
     if (patchableBackedges_.length() > 0)
@@ -5832,7 +5859,7 @@ const VMFunction CallsiteCloneIC::UpdateInfo =
     FunctionInfo<CallsiteCloneICFn>(CallsiteCloneIC::update);
 
 bool
-CodeGenerator::visitCallsiteCloneIC(OutOfLineUpdateCache *ool, CallsiteCloneIC *ic)
+CodeGenerator::visitCallsiteCloneIC(OutOfLineUpdateCache *ool, DataPtr<CallsiteCloneIC> &ic)
 {
     LInstruction *lir = ool->lir();
     saveLive(lir);
@@ -5864,7 +5891,7 @@ typedef bool (*NameICFn)(JSContext *, size_t, HandleObject, MutableHandleValue);
 const VMFunction NameIC::UpdateInfo = FunctionInfo<NameICFn>(NameIC::update);
 
 bool
-CodeGenerator::visitNameIC(OutOfLineUpdateCache *ool, NameIC *ic)
+CodeGenerator::visitNameIC(OutOfLineUpdateCache *ool, DataPtr<NameIC> &ic)
 {
     LInstruction *lir = ool->lir();
     saveLive(lir);
@@ -5928,9 +5955,17 @@ const VMFunction GetPropertyIC::UpdateInfo =
     FunctionInfo<GetPropertyICFn>(GetPropertyIC::update);
 
 bool
-CodeGenerator::visitGetPropertyIC(OutOfLineUpdateCache *ool, GetPropertyIC *ic)
+CodeGenerator::visitGetPropertyIC(OutOfLineUpdateCache *ool, DataPtr<GetPropertyIC> &ic)
 {
     LInstruction *lir = ool->lir();
+
+    if (ic->idempotent()) {
+        size_t numLocs;
+        CacheLocationList &cacheLocs = lir->mirRaw()->toGetPropertyCache()->location();
+        size_t locationBase = addCacheLocations(cacheLocs, &numLocs);
+        ic->setLocationInfo(locationBase, numLocs);
+    }
+
     saveLive(lir);
 
     pushArg(ic->object());
@@ -5950,7 +5985,7 @@ const VMFunction GetPropertyParIC::UpdateInfo =
     FunctionInfo<GetPropertyParICFn>(GetPropertyParIC::update);
 
 bool
-CodeGenerator::visitGetPropertyParIC(OutOfLineUpdateCache *ool, GetPropertyParIC *ic)
+CodeGenerator::visitGetPropertyParIC(OutOfLineUpdateCache *ool, DataPtr<GetPropertyParIC> &ic)
 {
     LInstruction *lir = ool->lir();
     saveLive(lir);
@@ -6009,7 +6044,7 @@ const VMFunction GetElementIC::UpdateInfo =
     FunctionInfo<GetElementICFn>(GetElementIC::update);
 
 bool
-CodeGenerator::visitGetElementIC(OutOfLineUpdateCache *ool, GetElementIC *ic)
+CodeGenerator::visitGetElementIC(OutOfLineUpdateCache *ool, DataPtr<GetElementIC> &ic)
 {
     LInstruction *lir = ool->lir();
     saveLive(lir);
@@ -6064,7 +6099,7 @@ const VMFunction SetElementIC::UpdateInfo =
     FunctionInfo<SetElementICFn>(SetElementIC::update);
 
 bool
-CodeGenerator::visitSetElementIC(OutOfLineUpdateCache *ool, SetElementIC *ic)
+CodeGenerator::visitSetElementIC(OutOfLineUpdateCache *ool, DataPtr<SetElementIC> &ic)
 {
     LInstruction *lir = ool->lir();
     saveLive(lir);
@@ -6087,7 +6122,7 @@ const VMFunction GetElementParIC::UpdateInfo =
     FunctionInfo<GetElementParICFn>(GetElementParIC::update);
 
 bool
-CodeGenerator::visitGetElementParIC(OutOfLineUpdateCache *ool, GetElementParIC *ic)
+CodeGenerator::visitGetElementParIC(OutOfLineUpdateCache *ool, DataPtr<GetElementParIC> &ic)
 {
     LInstruction *lir = ool->lir();
     saveLive(lir);
@@ -6119,7 +6154,7 @@ const VMFunction BindNameIC::UpdateInfo =
     FunctionInfo<BindNameICFn>(BindNameIC::update);
 
 bool
-CodeGenerator::visitBindNameIC(OutOfLineUpdateCache *ool, BindNameIC *ic)
+CodeGenerator::visitBindNameIC(OutOfLineUpdateCache *ool, DataPtr<BindNameIC> &ic)
 {
     LInstruction *lir = ool->lir();
     saveLive(lir);
@@ -6175,6 +6210,24 @@ CodeGenerator::visitCallDeleteProperty(LCallDeleteProperty *lir)
     return callVM(DeletePropertyNonStrictInfo, lir);
 }
 
+typedef bool (*DeleteElementFn)(JSContext *, HandleValue, HandleValue, bool *);
+static const VMFunction DeleteElementStrictInfo =
+    FunctionInfo<DeleteElementFn>(DeleteElement<true>);
+static const VMFunction DeleteElementNonStrictInfo =
+    FunctionInfo<DeleteElementFn>(DeleteElement<false>);
+
+bool
+CodeGenerator::visitCallDeleteElement(LCallDeleteElement *lir)
+{
+    pushArg(ToValue(lir, LCallDeleteElement::Index));
+    pushArg(ToValue(lir, LCallDeleteElement::Value));
+
+    if (lir->mir()->block()->info().script()->strict)
+        return callVM(DeleteElementStrictInfo, lir);
+
+    return callVM(DeleteElementNonStrictInfo, lir);
+}
+
 bool
 CodeGenerator::visitSetPropertyCacheV(LSetPropertyCacheV *ins)
 {
@@ -6182,7 +6235,8 @@ CodeGenerator::visitSetPropertyCacheV(LSetPropertyCacheV *ins)
     Register objReg = ToRegister(ins->getOperand(0));
     ConstantOrRegister value = TypedOrValueRegister(ToValue(ins, LSetPropertyCacheV::Value));
 
-    SetPropertyIC cache(liveRegs, objReg, ins->mir()->name(), value, ins->mir()->strict());
+    SetPropertyIC cache(liveRegs, objReg, ins->mir()->name(), value, ins->mir()->strict(),
+                        ins->mir()->needsTypeBarrier());
     return addCache(ins, allocateCache(cache));
 }
 
@@ -6198,7 +6252,8 @@ CodeGenerator::visitSetPropertyCacheT(LSetPropertyCacheT *ins)
     else
         value = TypedOrValueRegister(ins->valueType(), ToAnyRegister(ins->getOperand(1)));
 
-    SetPropertyIC cache(liveRegs, objReg, ins->mir()->name(), value, ins->mir()->strict());
+    SetPropertyIC cache(liveRegs, objReg, ins->mir()->name(), value, ins->mir()->strict(),
+                        ins->mir()->needsTypeBarrier());
     return addCache(ins, allocateCache(cache));
 }
 
@@ -6207,7 +6262,7 @@ const VMFunction SetPropertyIC::UpdateInfo =
     FunctionInfo<SetPropertyICFn>(SetPropertyIC::update);
 
 bool
-CodeGenerator::visitSetPropertyIC(OutOfLineUpdateCache *ool, SetPropertyIC *ic)
+CodeGenerator::visitSetPropertyIC(OutOfLineUpdateCache *ool, DataPtr<SetPropertyIC> &ic)
 {
     LInstruction *lir = ool->lir();
     saveLive(lir);
@@ -6547,7 +6602,7 @@ template <typename T>
 static inline void
 StoreToTypedArray(MacroAssembler &masm, int arrayType, const LAllocation *value, const T &dest)
 {
-    if (arrayType == TypedArrayObject::TYPE_FLOAT32 || arrayType == TypedArrayObject::TYPE_FLOAT64) {
+    if (arrayType == ScalarTypeRepresentation::TYPE_FLOAT32 || arrayType == ScalarTypeRepresentation::TYPE_FLOAT64) {
         masm.storeToTypedFloatArray(arrayType, ToFloatRegister(value), dest);
     } else {
         if (value->isConstant())
@@ -7269,7 +7324,7 @@ CodeGenerator::visitAsmJSVoidReturn(LAsmJSVoidReturn *lir)
 bool
 CodeGenerator::visitAsmJSCheckOverRecursed(LAsmJSCheckOverRecursed *lir)
 {
-    uintptr_t *limitAddr = &GetIonContext()->runtime->mainThread.nativeStackLimit;
+    uintptr_t *limitAddr = &GetIonContext()->runtime->mainThread.nativeStackLimit[StackForUntrustedScript];
     masm.branchPtr(Assembler::AboveOrEqual,
                    AbsoluteAddress(limitAddr),
                    StackPointer,

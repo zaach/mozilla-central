@@ -188,7 +188,7 @@ frontend::CompileScript(ExclusiveContext *cx, LifoAlloc *alloc, HandleObject sco
     if (options.filename && !ss->setFilename(cx, options.filename))
         return NULL;
 
-    JS::RootedScriptSource sourceObject(cx, ScriptSourceObject::create(cx, ss));
+    RootedScriptSource sourceObject(cx, ScriptSourceObject::create(cx, ss));
     if (!sourceObject)
         return NULL;
 
@@ -258,7 +258,7 @@ frontend::CompileScript(ExclusiveContext *cx, LifoAlloc *alloc, HandleObject sco
 
     pc.construct(&parser, (GenericParseContext *) NULL, (ParseNode *) NULL, &globalsc,
                  (Directives *) NULL, staticLevel, /* bodyid = */ 0);
-    if (!pc.ref().init())
+    if (!pc.ref().init(parser.tokenStream))
         return NULL;
 
     /* If this is a direct call to eval, inherit the caller's strictness.  */
@@ -325,7 +325,7 @@ frontend::CompileScript(ExclusiveContext *cx, LifoAlloc *alloc, HandleObject sco
                 pc.destroy();
                 pc.construct(&parser, (GenericParseContext *) NULL, (ParseNode *) NULL,
                              &globalsc, (Directives *) NULL, staticLevel, /* bodyid = */ 0);
-                if (!pc.ref().init())
+                if (!pc.ref().init(parser.tokenStream))
                     return NULL;
                 JS_ASSERT(parser.pc == pc.addr());
                 pn = parser.statement();
@@ -416,7 +416,7 @@ frontend::CompileLazyFunction(JSContext *cx, LazyScript *lazy, const jschar *cha
         return false;
 
     RootedObject enclosingScope(cx, lazy->enclosingScope());
-    JS::RootedScriptSource sourceObject(cx, lazy->sourceObject());
+    RootedScriptSource sourceObject(cx, lazy->sourceObject());
     JS_ASSERT(sourceObject);
 
     Rooted<JSScript*> script(cx, JSScript::Create(cx, enclosingScope, false,
@@ -468,7 +468,7 @@ CompileFunctionBody(JSContext *cx, MutableHandleFunction fun, CompileOptions opt
         return false;
     if (options.filename && !ss->setFilename(cx, options.filename))
         return false;
-    JS::RootedScriptSource sourceObject(cx, ScriptSourceObject::create(cx, ss));
+    RootedScriptSource sourceObject(cx, ScriptSourceObject::create(cx, ss));
     if (!sourceObject)
         return false;
     SourceCompressionTask sct(cx);

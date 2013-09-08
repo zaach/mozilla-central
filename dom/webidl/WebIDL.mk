@@ -195,7 +195,9 @@ webidl_files = \
   MediaStreamAudioSourceNode.webidl \
   MediaStreamEvent.webidl \
   MediaStreamTrack.webidl \
+  MessageChannel.webidl \
   MessageEvent.webidl \
+  MessagePort.webidl \
   MimeType.webidl \
   MimeTypeArray.webidl \
   MobileMessageManager.webidl \
@@ -361,7 +363,6 @@ webidl_files = \
   TextDecoder.webidl \
   TextEncoder.webidl \
   TextTrack.webidl \
-  TextTrackCue.webidl \
   TextTrackCueList.webidl \
   TextTrackList.webidl \
   TimeEvent.webidl \
@@ -377,6 +378,7 @@ webidl_files = \
   URL.webidl \
   URLUtils.webidl \
   URLUtilsReadOnly.webidl \
+  VTTCue.webidl \
   ValidityState.webidl \
   VideoPlaybackQuality.webidl \
   VideoStreamTrack.webidl \
@@ -445,6 +447,7 @@ ifdef MOZ_B2G_RIL
 webidl_files += \
   CallsList.webidl \
   MozStkCommandEvent.webidl \
+  MozVoicemail.webidl \
   Telephony.webidl \
   TelephonyCall.webidl \
   TelephonyCallGroup.webidl \
@@ -520,6 +523,10 @@ webidl_files += \
   SpeechRecognitionError.webidl \
   SpeechRecognitionEvent.webidl \
   $(NULL)
+endif
+
+ifdef MOZ_B2G_FM
+webidl_files += FMRadio.webidl
 endif
 
 ifdef ENABLE_TESTS

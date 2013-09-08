@@ -1184,6 +1184,14 @@ var gBrowserInit = {
       }
     }
 
+    // Enable App Manager?
+    let appMgrEnabled = gPrefService.getBoolPref("devtools.appmanager.enabled");
+    if (appMgrEnabled) {
+      let cmd = document.getElementById("Tools:DevAppMgr");
+      cmd.removeAttribute("disabled");
+      cmd.removeAttribute("hidden");
+    }
+
     // Enable Chrome Debugger?
     let chromeEnabled = gPrefService.getBoolPref("devtools.chrome.enabled");
     let remoteEnabled = chromeEnabled &&
@@ -2214,9 +2222,10 @@ function losslessDecodeURI(aURI) {
                          encodeURIComponent);
     } catch (e) {}
 
-  // Encode invisible characters (line and paragraph separator,
-  // object replacement character) (bug 452979)
-  value = value.replace(/[\v\x0c\x1c\x1d\x1e\x1f\u2028\u2029\ufffc]/g,
+  // Encode invisible characters (C0/C1 control characters, U+007F [DEL],
+  // U+00A0 [no-break space], line and paragraph separator,
+  // object replacement character) (bug 452979, bug 909264)
+  value = value.replace(/[\u0000-\u001f\u007f-\u00a0\u2028\u2029\ufffc]/g,
                         encodeURIComponent);
 
   // Encode default ignorable characters (bug 546013)
@@ -2340,6 +2349,9 @@ let BrowserOnClick = {
     else if (gMultiProcessBrowser &&
              ownerDoc.documentURI.toLowerCase() == "about:newtab") {
       this.onE10sAboutNewTab(aEvent, ownerDoc);
+    }
+    else if (ownerDoc.documentURI.startsWith("about:tabcrashed")) {
+      this.onAboutTabCrashed(aEvent, ownerDoc);
     }
   },
 
@@ -2473,6 +2485,22 @@ let BrowserOnClick = {
     }
   },
 
+  /**
+   * The about:tabcrashed can't do window.reload() because that
+   * would reload the page but not use a remote browser.
+   */
+  onAboutTabCrashed: function(aEvent, aOwnerDoc) {
+    let isTopFrame = (aOwnerDoc.defaultView.parent === aOwnerDoc.defaultView);
+    if (!isTopFrame) {
+      return;
+    }
+
+    let button = aEvent.originalTarget;
+    if (button.id == "tryAgain") {
+      openUILinkIn(button.getAttribute("url"), "current");
+    }
+  },
+
   ignoreWarningButton: function BrowserOnClick_ignoreWarningButton(aIsMalware) {
     // Allow users to override and continue through to the site,
     // but add a notify bar as a reminder, so that they don't lose
@@ -2582,6 +2610,16 @@ function getWebNavigation()
 }
 
 function BrowserReloadWithFlags(reloadFlags) {
+  let url = gBrowser.currentURI.spec;
+  if (gBrowser._updateBrowserRemoteness(gBrowser.selectedBrowser,
+                                        gBrowser._shouldBrowserBeRemote(url))) {
+    // If the remoteness has changed, the new browser doesn't have any
+    // information of what was loaded before, so we need to load the previous
+    // URL again.
+    gBrowser.loadURIWithFlags(url, reloadFlags);
+    return;
+  }
+
   /* First, we'll try to use the session history object to reload so
    * that framesets are handled properly. If we're in a special
    * window (such as view-source) that has no session history, fall
@@ -6856,12 +6894,17 @@ var gIdentityHandler = {
     this._permissionsContainer.hidden = !this._permissionList.hasChildNodes();
   },
 
+  setPermission: function (aPermission, aState) {
+    if (aState == SitePermissions.getDefault(aPermission))
+      SitePermissions.remove(gBrowser.currentURI, aPermission);
+    else
+      SitePermissions.set(gBrowser.currentURI, aPermission, aState);
+  },
+
   _createPermissionItem: function (aPermission, aState) {
     let menulist = document.createElement("menulist");
     let menupopup = document.createElement("menupopup");
     for (let state of SitePermissions.getAvailableStates(aPermission)) {
-      if (state == SitePermissions.UNKNOWN)
-        continue;
       let menuitem = document.createElement("menuitem");
       menuitem.setAttribute("value", state);
       menuitem.setAttribute("label", SitePermissions.getStateLabel(aPermission, state));
@@ -6869,7 +6912,7 @@ var gIdentityHandler = {
     }
     menulist.appendChild(menupopup);
     menulist.setAttribute("value", aState);
-    menulist.setAttribute("oncommand", "SitePermissions.set(gBrowser.currentURI, '" +
+    menulist.setAttribute("oncommand", "gIdentityHandler.setPermission('" +
                                        aPermission + "', this.value)");
     menulist.setAttribute("id", "identity-popup-permission:" + aPermission);
 

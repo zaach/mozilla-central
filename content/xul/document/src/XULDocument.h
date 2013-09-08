@@ -25,6 +25,8 @@
 
 #include "mozilla/Attributes.h"
 
+#include "js/TypeDecls.h"
+
 class nsIRDFResource;
 class nsIRDFService;
 class nsPIWindowRoot;
@@ -40,7 +42,6 @@ class nsIXULPrototypeScript;
 #include "nsURIHashKey.h"
 #include "nsInterfaceHashtable.h"
 
-class JSObject;
 struct JSTracer;
 struct PRLogModuleInfo;
 
@@ -718,9 +719,9 @@ protected:
      */
     PLDHashTable* mBroadcasterMap;
 
-    nsInterfaceHashtable<nsURIHashKey,nsIObserver> mOverlayLoadObservers;
-    nsInterfaceHashtable<nsURIHashKey,nsIObserver> mPendingOverlayLoadNotifications;
-    
+    nsAutoPtr<nsInterfaceHashtable<nsURIHashKey,nsIObserver> > mOverlayLoadObservers;
+    nsAutoPtr<nsInterfaceHashtable<nsURIHashKey,nsIObserver> > mPendingOverlayLoadNotifications;
+
     bool mInitialLayoutComplete;
 
     class nsDelayedBroadcastUpdate

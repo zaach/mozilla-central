@@ -529,11 +529,11 @@ RasterImage::Init(const char* aMimeType,
 NS_IMETHODIMP_(void)
 RasterImage::RequestRefresh(const mozilla::TimeStamp& aTime)
 {
-  if (!ShouldAnimate()) {
+  EvaluateAnimation();
+
+  if (!mAnimating) {
     return;
   }
-
-  EvaluateAnimation();
 
   FrameAnimator::RefreshResult res;
   if (mAnim) {
@@ -1457,6 +1457,8 @@ RasterImage::StopAnimation()
   if (mError)
     return NS_ERROR_FAILURE;
 
+  mAnim->SetAnimationFrameTime(TimeStamp());
+
   return NS_OK;
 }
 
@@ -1487,8 +1489,8 @@ RasterImage::ResetAnimation()
   // Note - We probably want to kick off a redecode somewhere around here when
   // we fix bug 500402.
 
-  // Update display if we were animating before
-  if (mAnimating && mStatusTracker) {
+  // Update display
+  if (mStatusTracker) {
     nsIntRect rect = mAnim->GetFirstFrameRefreshArea();
     mStatusTracker->FrameChanged(&rect);
   }
@@ -1505,11 +1507,11 @@ RasterImage::ResetAnimation()
 }
 
 //******************************************************************************
-// [notxpcom] void requestRefresh ([const] in TimeStamp aTime);
+// [notxpcom] void setAnimationStartTime ([const] in TimeStamp aTime);
 NS_IMETHODIMP_(void)
 RasterImage::SetAnimationStartTime(const mozilla::TimeStamp& aTime)
 {
-  if (mError || mAnimating || !mAnim)
+  if (mError || mAnimationMode == kDontAnimMode || mAnimating || !mAnim)
     return;
 
   mAnim->SetAnimationFrameTime(aTime);
@@ -2963,23 +2965,20 @@ RasterImage::FinishedSomeDecoding(eShutdownIntent aIntent /* = eShutdownIntent_D
     }
   }
 
-  imgStatusTracker::StatusDiff diff;
+  ImageStatusDiff diff;
   if (request) {
-    diff = image->mStatusTracker->CalculateAndApplyDifference(request->mStatusTracker);
+    diff = image->mStatusTracker->Difference(request->mStatusTracker);
+    image->mStatusTracker->ApplyDifference(diff);
+  } else {
+    diff = image->mStatusTracker->DecodeStateAsDifference();
   }
 
   {
     // Notifications can't go out with the decoding lock held.
     MutexAutoUnlock unlock(mDecodingMutex);
 
-    // Then, tell the observers what happened in the decoder.
-    // If we have no request, we have not yet created a decoder, but we still
-    // need to send out notifications.
-    if (request) {
-      image->mStatusTracker->SyncNotifyDifference(diff);
-    } else {
-      image->mStatusTracker->SyncNotifyDecodeState();
-    }
+    // Then, tell the observers what has happened.
+    image->mStatusTracker->SyncNotifyDifference(diff);
 
     // If we were a size decode and a full decode was requested, now's the time.
     if (NS_SUCCEEDED(rv) && aIntent != eShutdownIntent_Error && done &&

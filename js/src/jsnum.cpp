@@ -79,11 +79,11 @@ ComputeAccurateDecimalInteger(ThreadSafeContext *cx,
         js_free(cstr);
         return false;
     }
-    if (err == JS_DTOA_ERANGE && *dp == HUGE_VAL)
-        *dp = js_PositiveInfinity;
     js_free(cstr);
     return true;
 }
+
+namespace {
 
 class BinaryDigitReader
 {
@@ -121,6 +121,8 @@ class BinaryDigitReader
         return bit;
     }
 };
+
+} /* anonymous namespace */
 
 /*
  * The fast result might also have been inaccurate for power-of-two bases. This
@@ -532,8 +534,7 @@ ToCStringBuf::ToCStringBuf() :dbuf(NULL)
 
 ToCStringBuf::~ToCStringBuf()
 {
-    if (dbuf)
-        js_free(dbuf);
+    js_free(dbuf);
 }
 
 template <AllowGC allowGC>
@@ -1715,10 +1716,6 @@ js_strtod(ThreadSafeContext *cx, const jschar *s, const jschar *send,
     } else {
         int err;
         d = js_strtod_harder(cx->dtoaState(), cstr, &estr, &err);
-        if (d == HUGE_VAL)
-            d = js_PositiveInfinity;
-        else if (d == -HUGE_VAL)
-            d = js_NegativeInfinity;
     }
 
     i = estr - cstr;

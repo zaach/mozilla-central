@@ -74,6 +74,7 @@ const DOM_MOBILE_MESSAGE_DELIVERY_SENT     = "sent";
 const DOM_MOBILE_MESSAGE_DELIVERY_ERROR    = "error";
 
 const CALL_WAKELOCK_TIMEOUT              = 5000;
+const RADIO_POWER_OFF_TIMEOUT            = 30000;
 
 const RIL_IPC_TELEPHONY_MSG_NAMES = [
   "RIL:EnumerateCalls",
@@ -1516,12 +1517,50 @@ RadioInterface.prototype = {
 
     if (this.rilContext.radioState == RIL.GECKO_RADIOSTATE_OFF &&
         this._radioEnabled) {
+      this._changingRadioPower = true;
       this.setRadioEnabled(true);
     }
     if (this.rilContext.radioState == RIL.GECKO_RADIOSTATE_READY &&
         !this._radioEnabled) {
-      this.setRadioEnabled(false);
+      this._changingRadioPower = true;
+      this.powerOffRadioSafely();
     }
+  },
+
+  _radioOffTimer: null,
+  _cancelRadioOffTimer: function _cancelRadioOffTimer() {
+    if (this._radioOffTimer) {
+      this._radioOffTimer.cancel();
+    }
+  },
+  _fireRadioOffTimer: function _fireRadioOffTimer() {
+    if (DEBUG) this.debug("Radio off timer expired, set radio power off right away.");
+    this.setRadioEnabled(false);
+  },
+
+  /**
+   * Clean up all existing data calls before turning radio off.
+   */
+  powerOffRadioSafely: function powerOffRadioSafely() {
+    let dataDisconnecting = false;
+    for each (let apnSetting in this.apnSettings.byAPN) {
+      for each (let type in apnSetting.types) {
+        if (this.getDataCallStateByType(type) ==
+            RIL.GECKO_NETWORK_STATE_CONNECTED) {
+          this.deactivateDataCallByType(type);
+          dataDisconnecting = true;
+        }
+      }
+    }
+    if (dataDisconnecting) {
+      if (this._radioOffTimer == null) {
+        this._radioOffTimer = Cc["@mozilla.org/timer;1"].createInstance(Ci.nsITimer);
+      }
+      this._radioOffTimer.initWithCallback(this._fireRadioOffTimer.bind(this),
+                                           RADIO_POWER_OFF_TIMEOUT, Ci.nsITimer.TYPE_ONE_SHOT);
+      return;
+    }
+    this.setRadioEnabled(false);
   },
 
   /**
@@ -2086,6 +2125,29 @@ RadioInterface.prototype = {
 
     this._deliverDataCallCallback("dataCallStateChanged",
                                   [datacall]);
+
+    // Process pending radio power off request after all data calls
+    // are disconnected.
+    if (datacall.state == RIL.GECKO_NETWORK_STATE_UNKNOWN &&
+        this._changingRadioPower) {
+      let anyDataConnected = false;
+      for each (let apnSetting in this.apnSettings.byAPN) {
+        for each (let type in apnSetting.types) {
+          if (this.getDataCallStateByType(type) == RIL.GECKO_NETWORK_STATE_CONNECTED) {
+            anyDataConnected = true;
+            break;
+          }
+        }
+        if (anyDataConnected) {
+          break;
+        }
+      }
+      if (!anyDataConnected) {
+        if (DEBUG) this.debug("All data connections are disconnected, set radio off.");
+        this._cancelRadioOffTimer();
+        this.setRadioEnabled(false);
+      }
+    }
   },
 
   /**
@@ -2160,21 +2222,14 @@ RadioInterface.prototype = {
     let oldIccInfo = this.rilContext.iccInfo;
     this.rilContext.iccInfo = message;
 
-    let iccInfoChanged = !oldIccInfo ||
-                          oldIccInfo.iccid != message.iccid ||
-                          oldIccInfo.mcc != message.mcc ||
-                          oldIccInfo.mnc != message.mnc ||
-                          oldIccInfo.spn != message.spn ||
-                          oldIccInfo.isDisplayNetworkNameRequired != message.isDisplayNetworkNameRequired ||
-                          oldIccInfo.isDisplaySpnRequired != message.isDisplaySpnRequired ||
-                          oldIccInfo.msisdn != message.msisdn;
-    if (!iccInfoChanged) {
+    if (!this.isInfoChanged(message, oldIccInfo)) {
       return;
     }
     // RIL:IccInfoChanged corresponds to a DOM event that gets fired only
-    // when the MCC or MNC codes have changed.
+    // when iccInfo has changed.
     gMessageManager.sendIccMessage("RIL:IccInfoChanged",
-                                   this.clientId, message);
+                                   this.clientId,
+                                   message.iccType ? message : null);
 
     // Update lastKnownSimMcc.
     if (message.mcc) {
@@ -2398,7 +2453,6 @@ RadioInterface.prototype = {
 
   setRadioEnabled: function setRadioEnabled(value) {
     if (DEBUG) this.debug("Setting radio power to " + value);
-    this._changingRadioPower = true;
     this.workerMessenger.send("setRadioPower", { on: value });
   },
 
@@ -2933,7 +2987,7 @@ RadioInterface.prototype = {
     return options;
   },
 
-  getSegmentInfoForText: function getSegmentInfoForText(text) {
+  getSegmentInfoForText: function getSegmentInfoForText(text, request) {
     let strict7BitEncoding;
     try {
       strict7BitEncoding = Services.prefs.getBoolPref("dom.sms.strict7BitEncoding");
@@ -2954,10 +3008,11 @@ RadioInterface.prototype = {
       charsInLastSegment = 0;
     }
 
-    let result = gMobileMessageService.createSmsSegmentInfo(options.segmentMaxSeq,
-                                                            options.segmentChars,
-                                                            options.segmentChars - charsInLastSegment);
-    return result;
+    let result = gMobileMessageService
+                 .createSmsSegmentInfo(options.segmentMaxSeq,
+                                       options.segmentChars,
+                                       options.segmentChars - charsInLastSegment);
+    request.notifySegmentInfoForTextGot(result);
   },
 
   sendSMS: function sendSMS(number, message, silent, request) {
@@ -3068,11 +3123,11 @@ RadioInterface.prototype = {
             .setMessageDeliveryByMessageId(context.sms.id,
                                            null,
                                            context.sms.delivery,
-                                           message.deliveryStatus,
+                                           response.deliveryStatus,
                                            null,
                                            function notifyResult(rv, domMessage) {
             // TODO bug 832140 handle !Components.isSuccessCode(rv)
-            let topic = (message.deliveryStatus == RIL.GECKO_SMS_DELIVERY_STATUS_SUCCESS)
+            let topic = (response.deliveryStatus == RIL.GECKO_SMS_DELIVERY_STATUS_SUCCESS)
                         ? kSmsDeliverySuccessObserverTopic
                         : kSmsDeliveryErrorObserverTopic;
             Services.obs.notifyObservers(domMessage, topic, null);

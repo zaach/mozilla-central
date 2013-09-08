@@ -21,7 +21,6 @@ EXPORTS.mozilla.dom += [
     'DOMJSProxyHandler.h',
     'Date.h',
     'Errors.msg',
-    'GeneratedAtomList.h',
     'JSSlots.h',
     'NonRefcountedDOMObject.h',
     'Nullable.h',
@@ -34,4 +33,6 @@ FAIL_ON_WARNINGS = True
 LIBXUL_LIBRARY = True
 
 MSVC_ENABLE_PGO = True
+
+LIBRARY_NAME = 'dombindings_s'
 

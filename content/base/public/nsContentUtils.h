@@ -18,12 +18,14 @@
 #include <ieeefp.h>
 #endif
 
+#include "js/TypeDecls.h"
 #include "js/RootingAPI.h"
 #include "mozilla/Assertions.h"
 #include "mozilla/GuardObjects.h"
 #include "mozilla/TimeStamp.h"
 #include "nsContentListDeclarations.h"
 #include "nsMathUtils.h"
+#include "Units.h"
 
 class imgICache;
 class imgIContainer;
@@ -92,7 +94,6 @@ class nsTextFragment;
 class nsViewportInfo;
 class nsWrapperCache;
 
-struct JSContext;
 struct JSPropertyDescriptor;
 struct JSRuntime;
 struct nsIntMargin;
@@ -102,10 +103,6 @@ template<class E> class nsTArray;
 template<class K, class V> class nsDataHashtable;
 template<class K, class V> class nsRefPtrHashtable;
 template<class T> class nsReadingIterator;
-
-namespace JS {
-class Value;
-} // namespace JS
 
 namespace mozilla {
 class ErrorResult;
@@ -189,6 +186,7 @@ public:
   static JSContext* GetContextFromDocument(nsIDocument *aDocument);
 
   static bool     IsCallerChrome();
+  static bool     ThreadsafeIsCallerChrome();
   static bool     IsCallerXBL();
 
   static bool     IsImageSrcSetDisabled();
@@ -1248,28 +1246,6 @@ public:
    */
   static void DestroyAnonymousContent(nsCOMPtr<nsIContent>* aContent);
 
-  /**
-   * Keep the JS objects held by aScriptObjectHolder alive.
-   *
-   * @param aScriptObjectHolder the object that holds JS objects that we want to
-   *                            keep alive
-   * @param aTracer the tracer for aScriptObject
-   */
-  static void HoldJSObjects(void* aScriptObjectHolder,
-                            nsScriptObjectTracer* aTracer);
-
-  /**
-   * Drop the JS objects held by aScriptObjectHolder.
-   *
-   * @param aScriptObjectHolder the object that holds JS objects that we want to
-   *                            drop
-   */
-  static void DropJSObjects(void* aScriptObjectHolder);
-
-#ifdef DEBUG
-  static bool AreJSObjectsHeld(void* aScriptObjectHolder); 
-#endif
-
   static void DeferredFinalize(nsISupports* aSupports);
   static void DeferredFinalize(mozilla::DeferredFinalizeAppendFunction aAppendFunc,
                                mozilla::DeferredFinalizeFunction aFunc,
@@ -1533,17 +1509,16 @@ public:
    * will return viewport information that specifies default information.
    */
   static nsViewportInfo GetViewportInfo(nsIDocument* aDocument,
-                                        uint32_t aDisplayWidth,
-                                        uint32_t aDisplayHeight);
+                                        const mozilla::ScreenIntSize& aDisplaySize);
 
   // Call EnterMicroTask when you're entering JS execution.
   // Usually the best way to do this is to use nsAutoMicroTask.
-  static void EnterMicroTask() { ++sMicroTaskLevel; }
+  static void EnterMicroTask();
   static void LeaveMicroTask();
 
-  static bool IsInMicroTask() { return sMicroTaskLevel != 0; }
-  static uint32_t MicroTaskLevel() { return sMicroTaskLevel; }
-  static void SetMicroTaskLevel(uint32_t aLevel) { sMicroTaskLevel = aLevel; }
+  static bool IsInMicroTask();
+  static uint32_t MicroTaskLevel();
+  static void SetMicroTaskLevel(uint32_t aLevel);
 
   /* Process viewport META data. This gives us information for the scale
    * and zoom of a page on mobile devices. We stick the information in
@@ -1615,6 +1590,7 @@ public:
   static nsresult GetUTFOrigin(nsIPrincipal* aPrincipal,
                                nsString& aOrigin);
   static nsresult GetUTFOrigin(nsIURI* aURI, nsString& aOrigin);
+  static void GetUTFNonNullOrigin(nsIURI* aURI, nsString& aOrigin);
 
   /**
    * This method creates and dispatches "command" event, which implements

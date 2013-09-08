@@ -21,6 +21,7 @@ Cu.import("resource://gre/modules/OfflineCacheInstaller.jsm");
 Cu.import("resource://gre/modules/SystemMessagePermissionsChecker.jsm");
 Cu.import("resource://gre/modules/AppDownloadManager.jsm");
 Cu.import("resource://gre/modules/WebappOSUtils.jsm");
+Cu.import("resource://gre/modules/osfile.jsm");
 
 #ifdef MOZ_WIDGET_GONK
 XPCOMUtils.defineLazyGetter(this, "libcutils", function() {
@@ -1129,7 +1130,7 @@ this.DOMApplicationRegistry = {
 
         if (manifest.appcache_path) {
           debug("appcache found");
-          this.startOfflineCacheDownload(manifest, app, null, null, isUpdate);
+          this.startOfflineCacheDownload(manifest, app, null, isUpdate);
         } else {
           // hosted app with no appcache, nothing to do, but we fire a
           // downloaded event
@@ -1201,7 +1202,7 @@ this.DOMApplicationRegistry = {
     }
 
     // We need to get the old manifest to unregister web activities.
-    this.getManifestFor(app.origin, (function(aOldManifest) {
+    this.getManifestFor(aManifestURL, (function(aOldManifest) {
       debug("Old manifest: " + JSON.stringify(aOldManifest));
       // Move the application.zip and manifest.webapp files out of TmpD
       let tmpDir = FileUtils.getDir("TmpD", ["webapps", id], true, true);
@@ -1240,7 +1241,7 @@ this.DOMApplicationRegistry = {
       Services.obs.notifyObservers(zipFile, "flush-cache-entry", null);
 
       // Get the manifest, and set properties.
-      this.getManifestFor(app.origin, (function(aData) {
+      this.getManifestFor(aManifestURL, (function(aData) {
         debug("New manifest: " + JSON.stringify(aData));
         app.downloading = false;
         app.downloadAvailable = false;
@@ -1279,10 +1280,7 @@ this.DOMApplicationRegistry = {
     }).bind(this));
   },
 
-  startOfflineCacheDownload: function startOfflineCacheDownload(aManifest, aApp,
-                                                                aProfileDir,
-                                                                aOfflineCacheObserver,
-                                                                aIsUpdate) {
+  startOfflineCacheDownload: function(aManifest, aApp, aProfileDir, aIsUpdate) {
     if (!aManifest.appcache_path) {
       return;
     }
@@ -1319,15 +1317,11 @@ this.DOMApplicationRegistry = {
       AppDownloadManager.add(aApp.manifestURL, download);
 
       cacheUpdate.addObserver(new AppcacheObserver(aApp), false);
-      if (aOfflineCacheObserver) {
-        cacheUpdate.addObserver(aOfflineCacheObserver, false);
-      }
     }).bind(this));
   },
 
   // Returns the MD5 hash of a file, doing async IO off the main thread.
   computeFileHash: function computeFileHash(aFile, aCallback) {
-    Cu.import("resource://gre/modules/osfile.jsm");
     const CHUNK_SIZE = 16384;
 
     // Return the two-digit hexadecimal code for a byte.
@@ -1928,8 +1922,7 @@ this.DOMApplicationRegistry = {
     if (cacheDownload) {
       this.startOfflineCacheDownload(cacheDownload.manifest,
                                      cacheDownload.app,
-                                     cacheDownload.profileDir,
-                                     cacheDownload.offlineCacheObserver);
+                                     cacheDownload.profileDir);
       delete this.queuedDownload[aManifestURL];
 
       return;
@@ -1987,22 +1980,13 @@ this.DOMApplicationRegistry = {
     }
   },
 
-  confirmInstall: function(aData, aProfileDir, aOfflineCacheObserver,
-                           aInstallSuccessCallback) {
+  confirmInstall: function(aData, aProfileDir, aInstallSuccessCallback) {
     let isReinstall = false;
     let app = aData.app;
     app.removable = true;
 
-    let origin = Services.io.newURI(app.origin, null, null);
-    let manifestURL = origin.resolve(app.manifestURL);
-
-    let id = this._appId(app.origin);
-    let localId = this.getAppLocalIdByManifestURL(manifestURL);
-
-    // For packaged apps, we need to get the id from the manifestURL.
-    if (localId && !id) {
-      id = this._appIdForManifestURL(manifestURL);
-    }
+    let id = this._appIdForManifestURL(app.manifestURL);
+    let localId = this.getAppLocalIdByManifestURL(app.manifestURL);
 
     // Installing an application again is considered as an update.
     if (id) {
@@ -2033,8 +2017,6 @@ this.DOMApplicationRegistry = {
 
     appObject.installTime = app.installTime = Date.now();
     appObject.lastUpdateCheck = app.lastUpdateCheck = Date.now();
-    let appNote = JSON.stringify(appObject);
-    appNote.id = id;
 
     appObject.id = id;
     appObject.localId = localId;
@@ -2096,8 +2078,7 @@ this.DOMApplicationRegistry = {
       this.queuedDownload[app.manifestURL] = {
         manifest: manifest,
         app: appObject,
-        profileDir: aProfileDir,
-        offlineCacheObserver: aOfflineCacheObserver
+        profileDir: aProfileDir
       }
     }
 
@@ -2107,7 +2088,6 @@ this.DOMApplicationRegistry = {
     this._saveApps((function() {
       this.broadcastMessage("Webapps:AddApp", { id: id, app: appObject });
       this.broadcastMessage("Webapps:Install:Return:OK", aData);
-      Services.obs.notifyObservers(this, "webapps-sync-install", appNote);
     }).bind(this));
 
     if (!aData.isPackage) {
@@ -2135,14 +2115,6 @@ this.DOMApplicationRegistry = {
     Services.prefs.setIntPref("dom.mozApps.maxLocalId", id);
     Services.prefs.savePrefFile(null);
     return id;
-  },
-
-  _appId: function(aURI) {
-    for (let id in this.webapps) {
-      if (this.webapps[id].origin == aURI)
-        return id;
-    }
-    return null;
   },
 
   _appIdForManifestURL: function(aURI) {
@@ -2811,7 +2783,6 @@ this.DOMApplicationRegistry = {
         Cu.reportError("DOMApplicationRegistry: Exception on app uninstall: " +
                        ex + "\n" + ex.stack);
       }
-      Services.obs.notifyObservers(this, "webapps-sync-uninstall", JSON.stringify(appClone));
       this.broadcastMessage("Webapps:RemoveApp", { id: id });
     }).bind(this));
   },
@@ -2936,11 +2907,11 @@ this.DOMApplicationRegistry = {
     }).bind(this));
   },
 
-  getManifestFor: function(aOrigin, aCallback) {
+  getManifestFor: function(aManifestURL, aCallback) {
     if (!aCallback)
       return;
 
-    let id = this._appId(aOrigin);
+    let id = this._appIdForManifestURL(aManifestURL);
     let app = this.webapps[id];
     if (!id || (app.installState == "pending" && !app.retryingDownload)) {
       aCallback(null);

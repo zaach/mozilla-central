@@ -8,6 +8,7 @@
 #ifndef xpcpublic_h
 #define xpcpublic_h
 
+#include "jsapi.h"
 #include "jsproxy.h"
 #include "js/HeapAPI.h"
 #include "js/GCAPI.h"
@@ -160,21 +161,6 @@ xpc_UnmarkGrayScript(JSScript *script)
         JS::ExposeGCThingToActiveJS(script, JSTRACE_SCRIPT);
 
     return script;
-}
-
-inline JSContext *
-xpc_UnmarkGrayContext(JSContext *cx)
-{
-    if (cx) {
-        JSObject *global = js::DefaultObjectForContextOrNull(cx);
-        xpc_UnmarkGrayObject(global);
-        if (global && JS_IsInRequest(JS_GetRuntime(cx))) {
-            JSObject *scope = JS::CurrentGlobalOrNull(cx);
-            if (scope != global)
-                xpc_UnmarkGrayObject(scope);
-        }
-    }
-    return cx;
 }
 
 // If aVariant is an XPCVariant, this marks the object to be in aGeneration.

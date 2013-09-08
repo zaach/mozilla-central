@@ -17,6 +17,7 @@
 #include "nsAutoPtr.h"
 #include "nsDataHashtable.h"
 #include "nsHashKeys.h"
+#include "nsIObserver.h"
 
 #ifdef MOZ_CRASHREPORTER
 #include "nsExceptionHandler.h"
@@ -273,10 +274,6 @@ private:
 #if defined(XP_MACOSX)
     virtual nsresult IsRemoteDrawingCoreAnimation(NPP instance, bool *aDrawing);
     virtual nsresult ContentsScaleFactorChanged(NPP instance, double aContentsScaleFactor);
-#endif
-#if defined(MOZ_WIDGET_QT) && (MOZ_PLATFORM_MAEMO == 6)
-    virtual nsresult HandleGUIEvent(NPP instance, const nsGUIEvent& anEvent,
-                                    bool* handled);
 #endif
 
 private:

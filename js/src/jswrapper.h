@@ -9,7 +9,6 @@
 
 #include "mozilla/Attributes.h"
 
-#include "jsapi.h"
 #include "jsproxy.h"
 
 namespace js {
@@ -37,6 +36,9 @@ class JS_FRIEND_API(Wrapper) : public DirectProxyHandler
         CROSS_COMPARTMENT = 1 << 0,
         LAST_USED_FLAG = CROSS_COMPARTMENT
     };
+
+    virtual bool defaultValue(JSContext *cx, HandleObject obj, JSType hint,
+                              MutableHandleValue vp) MOZ_OVERRIDE;
 
     /*
      * Wrappers can explicitly specify that they are unsafe to unwrap from a

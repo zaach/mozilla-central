@@ -104,7 +104,6 @@ nsXBLPrototypeBinding::nsXBLPrototypeBinding()
   mBaseNameSpaceID(kNameSpaceID_None)
 {
   MOZ_COUNT_CTOR(nsXBLPrototypeBinding);
-  mInterfaceTable.Init();
 }
 
 nsresult
@@ -199,13 +198,6 @@ nsXBLPrototypeBinding::SetBasePrototype(nsXBLPrototypeBinding* aBinding)
   }
 
   mBaseBinding = aBinding;
-}
-
-already_AddRefed<nsIContent>
-nsXBLPrototypeBinding::GetBindingElement()
-{
-  nsCOMPtr<nsIContent> result = mBinding;
-  return result.forget();
 }
 
 void

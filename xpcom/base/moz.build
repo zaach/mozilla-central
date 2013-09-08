@@ -43,8 +43,6 @@ MODULE = 'xpcom'
 
 EXPORTS += [
     'ErrorList.h',
-    'ErrorListCDefines.h',
-    'ErrorListCxxDefines.h',
     'nsAgg.h',
     'nsAutoPtr.h',
     'nsAutoRef.h',
@@ -134,4 +132,6 @@ CSRCS += [
 LIBXUL_LIBRARY = True
 
 MSVC_ENABLE_PGO = True
+
+LIBRARY_NAME = 'xpcombase_s'
 

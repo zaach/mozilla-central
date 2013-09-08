@@ -14,11 +14,13 @@
 #include "nsIXPConnect.h"
 #include "nsIArray.h"
 #include "mozilla/Attributes.h"
+#include "nsThreadUtils.h"
 
 class nsICycleCollectorListener;
 class nsIXPConnectJSObjectHolder;
 class nsRootedJSValueArray;
 class nsScriptNameSpaceManager;
+class nsCycleCollectionNoteRootCallback;
 
 namespace mozilla {
 template <class> class Maybe;
@@ -53,7 +55,6 @@ public:
   inline nsIScriptGlobalObject *GetGlobalObjectRef() { return mGlobalObjectRef; }
 
   virtual JSContext* GetNativeContext() MOZ_OVERRIDE;
-  virtual JSObject* GetNativeGlobal() MOZ_OVERRIDE;
   virtual nsresult InitContext() MOZ_OVERRIDE;
   virtual bool IsContextInitialized() MOZ_OVERRIDE;
 
@@ -69,6 +70,10 @@ public:
 
   virtual void WillInitializeContext() MOZ_OVERRIDE;
   virtual void DidInitializeContext() MOZ_OVERRIDE;
+
+  virtual void SetWindowProxy(JS::Handle<JSObject*> aWindowProxy) MOZ_OVERRIDE;
+  virtual JSObject* GetWindowProxy() MOZ_OVERRIDE;
+  virtual JSObject* GetWindowProxyPreserveColor() MOZ_OVERRIDE;
 
   static void LoadStart();
   static void LoadEnd();
@@ -125,7 +130,7 @@ public:
   {
     // Verify that we have a global so that this
     // does always return a null when GetGlobalObject() is null.
-    JSObject* global = GetNativeGlobal();
+    JSObject* global = GetWindowProxy();
     return global ? mGlobalObjectRef.get() : nullptr;
   }
 protected:
@@ -150,12 +155,14 @@ protected:
   // function will set aside the frame chain on mContext before
   // reporting.
   void ReportPendingException();
+
 private:
   void DestroyJSContext();
 
   nsrefcnt GetCCRefcnt();
 
   JSContext *mContext;
+  JS::Heap<JSObject*> mWindowProxy;
 
   bool mIsInitialized;
   bool mScriptsEnabled;
@@ -181,6 +188,8 @@ private:
 };
 
 class nsIJSRuntimeService;
+class nsIPrincipal;
+class nsPIDOMWindow;
 
 namespace mozilla {
 namespace dom {
@@ -190,6 +199,37 @@ void ShutdownJSEnvironment();
 
 // Get the NameSpaceManager, creating if necessary
 nsScriptNameSpaceManager* GetNameSpaceManager();
+
+// Runnable that's used to do async error reporting
+class AsyncErrorReporter : public nsRunnable
+{
+public:
+  // aWindow may be null if this error report is not associated with a window
+  AsyncErrorReporter(JSRuntime* aRuntime,
+                     JSErrorReport* aErrorReport,
+                     const char* aFallbackMessage,
+                     nsIPrincipal* aGlobalPrincipal, // To determine category
+                     nsPIDOMWindow* aWindow);
+
+  NS_IMETHOD Run()
+  {
+    ReportError();
+    return NS_OK;
+  }
+
+protected:
+  // Do the actual error reporting
+  void ReportError();
+
+  nsString mErrorMsg;
+  nsString mFileName;
+  nsString mSourceLine;
+  nsCString mCategory;
+  uint32_t mLineNumber;
+  uint32_t mColumn;
+  uint32_t mFlags;
+  uint64_t mInnerWindowID;
+};
 
 } // namespace dom
 } // namespace mozilla

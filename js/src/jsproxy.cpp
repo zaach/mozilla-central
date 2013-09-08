@@ -26,8 +26,11 @@ using namespace js::gc;
 using mozilla::ArrayLength;
 
 void
-js::AutoEnterPolicy::reportError(JSContext *cx, jsid id)
+js::AutoEnterPolicy::reportErrorIfExceptionIsNotPending(JSContext *cx, jsid id)
 {
+    if (JS_IsExceptionPending(cx))
+        return;
+
     if (JSID_IS_VOID(id)) {
         JS_ReportErrorNumber(cx, js_GetErrorMessage, NULL,
                              JSMSG_OBJECT_ACCESS_DENIED);
@@ -513,16 +516,6 @@ DirectProxyHandler::regexp_toShared(JSContext *cx, HandleObject proxy,
     return RegExpToShared(cx, target, g);
 }
 
-bool
-DirectProxyHandler::defaultValue(JSContext *cx, HandleObject proxy, JSType hint,
-                                 MutableHandleValue vp)
-{
-    vp.set(ObjectValue(*proxy->as<ProxyObject>().target()));
-    if (hint == JSTYPE_VOID)
-        return ToPrimitive(cx, vp);
-    return ToPrimitive(cx, hint, vp);
-}
-
 JSObject *
 DirectProxyHandler::weakmapKeyDelegate(JSObject *proxy)
 {
@@ -743,6 +736,8 @@ FunctionProxyObject::constructOrUndefined() const
     return getSlot(CONSTRUCT_SLOT);
 }
 
+namespace {
+
 /* Derived class for all scripted indirect proxy handlers. */
 class ScriptedIndirectProxyHandler : public BaseProxyHandler
 {
@@ -782,11 +777,11 @@ class ScriptedIndirectProxyHandler : public BaseProxyHandler
     virtual bool nativeCall(JSContext *cx, IsAcceptableThis test, NativeImpl impl,
                             CallArgs args) MOZ_OVERRIDE;
     virtual JSString *fun_toString(JSContext *cx, HandleObject proxy, unsigned indent) MOZ_OVERRIDE;
-    virtual bool defaultValue(JSContext *cx, HandleObject obj, JSType hint,
-                              MutableHandleValue vp) MOZ_OVERRIDE;
 
     static ScriptedIndirectProxyHandler singleton;
 };
+
+} /* anonymous namespace */
 
 static int sScriptedIndirectProxyHandlerFamily = 0;
 
@@ -1040,17 +1035,6 @@ ScriptedIndirectProxyHandler::fun_toString(JSContext *cx, HandleObject proxy, un
     return fun_toStringHelper(cx, obj, indent);
 }
 
-bool
-ScriptedIndirectProxyHandler::defaultValue(JSContext *cx, HandleObject proxy, JSType hint,
-                                           MutableHandleValue vp)
-{
-    /*
-     * This function is only here to prevent bug 757063. It will be removed when
-     * the direct proxy refactor is complete.
-     */
-    return BaseProxyHandler::defaultValue(cx, proxy, hint, vp);
-}
-
 ScriptedIndirectProxyHandler ScriptedIndirectProxyHandler::singleton;
 
 static JSObject *
@@ -1090,6 +1074,7 @@ class ScriptedDirectProxyHandler : public DirectProxyHandler {
     virtual bool iterate(JSContext *cx, HandleObject proxy, unsigned flags,
                          MutableHandleValue vp) MOZ_OVERRIDE;
 
+    /* Spidermonkey extensions. */
     virtual bool call(JSContext *cx, HandleObject proxy, const CallArgs &args) MOZ_OVERRIDE;
     virtual bool construct(JSContext *cx, HandleObject proxy, const CallArgs &args) MOZ_OVERRIDE;
 
@@ -2681,7 +2666,7 @@ Proxy::className(JSContext *cx, HandleObject proxy)
     // Check for unbounded recursion, but don't signal an error; className
     // needs to be infallible.
     int stackDummy;
-    if (!JS_CHECK_STACK_SIZE(cx->mainThread().nativeStackLimit, &stackDummy))
+    if (!JS_CHECK_STACK_SIZE(GetNativeStackLimit(cx), &stackDummy))
         return "too much recursion";
 
     BaseProxyHandler *handler = proxy->as<ProxyObject>().handler();

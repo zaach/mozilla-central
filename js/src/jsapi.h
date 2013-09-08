@@ -9,11 +9,9 @@
 #ifndef jsapi_h
 #define jsapi_h
 
-#include "mozilla/Compiler.h"
 #include "mozilla/FloatingPoint.h"
 #include "mozilla/MemoryReporting.h"
 #include "mozilla/RangedPtr.h"
-#include "mozilla/TypeTraits.h"
 
 #include <stdarg.h>
 #include <stddef.h>
@@ -24,7 +22,6 @@
 #include "jspubtd.h"
 
 #include "js/CallArgs.h"
-#include "js/CallNonGenericMethod.h"
 #include "js/Class.h"
 #include "js/HashTable.h"
 #include "js/Id.h"
@@ -1358,7 +1355,7 @@ JS_EndRequest(JSContext *cx);
 extern JS_PUBLIC_API(bool)
 JS_IsInRequest(JSRuntime *rt);
 
-namespace JS {
+namespace js {
 
 inline bool
 IsPoisonedId(jsid iden)
@@ -1370,15 +1367,11 @@ IsPoisonedId(jsid iden)
     return false;
 }
 
-} /* namespace JS */
-
-namespace js {
-
 template <> struct GCMethods<jsid>
 {
     static jsid initial() { return JSID_VOID; }
     static ThingRootKind kind() { return THING_ROOT_ID; }
-    static bool poisoned(jsid id) { return JS::IsPoisonedId(id); }
+    static bool poisoned(jsid id) { return IsPoisonedId(id); }
     static bool needsPostBarrier(jsid id) { return false; }
 #ifdef JSGC_GENERATIONAL
     static void postBarrier(jsid *idp) {}
@@ -1533,16 +1526,18 @@ JS_StringToVersion(const char *string);
 
 /* JS_BIT(10) is currently unused. */
 
-/* JS_BIT(11) is currently unused. */
+#define JSOPTION_NO_DEFAULT_COMPARTMENT_OBJECT JS_BIT(11)     /* This JSContext does not use a
+                                                                 default compartment object. Such
+                                                                 an object will not be set implicitly,
+                                                                 and attempts to get or set it will
+                                                                 assert. */
 
 #define JSOPTION_NO_SCRIPT_RVAL JS_BIT(12)      /* A promise to the compiler
                                                    that a null rval out-param
                                                    will be passed to each call
                                                    to JS_ExecuteScript. */
-#define JSOPTION_UNROOTED_GLOBAL JS_BIT(13)     /* The GC will not root the
-                                                   contexts' default compartment
-                                                   object, leaving that up to the
-                                                   embedding. */
+
+/* JS_BIT(13) is currently unused. */
 
 #define JSOPTION_BASELINE       JS_BIT(14)      /* Baseline compiler. */
 
@@ -2217,6 +2212,12 @@ JS_SetFinalizeCallback(JSRuntime *rt, JSFinalizeCallback cb);
 extern JS_PUBLIC_API(bool)
 JS_IsGCMarkingTracer(JSTracer *trc);
 
+/* For assertions only. */
+#ifdef DEBUG
+extern JS_PUBLIC_API(bool)
+JS_IsMarkingGray(JSTracer *trc);
+#endif
+
 /*
  * JS_IsAboutToBeFinalized checks if the given object is going to be finalized
  * at the end of the current GC. When called outside of the context of a GC,
@@ -2362,9 +2363,22 @@ JS_GetExternalStringFinalizer(JSString *str);
 /*
  * Set the size of the native stack that should not be exceed. To disable
  * stack size checking pass 0.
+ *
+ * SpiderMonkey allows for a distinction between system code (such as GCs, which
+ * may incidentally be triggered by script but are not strictly performed on
+ * behalf of such script), trusted script (as determined by JS_SetTrustedPrincipals),
+ * and untrusted script. Each kind of code may have a different stack quota,
+ * allowing embedders to keep higher-priority machinery running in the face of
+ * scripted stack exhaustion by something else.
+ *
+ * The stack quotas for each kind of code should be monotonically descending,
+ * and may be specified with this function. If 0 is passed for a given kind
+ * of code, it defaults to the value of the next-highest-priority kind.
  */
 extern JS_PUBLIC_API(void)
-JS_SetNativeStackQuota(JSRuntime *cx, size_t stackSize);
+JS_SetNativeStackQuota(JSRuntime *cx, size_t systemCodeStackSize,
+                       size_t trustedScriptStackSize = 0,
+                       size_t untrustedScriptStackSize = 0);
 
 /************************************************************************/
 
@@ -3556,12 +3570,12 @@ CanCompileOffThread(JSContext *cx, const CompileOptions &options);
  * Off thread compilation control flow.
  *
  * After successfully triggering an off thread compile of a script, the
- * callback will eventually be invoked with the specified data and the result
- * script or NULL. The callback will be invoked while off the main thread, so
- * must ensure that its operations are thread safe. Afterwards,
- * FinishOffThreadScript must be invoked on the main thread to make the script
- * usable (correct compartment/zone); this method must be invoked even if the
- * off thread compilation produced a NULL script.
+ * callback will eventually be invoked with the specified data and a token
+ * for the compilation. The callback will be invoked while off the main thread,
+ * so must ensure that its operations are thread safe. Afterwards,
+ * FinishOffThreadScript must be invoked on the main thread to get the result
+ * script or NULL. If maybecx is specified, this method will also report any
+ * error or warnings generated during the parse.
  *
  * The characters passed in to CompileOffThread must remain live until the
  * callback is invoked, and the resulting script will be rooted until the call
@@ -3573,8 +3587,8 @@ CompileOffThread(JSContext *cx, Handle<JSObject*> obj, CompileOptions options,
                  const jschar *chars, size_t length,
                  OffThreadCompileCallback callback, void *callbackData);
 
-extern JS_PUBLIC_API(void)
-FinishOffThreadScript(JSRuntime *rt, JSScript *script);
+extern JS_PUBLIC_API(JSScript *)
+FinishOffThreadScript(JSContext *maybecx, JSRuntime *rt, void *token);
 
 extern JS_PUBLIC_API(JSFunction *)
 CompileFunction(JSContext *cx, JS::Handle<JSObject*> obj, CompileOptions options,
@@ -4572,84 +4586,5 @@ extern JS_PUBLIC_DATA(const Handle<jsid>) JSID_VOIDHANDLE;
 extern JS_PUBLIC_DATA(const Handle<jsid>) JSID_EMPTYHANDLE;
 
 } /* namespace JS */
-
-namespace js {
-
-/*
- * Import some JS:: names into the js namespace so we can make unqualified
- * references to them.
- */
-
-using JS::Value;
-using JS::IsPoisonedValue;
-using JS::NullValue;
-using JS::UndefinedValue;
-using JS::Int32Value;
-using JS::DoubleValue;
-using JS::StringValue;
-using JS::BooleanValue;
-using JS::ObjectValue;
-using JS::MagicValue;
-using JS::NumberValue;
-using JS::ObjectOrNullValue;
-using JS::PrivateValue;
-using JS::PrivateUint32Value;
-
-using JS::IsPoisonedPtr;
-using JS::IsPoisonedId;
-
-using JS::StableCharPtr;
-using JS::TwoByteChars;
-using JS::Latin1CharsZ;
-
-using JS::AutoIdVector;
-using JS::AutoValueVector;
-using JS::AutoObjectVector;
-using JS::AutoFunctionVector;
-using JS::AutoScriptVector;
-using JS::AutoIdArray;
-
-using JS::AutoGCRooter;
-using JS::AutoArrayRooter;
-using JS::AutoVectorRooter;
-using JS::AutoHashMapRooter;
-using JS::AutoHashSetRooter;
-
-using JS::CallArgs;
-using JS::IsAcceptableThis;
-using JS::NativeImpl;
-using JS::CallReceiver;
-using JS::CompileOptions;
-using JS::CallNonGenericMethod;
-
-using JS::Rooted;
-using JS::RootedObject;
-using JS::RootedModule;
-using JS::RootedFunction;
-using JS::RootedScript;
-using JS::RootedString;
-using JS::RootedId;
-using JS::RootedValue;
-
-using JS::Handle;
-using JS::HandleObject;
-using JS::HandleModule;
-using JS::HandleFunction;
-using JS::HandleScript;
-using JS::HandleString;
-using JS::HandleId;
-using JS::HandleValue;
-
-using JS::MutableHandle;
-using JS::MutableHandleObject;
-using JS::MutableHandleFunction;
-using JS::MutableHandleScript;
-using JS::MutableHandleString;
-using JS::MutableHandleId;
-using JS::MutableHandleValue;
-
-using JS::Zone;
-
-} /* namespace js */
 
 #endif /* jsapi_h */

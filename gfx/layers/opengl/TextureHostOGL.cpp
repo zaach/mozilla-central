@@ -21,6 +21,7 @@
 #include "mozilla/layers/CompositorOGL.h"  // for CompositorOGL
 #include "mozilla/layers/ISurfaceAllocator.h"
 #include "mozilla/layers/YCbCrImageDataSerializer.h"
+#include "mozilla/layers/GrallocTextureHost.h"
 #include "nsPoint.h"                    // for nsIntPoint
 #include "nsRegion.h"                   // for nsIntRegion
 #ifdef XP_MACOSX
@@ -88,6 +89,14 @@ CreateTextureHostOGL(uint64_t aID,
                                         desc.inverted());
       break;
     }
+#ifdef MOZ_WIDGET_GONK
+    case SurfaceDescriptor::TNewSurfaceDescriptorGralloc: {
+      const NewSurfaceDescriptorGralloc& desc =
+        aDesc.get_NewSurfaceDescriptorGralloc();
+      result = new GrallocTextureHostOGL(aID, aFlags, desc);
+      break;
+    }
+#endif
     default: return nullptr;
   }
   return result.forget();
@@ -283,7 +292,7 @@ SharedTextureSourceOGL::gl() const
 
 SharedTextureHostOGL::SharedTextureHostOGL(uint64_t aID,
                                            TextureFlags aFlags,
-                                           gl::GLContext::SharedTextureShareType aShareType,
+                                           gl::SharedTextureShareType aShareType,
                                            gl::SharedTextureHandle aSharedHandle,
                                            gfx::IntSize aSize,
                                            bool inverted)
@@ -732,6 +741,14 @@ SurfaceStreamHostOGL::Lock()
   return true;
 }
 
+void
+SurfaceStreamHostOGL::BindTexture(GLenum activetex)
+{
+  MOZ_ASSERT(mGL);
+  mGL->fActiveTexture(activetex);
+  mGL->fBindTexture(mTextureTarget, mTextureHandle);
+}
+
 
 void
 YCbCrDeprecatedTextureHostOGL::SetCompositor(Compositor* aCompositor)
@@ -815,6 +832,13 @@ YCbCrDeprecatedTextureHostOGL::Lock()
 TiledDeprecatedTextureHostOGL::~TiledDeprecatedTextureHostOGL()
 {
   DeleteTextures();
+}
+
+void
+TiledDeprecatedTextureHostOGL::BindTexture(GLenum aTextureUnit)
+{
+  mGL->fActiveTexture(aTextureUnit);
+  mGL->fBindTexture(LOCAL_GL_TEXTURE_2D, mTextureHandle);
 }
 
 static void

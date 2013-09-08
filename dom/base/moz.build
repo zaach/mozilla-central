@@ -9,7 +9,6 @@ TEST_DIRS += ['test']
 XPIDL_SOURCES += [
     'nsIDOMDOMCursor.idl',
     'nsIDOMDOMRequest.idl',
-    'nsIDOMDOMWindowResizeEventDetail.idl',
     'nsIEntropyCollector.idl',
     'nsIScriptChannel.idl',
     'nsISiteSpecificUserAgent.idl',
@@ -56,6 +55,8 @@ EXPORTS.mozilla.dom += [
     'DOMCursor.h',
     'DOMError.h',
     'DOMRequest.h',
+    'MessageChannel.h',
+    'MessagePort.h',
     'ScreenOrientation.h',
     'StructuredCloneTags.h',
     'URL.h',
@@ -68,13 +69,14 @@ CPP_SOURCES += [
     'DOMError.cpp',
     'DOMRequest.cpp',
     'Navigator.cpp',
+    'MessageChannel.cpp',
+    'MessagePort.cpp',
     'nsContentPermissionHelper.cpp',
     'nsDOMClassInfo.cpp',
     'nsDOMException.cpp',
     'nsDOMNavigationTiming.cpp',
     'nsDOMScriptObjectFactory.cpp',
     'nsDOMWindowList.cpp',
-    'nsDOMWindowResizeEventDetail.cpp',
     'nsDOMWindowUtils.cpp',
     'nsFocusManager.cpp',
     'nsGlobalWindow.cpp',
@@ -117,4 +119,6 @@ FAIL_ON_WARNINGS = True
 LIBXUL_LIBRARY = True
 
 MSVC_ENABLE_PGO = True
+
+LIBRARY_NAME = 'jsdombase_s'
 

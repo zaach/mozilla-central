@@ -8,10 +8,11 @@
 
 #include "TabChild.h"
 
-#include "BasicLayers.h"
+#include "Layers.h"
 #include "Blob.h"
 #include "ContentChild.h"
 #include "IndexedDBChild.h"
+#include "mozilla/Preferences.h"
 #include "mozilla/ClearOnShutdown.h"
 #include "mozilla/IntentionalCrash.h"
 #include "mozilla/docshell/OfflineCacheUpdateChild.h"
@@ -568,15 +569,14 @@ TabChild::HandlePossibleViewportChange()
 
   nsCOMPtr<nsIDOMWindowUtils> utils(GetDOMWindowUtils());
 
-  nsViewportInfo viewportInfo =
-    nsContentUtils::GetViewportInfo(document, mInnerSize.width, mInnerSize.height);
+  nsViewportInfo viewportInfo = nsContentUtils::GetViewportInfo(document, mInnerSize);
   SendUpdateZoomConstraints(viewportInfo.IsZoomAllowed(),
-                            CSSToScreenScale(viewportInfo.GetMinZoom()),
-                            CSSToScreenScale(viewportInfo.GetMaxZoom()));
+                            viewportInfo.GetMinZoom(),
+                            viewportInfo.GetMaxZoom());
 
   float screenW = mInnerSize.width;
   float screenH = mInnerSize.height;
-  CSSSize viewport(viewportInfo.GetWidth(), viewportInfo.GetHeight());
+  CSSSize viewport(viewportInfo.GetSize());
 
   // We're not being displayed in any way; don't bother doing anything because
   // that will just confuse future adjustments.
@@ -609,8 +609,6 @@ TabChild::HandlePossibleViewportChange()
     return;
   }
 
-  float minScale = 1.0f;
-
   nsCOMPtr<Element> htmlDOMElement = document->GetHtmlElement();
   HTMLBodyElement* bodyDOMElement = document->GetBodyElement();
 
@@ -638,12 +636,11 @@ TabChild::HandlePossibleViewportChange()
     return;
   }
 
-  minScale = mInnerSize.width / pageSize.width;
-  minScale = clamped((double)minScale, viewportInfo.GetMinZoom(),
-                     viewportInfo.GetMaxZoom());
-  NS_ENSURE_TRUE_VOID(minScale); // (return early rather than divide by 0)
+  CSSToScreenScale minScale(mInnerSize.width / pageSize.width);
+  minScale = clamped(minScale, viewportInfo.GetMinZoom(), viewportInfo.GetMaxZoom());
+  NS_ENSURE_TRUE_VOID(minScale.scale); // (return early rather than divide by 0)
 
-  viewport.height = std::max(viewport.height, screenH / minScale);
+  viewport.height = std::max(viewport.height, screenH / minScale.scale);
   SetCSSViewport(viewport);
 
   float oldScreenWidth = mLastMetrics.mCompositionBounds.width;
@@ -680,14 +677,14 @@ TabChild::HandlePossibleViewportChange()
     // FIXME/bug 799585(?): GetViewportInfo() returns a defaultZoom of
     // 0.0 to mean "did not calculate a zoom".  In that case, we default
     // it to the intrinsic scale.
-    if (viewportInfo.GetDefaultZoom() < 0.01f) {
-      viewportInfo.SetDefaultZoom(metrics.CalculateIntrinsicScale().scale);
+    if (viewportInfo.GetDefaultZoom().scale < 0.01f) {
+      viewportInfo.SetDefaultZoom(metrics.CalculateIntrinsicScale());
     }
 
-    double defaultZoom = viewportInfo.GetDefaultZoom();
+    CSSToScreenScale defaultZoom = viewportInfo.GetDefaultZoom();
     MOZ_ASSERT(viewportInfo.GetMinZoom() <= defaultZoom &&
                defaultZoom <= viewportInfo.GetMaxZoom());
-    metrics.mZoom = CSSToScreenScale(defaultZoom);
+    metrics.mZoom = defaultZoom;
   }
 
   metrics.mDisplayPort = AsyncPanZoomController::CalculatePendingDisplayPort(
@@ -1104,7 +1101,7 @@ TabChild::GetDOMWindowUtils()
   return utils.forget();
 }
 
-static nsInterfaceHashtable<nsPtrHashKey<PContentDialogChild>, nsIDialogParamBlock> gActiveDialogs;
+static nsInterfaceHashtable<nsPtrHashKey<PContentDialogChild>, nsIDialogParamBlock>* gActiveDialogs;
 
 NS_IMETHODIMP
 TabChild::OpenDialog(uint32_t aType, const nsACString& aName,
@@ -1112,8 +1109,8 @@ TabChild::OpenDialog(uint32_t aType, const nsACString& aName,
                      nsIDialogParamBlock* aArguments,
                      nsIDOMElement* aFrameElement)
 {
-  if (!gActiveDialogs.IsInitialized()) {
-    gActiveDialogs.Init();
+  if (!gActiveDialogs) {
+    gActiveDialogs = new nsInterfaceHashtable<nsPtrHashKey<PContentDialogChild>, nsIDialogParamBlock>;
   }
   InfallibleTArray<int32_t> intParams;
   InfallibleTArray<nsString> stringParams;
@@ -1121,9 +1118,9 @@ TabChild::OpenDialog(uint32_t aType, const nsACString& aName,
   PContentDialogChild* dialog =
     SendPContentDialogConstructor(aType, nsCString(aName),
                                   nsCString(aFeatures), intParams, stringParams);
-  gActiveDialogs.Put(dialog, aArguments);
+  gActiveDialogs->Put(dialog, aArguments);
   nsIThread *thread = NS_GetCurrentThread();
-  while (gActiveDialogs.GetWeak(dialog)) {
+  while (gActiveDialogs && gActiveDialogs->GetWeak(dialog)) {
     if (!NS_ProcessNextEvent(thread)) {
       break;
     }
@@ -1136,9 +1133,13 @@ ContentDialogChild::Recv__delete__(const InfallibleTArray<int>& aIntParams,
                                    const InfallibleTArray<nsString>& aStringParams)
 {
   nsCOMPtr<nsIDialogParamBlock> params;
-  if (gActiveDialogs.Get(this, getter_AddRefs(params))) {
+  if (gActiveDialogs && gActiveDialogs->Get(this, getter_AddRefs(params))) {
     TabChild::ArraysToParams(aIntParams, aStringParams, params);
-    gActiveDialogs.Remove(this);
+    gActiveDialogs->Remove(this);
+    if (gActiveDialogs->Count() == 0) {
+      delete gActiveDialogs;
+      gActiveDialogs = nullptr;
+    }
   }
   return true;
 }

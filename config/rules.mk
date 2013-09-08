@@ -10,6 +10,12 @@ ifndef topsrcdir
 $(error topsrcdir was not set))
 endif
 
+# Define an include-at-most-once flag
+ifdef INCLUDED_RULES_MK
+$(error Do not include rules.mk twice!)
+endif
+INCLUDED_RULES_MK = 1
+
 # Integrate with mozbuild-generated make files. We first verify that no
 # variables provided by the automatically generated .mk files are
 # present. If they are, this is a violation of the separation of
@@ -24,6 +30,7 @@ _MOZBUILD_EXTERNAL_VARIABLES := \
   GTEST_CSRCS \
   HOST_CSRCS \
   HOST_LIBRARY_NAME \
+  LIBRARY_NAME \
   LIBXUL_LIBRARY \
   MODULE \
   MSVC_ENABLE_PGO \
@@ -682,20 +689,9 @@ SUBMAKEFILES += $(addsuffix /Makefile, $(DIRS) $(TOOL_DIRS) $(PARALLEL_DIRS))
 ifndef SUPPRESS_DEFAULT_RULES
 ifndef TIERS
 default all::
-ifneq (,$(strip $(STATIC_DIRS)))
-	$(foreach dir,$(STATIC_DIRS),$(call SUBMAKE,,$(dir),1))
-endif
 	$(MAKE) export
 	$(MAKE) libs
 	$(MAKE) tools
-
-# Do depend as well
-alldep::
-	$(MAKE) export
-	$(MAKE) depend
-	$(MAKE) libs
-	$(MAKE) tools
-
 endif # TIERS
 endif # SUPPRESS_DEFAULT_RULES
 
@@ -710,10 +706,7 @@ endif
 # Do everything from scratch
 everything::
 	$(MAKE) clean
-	$(MAKE) alldep
-
-# Add dummy depend target for tinderboxes
-depend::
+	$(MAKE) all
 
 # Target to only regenerate makefiles
 makefiles: $(SUBMAKEFILES)
@@ -722,35 +715,6 @@ ifneq (,$(DIRS)$(TOOL_DIRS)$(PARALLEL_DIRS))
 	$(LOOP_OVER_DIRS)
 	$(LOOP_OVER_TOOL_DIRS)
 endif
-
-#########################
-# Tier traversal handling
-#########################
-define CREATE_SUBTIER_TRAVERSAL_RULE
-PARALLEL_DIRS_$(1) = $$(addsuffix _$(1),$$(PARALLEL_DIRS))
-
-.PHONY: $(1) $$(PARALLEL_DIRS_$(1))
-
-ifdef PARALLEL_DIRS
-$(1):: $$(PARALLEL_DIRS_$(1))
-
-$$(PARALLEL_DIRS_$(1)): %_$(1): %/Makefile
-	+@$$(call SUBMAKE,$(1),$$*)
-endif
-
-endef
-
-$(foreach subtier,export libs tools,$(eval $(call CREATE_SUBTIER_TRAVERSAL_RULE,$(subtier))))
-
-export:: $(SUBMAKEFILES) $(MAKE_DIRS)
-	$(LOOP_OVER_DIRS)
-	$(LOOP_OVER_TOOL_DIRS)
-
-
-tools:: $(SUBMAKEFILES) $(MAKE_DIRS)
-	$(LOOP_OVER_DIRS)
-	$(foreach dir,$(TOOL_DIRS),$(call SUBMAKE,libs,$(dir)))
-
 
 ifneq (,$(filter-out %.$(LIB_SUFFIX),$(SHARED_LIBRARY_LIBS)))
 $(error SHARED_LIBRARY_LIBS must contain .$(LIB_SUFFIX) files only)
@@ -829,10 +793,21 @@ checkout:
 clean clobber realclean clobber_all:: $(SUBMAKEFILES)
 	-$(RM) $(ALL_TRASH)
 	-$(RM) -r $(ALL_TRASH_DIRS)
-	$(foreach dir,$(PARALLEL_DIRS) $(DIRS) $(STATIC_DIRS) $(TOOL_DIRS),-$(call SUBMAKE,$@,$(dir)))
+
+ifdef TIERS
+clean clobber realclean clobber_all distclean::
+	$(foreach dir, \
+		$(foreach tier, $(TIERS), $(tier_$(tier)_staticdirs) $(tier_$(tier)_dirs)), \
+		-$(call SUBMAKE,$@,$(dir)))
+else
+clean clobber realclean clobber_all distclean::
+	$(foreach dir,$(PARALLEL_DIRS) $(DIRS) $(TOOL_DIRS),-$(call SUBMAKE,$@,$(dir)))
 
 distclean:: $(SUBMAKEFILES)
-	$(foreach dir,$(PARALLEL_DIRS) $(DIRS) $(STATIC_DIRS) $(TOOL_DIRS),-$(call SUBMAKE,$@,$(dir)))
+	$(foreach dir,$(PARALLEL_DIRS) $(DIRS) $(TOOL_DIRS),-$(call SUBMAKE,$@,$(dir)))
+endif
+
+distclean::
 	-$(RM) -r $(ALL_TRASH_DIRS)
 	-$(RM) $(ALL_TRASH)  \
 	Makefile .HSancillary \
@@ -1741,7 +1716,7 @@ documentation:
 	$(DOXYGEN) $(DEPTH)/config/doxygen.cfg
 
 ifdef ENABLE_TESTS
-check:: $(SUBMAKEFILES) $(MAKE_DIRS)
+check:: $(SUBMAKEFILES)
 	$(LOOP_OVER_PARALLEL_DIRS)
 	$(LOOP_OVER_DIRS)
 	$(LOOP_OVER_TOOL_DIRS)

@@ -39,6 +39,7 @@ using namespace js::gc;
 using mozilla::Atomic;
 using mozilla::DebugOnly;
 using mozilla::PodZero;
+using mozilla::PodArrayZero;
 using mozilla::ThreadLocal;
 
 /* static */ ThreadLocal<PerThreadData*> js::TlsPerThreadData;
@@ -108,6 +109,7 @@ JSRuntime::JSRuntime(JSUseHelperThreads useHelperThreads)
 #endif
 #endif
 #ifdef JS_WORKER_THREADS
+    workerThreadState(NULL),
     exclusiveAccessLock(NULL),
     exclusiveAccessOwner(NULL),
     mainThreadHasExclusiveAccess(false),
@@ -130,7 +132,6 @@ JSRuntime::JSRuntime(JSUseHelperThreads useHelperThreads)
     selfHostingGlobal_(NULL),
     selfHostedClasses_(NULL),
     nativeStackBase(0),
-    nativeStackQuota(0),
     cxCallback(NULL),
     destroyCompartmentCallback(NULL),
     compartmentNameCallback(NULL),
@@ -235,9 +236,6 @@ JSRuntime::JSRuntime(JSUseHelperThreads useHelperThreads)
     gcLock(NULL),
     gcHelperThread(thisFromCtor()),
     signalHandlersInstalled_(false),
-#ifdef JS_WORKER_THREADS
-    workerThreadState(NULL),
-#endif
     defaultFreeOp_(thisFromCtor(), false),
     debuggerMutations(0),
     securityCallbacks(const_cast<JSSecurityCallbacks *>(&NullSecurityCallbacks)),
@@ -283,6 +281,7 @@ JSRuntime::JSRuntime(JSUseHelperThreads useHelperThreads)
 
     PodZero(&debugHooks);
     PodZero(&atomState);
+    PodArrayZero(nativeStackQuota);
 
 #if JS_STACK_GROWTH_DIRECTION > 0
     nativeStackLimit = UINTPTR_MAX;
@@ -391,8 +390,7 @@ JSRuntime::~JSRuntime()
     mainThread.removeFromThreadList();
 
 #ifdef JS_WORKER_THREADS
-    if (workerThreadState)
-        js_delete(workerThreadState);
+    js_delete(workerThreadState);
 
     JS_ASSERT(!exclusiveAccessOwner);
     if (exclusiveAccessLock)
@@ -452,8 +450,7 @@ JSRuntime::~JSRuntime()
 #endif
     js_delete(execAlloc_);  /* Delete after ionRuntime_. */
 
-    if (ionPcScriptCache)
-        js_delete(ionPcScriptCache);
+    js_delete(ionPcScriptCache);
 
 #ifdef JSGC_GENERATIONAL
     gcStoreBuffer.disable();

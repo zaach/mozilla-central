@@ -334,9 +334,18 @@ CallSetter(JSContext *cx, HandleObject obj, HandleId id, StrictPropertyOp op, un
 }
 
 inline uintptr_t
-GetNativeStackLimit(ExclusiveContext *cx)
+GetNativeStackLimit(ThreadSafeContext *cx)
 {
-    return cx->perThreadData->nativeStackLimit;
+    StackKind kind;
+    if (cx->isJSContext()) {
+        kind = cx->asJSContext()->runningWithTrustedPrincipals()
+                 ? StackForTrustedScript : StackForUntrustedScript;
+    } else {
+        // For other threads, we just use the trusted stack depth, since it's
+        // unlikely that we'll be mixing trusted and untrusted code together.
+        kind = StackForTrustedScript;
+    }
+    return cx->perThreadData->nativeStackLimit[kind];
 }
 
 inline void
@@ -429,14 +438,18 @@ JSContext::setPendingException(js::Value v) {
 inline void
 JSContext::setDefaultCompartmentObject(JSObject *obj)
 {
+    JS_ASSERT(!hasOption(JSOPTION_NO_DEFAULT_COMPARTMENT_OBJECT));
     defaultCompartmentObject_ = obj;
 }
 
 inline void
 JSContext::setDefaultCompartmentObjectIfUnset(JSObject *obj)
 {
-    if (!defaultCompartmentObject_)
+    if (!hasOption(JSOPTION_NO_DEFAULT_COMPARTMENT_OBJECT) &&
+        !defaultCompartmentObject_)
+    {
         setDefaultCompartmentObject(obj);
+    }
 }
 
 inline void

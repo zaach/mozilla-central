@@ -514,13 +514,13 @@ LoadJSGCMemoryOptions(const char* aPrefName, void* /* aClosure */)
 
     matchName.RebindLiteral(PREF_MEM_OPTIONS_PREFIX
                             "gc_allocation_threshold_mb");
-    if (memPrefName == matchName || (!rts && index == 9)) {
+    if (memPrefName == matchName || (!rts && index == 8)) {
       UpdateCommonJSGCMemoryOption(rts, matchName, JSGC_ALLOCATION_THRESHOLD);
       continue;
     }
 
     matchName.RebindLiteral(PREF_MEM_OPTIONS_PREFIX "gc_incremental_slice_ms");
-    if (memPrefName == matchName || (!rts && index == 10)) {
+    if (memPrefName == matchName || (!rts && index == 9)) {
       int32_t prefValue = GetWorkerPref(matchName, -1);
       uint32_t value =
         (prefValue <= 0 || prefValue >= 100000) ? 0 : uint32_t(prefValue);
@@ -529,7 +529,7 @@ LoadJSGCMemoryOptions(const char* aPrefName, void* /* aClosure */)
     }
 
     matchName.RebindLiteral(PREF_MEM_OPTIONS_PREFIX "gc_dynamic_heap_growth");
-    if (memPrefName == matchName || (!rts && index == 11)) {
+    if (memPrefName == matchName || (!rts && index == 10)) {
       bool prefValue = GetWorkerPref(matchName, false);
       UpdatOtherJSGCMemoryOption(rts, JSGC_DYNAMIC_HEAP_GROWTH,
                                  prefValue ? 0 : 1);
@@ -537,7 +537,7 @@ LoadJSGCMemoryOptions(const char* aPrefName, void* /* aClosure */)
     }
 
     matchName.RebindLiteral(PREF_MEM_OPTIONS_PREFIX "gc_dynamic_mark_slice");
-    if (memPrefName == matchName || (!rts && index == 12)) {
+    if (memPrefName == matchName || (!rts && index == 11)) {
       bool prefValue = GetWorkerPref(matchName, false);
       UpdatOtherJSGCMemoryOption(rts, JSGC_DYNAMIC_MARK_SLICE,
                                  prefValue ? 0 : 1);
@@ -831,8 +831,7 @@ public:
   // call to JS_SetGCParameter inside CreateJSContextForWorker.
   WorkerJSRuntime(WorkerPrivate* aWorkerPrivate)
   : CycleCollectedJSRuntime(WORKER_DEFAULT_RUNTIME_HEAPSIZE,
-                            JS_NO_HELPER_THREADS,
-                            false),
+                            JS_NO_HELPER_THREADS),
     mWorkerPrivate(aWorkerPrivate)
   {
     // We need to ensure that a JSContext outlives the cycle collector, and
@@ -862,13 +861,6 @@ public:
     mWorkerPrivate = nullptr;
     JS_DestroyContext(mLastJSContext);
     mLastJSContext = nullptr;
-  }
-
-  // Make this public for now.  Ideally we'd hide the JSRuntime inside.
-  JSRuntime*
-  Runtime() const
-  {
-    return mozilla::CycleCollectedJSRuntime::Runtime();
   }
 
   void
@@ -1118,6 +1110,20 @@ GetWorkerPrivateFromContext(JSContext* aCx)
 {
   NS_ASSERTION(!NS_IsMainThread(), "Wrong thread!");
   return static_cast<WorkerThreadRuntimePrivate*>(JS_GetRuntimePrivate(JS_GetRuntime(aCx)))->mWorkerPrivate;
+}
+
+bool
+IsCurrentThreadRunningChromeWorker()
+{
+  NS_ASSERTION(!NS_IsMainThread(), "Wrong thread!");
+  CycleCollectedJSRuntime* ccrt = nsCycleCollector_currentJSRuntime();
+  if (!ccrt) {
+    return false;
+  }
+
+  JSRuntime* rt = ccrt->Runtime();
+  return static_cast<WorkerThreadRuntimePrivate*>(JS_GetRuntimePrivate(rt))->
+    mWorkerPrivate->UsesSystemPrincipal();
 }
 
 END_WORKERS_NAMESPACE
@@ -1486,9 +1492,6 @@ RuntimeService::Init()
   mIdleThreadTimer = do_CreateInstance(NS_TIMER_CONTRACTID);
   NS_ENSURE_STATE(mIdleThreadTimer);
 
-  mDomainMap.Init();
-  mWindowMap.Init();
-
   nsCOMPtr<nsIObserverService> obs = services::GetObserverService();
   NS_ENSURE_TRUE(obs, NS_ERROR_FAILURE);
 
@@ -1609,7 +1612,7 @@ RuntimeService::Cleanup()
     mIdleThreadTimer = nullptr;
   }
 
-  if (mDomainMap.IsInitialized()) {
+  {
     MutexAutoLock lock(mMutex);
 
     nsAutoTArray<WorkerPrivate*, 100> workers;
@@ -1671,9 +1674,7 @@ RuntimeService::Cleanup()
     }
   }
 
-  if (mWindowMap.IsInitialized()) {
-    NS_ASSERTION(!mWindowMap.Count(), "All windows should have been released!");
-  }
+  NS_ASSERTION(!mWindowMap.Count(), "All windows should have been released!");
 
   if (mObserved) {
     if (NS_FAILED(Preferences::UnregisterCallback(LoadJSContextOptions,

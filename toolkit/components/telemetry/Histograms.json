@@ -2563,6 +2563,16 @@
     "n_buckets": 15,
     "description": "Session restore: Days elapsed since the session was first started"
   },
+  "FX_SESSION_RESTORE_TABSTATECACHE_HIT_RATE": {
+     "kind": "enumerated",
+     "n_values": 101,
+     "description": "Session restore: Percentage of tab state cache hits in all tab state cache accesses"
+  },
+  "FX_SESSION_RESTORE_TABSTATECACHE_CLEAR_RATIO": {
+     "kind": "enumerated",
+     "n_values": 101,
+     "description": "Session restore: Number of times the tab state cache has been cleared during a session divided by number of total accesses during the session (percentage)"
+  },
   "INNERWINDOWS_WITH_MUTATION_LISTENERS": {
     "kind": "boolean",
     "description": "Deleted or to-be-reused innerwindow which has had mutation event listeners."
@@ -3191,6 +3201,20 @@
     "n_buckets": 50,
     "description": "Time spent to display first page in PDF Viewer (ms)"
   },
+  "PLUGINS_NOTIFICATION_SHOWN": {
+    "kind": "boolean",
+    "description": "The number of times the click-to-activate notification was shown: false: shown by in-content activation true: shown by location bar activation"
+  },
+  "PLUGINS_NOTIFICATION_PLUGIN_COUNT": {
+    "kind": "enumerated",
+    "n_values": 5,
+    "description": "The number of plugins present in the click-to-activate notification, minus one (1, 2, 3, 4, more than 4)"
+  },
+  "PLUGINS_NOTIFICATION_USER_ACTION": {
+    "kind": "enumerated",
+    "n_values": 3,
+    "description": "User actions taken in the plugin notification: 0: allownow 1: allowalways 2: block"
+  },
   "POPUP_NOTIFICATION_MAINACTION_TRIGGERED_MS": {
     "kind": "linear",
     "low": 25,
@@ -3507,6 +3531,12 @@
     "high": "10000",
     "n_buckets": "1000",
     "description": "The length of time (in seconds) that a call lasted."
+  },
+  "WEBRTC_CALL_COUNT":{
+    "kind": "exponential",
+    "high": "500",
+    "n_buckets": "50",
+    "description": "The number of calls made during a session."
   },
   "DEVTOOLS_DEBUGGER_RDP_LOCAL_TRACERDETACH_MS": {
     "kind": "exponential",

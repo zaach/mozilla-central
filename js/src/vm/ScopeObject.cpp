@@ -333,6 +333,8 @@ Class DeclEnvObject::class_ = {
 DeclEnvObject *
 DeclEnvObject::createTemplateObject(JSContext *cx, HandleFunction fun, gc::InitialHeap heap)
 {
+    JS_ASSERT(IsNurseryAllocable(FINALIZE_KIND));
+
     RootedTypeObject type(cx, cx->getNewType(&class_, NULL));
     if (!type)
         return NULL;
@@ -1138,6 +1140,8 @@ ScopeIterKey::match(ScopeIterKey si1, ScopeIterKey si2)
 
 /*****************************************************************************/
 
+namespace {
+
 /*
  * DebugScopeProxy is the handler for DebugScopeObject proxy objects. Having a
  * custom handler (rather than trying to reuse js::Wrapper) gives us several
@@ -1531,6 +1535,8 @@ class DebugScopeProxy : public BaseProxyHandler
                                         JSDVG_IGNORE_STACK, idval, NullPtr(), NULL, NULL);
     }
 };
+
+} /* anonymous namespace */
 
 int DebugScopeProxy::family = 0;
 DebugScopeProxy DebugScopeProxy::singleton;

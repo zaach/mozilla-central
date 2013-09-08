@@ -13,18 +13,12 @@ if CONFIG['MOZ_WIDGET_TOOLKIT'] == 'windows':
 elif CONFIG['MOZ_WIDGET_TOOLKIT'] == 'cocoa':
     gl_provider = 'CGL'
 elif CONFIG['MOZ_WIDGET_GTK']:
-    if CONFIG['MOZ_PLATFORM_MAEMO']:
-        gl_provider = 'EGL'
-    else:
-        if CONFIG['MOZ_EGL_XRENDER_COMPOSITE']:
-            gl_provider = 'EGL'
-        else:
-            gl_provider = 'GLX'
-elif CONFIG['MOZ_WIDGET_TOOLKIT'] == 'qt':
-    if CONFIG['MOZ_PLATFORM_MAEMO']:
+    if CONFIG['MOZ_EGL_XRENDER_COMPOSITE']:
         gl_provider = 'EGL'
     else:
         gl_provider = 'GLX'
+elif CONFIG['MOZ_WIDGET_TOOLKIT'] == 'qt':
+    gl_provider = 'GLX'
 elif CONFIG['MOZ_WIDGET_TOOLKIT'] == 'android':
     gl_provider = 'EGL'
 elif CONFIG['MOZ_WIDGET_TOOLKIT'] == 'gonk':
@@ -67,7 +61,6 @@ if CONFIG['MOZ_WIDGET_TOOLKIT'] == 'windows':
     ]
     CPP_SOURCES += [
         'GLContextProviderEGL.cpp',
-        'GLLibraryEGL.cpp',
         'SharedSurfaceANGLE.cpp',
     ]
 if CONFIG['MOZ_ENABLE_SKIA_GPU']:
@@ -95,11 +88,6 @@ else:
         'GLContextProvider%s.cpp' % gl_provider,
     ]
 
-if gl_provider == 'EGL':
-    CPP_SOURCES += [
-        'GLLibraryEGL.cpp',
-    ]
-
 CPP_SOURCES += [
     'GLContext.cpp',
     'GLContextFeatures.cpp',
@@ -109,6 +97,7 @@ CPP_SOURCES += [
     'GLScreenBuffer.cpp',
     'GLTextureImage.cpp',
     'SharedSurface.cpp',
+    'GLLibraryEGL.cpp',
     'SharedSurfaceEGL.cpp',
     'SharedSurfaceGL.cpp',
     'SurfaceFactory.cpp',
@@ -121,4 +110,6 @@ FAIL_ON_WARNINGS = True
 LIBXUL_LIBRARY = True
 
 MSVC_ENABLE_PGO = True
+
+LIBRARY_NAME = 'gl'
 

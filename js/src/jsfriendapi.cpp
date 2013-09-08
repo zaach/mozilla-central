@@ -37,8 +37,8 @@ JS_STATIC_ASSERT(offsetof(JSRuntime, mainThread) ==
                  PerThreadDataFriendFields::RuntimeMainThreadOffset);
 
 PerThreadDataFriendFields::PerThreadDataFriendFields()
-  : nativeStackLimit(0)
 {
+    PodArrayZero(nativeStackLimit);
 #if defined(JSGC_ROOT_ANALYSIS) || defined(JSGC_USE_EXACT_ROOTING)
     PodArrayZero(thingGCRooters);
 #endif
@@ -343,6 +343,14 @@ js::IsAtomsCompartment(JSCompartment *comp)
 }
 
 JS_FRIEND_API(bool)
+js::IsInNonStrictPropertySet(JSContext *cx)
+{
+    jsbytecode *pc;
+    JSScript *script = cx->currentScript(&pc, JSContext::ALLOW_CROSS_COMPARTMENT);
+    return script && !script->strict && (js_CodeSpec[*pc].format & JOF_SET);
+}
+
+JS_FRIEND_API(bool)
 js::IsFunctionObject(JSObject *obj)
 {
     return obj->is<JSFunction>();
@@ -400,6 +408,12 @@ JS_FRIEND_API(bool)
 js::IsObjectInContextCompartment(JSObject *obj, const JSContext *cx)
 {
     return obj->compartment() == cx->compartment();
+}
+
+JS_FRIEND_API(bool)
+js::RunningWithTrustedPrincipals(JSContext *cx)
+{
+    return cx->runningWithTrustedPrincipals();
 }
 
 JS_FRIEND_API(bool)
@@ -547,6 +561,12 @@ void
 js::SetPreserveWrapperCallback(JSRuntime *rt, PreserveWrapperCallback callback)
 {
     rt->preserveWrapperCallback = callback;
+}
+
+JS_FRIEND_API(JSErrorReport*)
+js::ErrorFromException(Value val)
+{
+    return js_ErrorFromException(val);
 }
 
 /*
@@ -784,12 +804,6 @@ js::ContextHasOutstandingRequests(const JSContext *cx)
     return cx->outstandingRequests > 0;
 }
 #endif
-
-JS_FRIEND_API(bool)
-js::HasUnrootedGlobal(const JSContext *cx)
-{
-    return cx->hasOption(JSOPTION_UNROOTED_GLOBAL);
-}
 
 JS_FRIEND_API(void)
 js::SetActivityCallback(JSRuntime *rt, ActivityCallback cb, void *arg)

@@ -163,6 +163,15 @@ class TypedOrValueRegister
         return *data.value.addr();
     }
 
+    const AnyRegister &dataTyped() const {
+        JS_ASSERT(hasTyped());
+        return *data.typed.addr();
+    }
+    const ValueOperand &dataValue() const {
+        JS_ASSERT(hasValue());
+        return *data.value.addr();
+    }
+
   public:
 
     TypedOrValueRegister()
@@ -193,11 +202,11 @@ class TypedOrValueRegister
         return type() == MIRType_Value;
     }
 
-    AnyRegister typedReg() {
+    AnyRegister typedReg() const {
         return dataTyped();
     }
 
-    ValueOperand valueReg() {
+    ValueOperand valueReg() const {
         return dataValue();
     }
 
@@ -391,8 +400,12 @@ class TypedRegisterSet
 #endif
     }
     T getAny() const {
-        JS_ASSERT(!empty());
-        return T::FromCode(mozilla::FloorLog2(bits_));
+        // The choice of first or last here is mostly arbitrary, as they are
+        // about the same speed on popular architectures. We choose first, as
+        // it has the advantage of using the "lower" registers more often. These
+        // registers are sometimes more efficient (e.g. optimized encodings for
+        // EAX on x86).
+        return getFirst();
     }
     T getFirst() const {
         JS_ASSERT(!empty());

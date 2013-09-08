@@ -1513,6 +1513,16 @@ struct FakeDependentString {
     mFlags |= nsDependentString::F_VOIDED;
   }
 
+  const nsDependentString::char_type* Data() const
+  {
+    return mData;
+  }
+
+  nsDependentString::size_type Length() const
+  {
+    return mLength;
+  }
+
   // If this ever changes, change the corresponding code in the
   // Optional<nsAString> specialization as well.
   const nsAString* ToAStringPtr() const {
@@ -1622,6 +1632,12 @@ class UnionMember {
 public:
     T& SetValue() {
       new (storage.addr()) T();
+      return *storage.addr();
+    }
+    template <typename T1>
+    T& SetValue(const T1 &t1)
+    {
+      new (storage.addr()) T(t1);
       return *storage.addr();
     }
     template <typename T1, typename T2>

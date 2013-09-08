@@ -29,6 +29,7 @@
 #include "nsBlockFrame.h"
 #include "nsBidiPresUtils.h"
 #include "imgIContainer.h"
+#include "ImageOps.h"
 #include "gfxRect.h"
 #include "gfxContext.h"
 #include "gfxFont.h"
@@ -86,6 +87,11 @@ using namespace mozilla::dom;
 using namespace mozilla::layers;
 using namespace mozilla::layout;
 
+using mozilla::image::Angle;
+using mozilla::image::Flip;
+using mozilla::image::ImageOps;
+using mozilla::image::Orientation;
+
 #define FLEXBOX_ENABLED_PREF_NAME "layout.css.flexbox.enabled"
 
 #ifdef DEBUG
@@ -119,7 +125,6 @@ static ContentMap* sContentMap = nullptr;
 static ContentMap& GetContentMap() {
   if (!sContentMap) {
     sContentMap = new ContentMap();
-    sContentMap->Init();
   }
   return *sContentMap;
 }
@@ -1900,14 +1905,15 @@ nsLayoutUtils::PaintFrame(nsRenderingContext* aRenderingContext, nsIFrame* aFram
   nsIFrame* rootScrollFrame = presShell->GetRootScrollFrame();
   bool usingDisplayPort = false;
   nsRect displayport;
-  if (rootScrollFrame) {
+  if (rootScrollFrame && !aFrame->GetParent()) {
     nsIContent* content = rootScrollFrame->GetContent();
     if (content) {
       usingDisplayPort = nsLayoutUtils::GetDisplayPort(content, &displayport);
     }
   }
 
-  bool ignoreViewportScrolling = presShell->IgnoringViewportScrolling();
+  bool ignoreViewportScrolling =
+    aFrame->GetParent() ? false : presShell->IgnoringViewportScrolling();
   nsRegion visibleRegion;
   if (aFlags & PAINT_WIDGET_LAYERS) {
     // This layer tree will be reused, so we'll need to calculate it
@@ -1958,41 +1964,27 @@ nsLayoutUtils::PaintFrame(nsRenderingContext* aRenderingContext, nsIFrame* aFram
   }
   nsRect canvasArea(nsPoint(0, 0), aFrame->GetSize());
 
-#ifdef DEBUG
-  if (ignoreViewportScrolling) {
-    nsIDocument* doc = aFrame->GetContent() ?
-      aFrame->GetContent()->GetCurrentDoc() : nullptr;
-    NS_ASSERTION(!aFrame->GetParent() ||
-                 (doc && doc->IsBeingUsedAsImage()),
-                 "Only expecting ignoreViewportScrolling for root frames and "
-                 "for image documents.");
-  }
-#endif
-
-  if (ignoreViewportScrolling && !aFrame->GetParent()) {
-    nsIFrame* rootScrollFrame = presShell->GetRootScrollFrame();
-    if (rootScrollFrame) {
-      nsIScrollableFrame* rootScrollableFrame =
-        presShell->GetRootScrollFrameAsScrollable();
-      if (aFlags & PAINT_DOCUMENT_RELATIVE) {
-        // Make visibleRegion and aRenderingContext relative to the
-        // scrolled frame instead of the root frame.
-        nsPoint pos = rootScrollableFrame->GetScrollPosition();
-        visibleRegion.MoveBy(-pos);
-        if (aRenderingContext) {
-          aRenderingContext->Translate(pos);
-        }
+  if (ignoreViewportScrolling && rootScrollFrame) {
+    nsIScrollableFrame* rootScrollableFrame =
+      presShell->GetRootScrollFrameAsScrollable();
+    if (aFlags & PAINT_DOCUMENT_RELATIVE) {
+      // Make visibleRegion and aRenderingContext relative to the
+      // scrolled frame instead of the root frame.
+      nsPoint pos = rootScrollableFrame->GetScrollPosition();
+      visibleRegion.MoveBy(-pos);
+      if (aRenderingContext) {
+        aRenderingContext->Translate(pos);
       }
-      builder.SetIgnoreScrollFrame(rootScrollFrame);
+    }
+    builder.SetIgnoreScrollFrame(rootScrollFrame);
 
-      nsCanvasFrame* canvasFrame =
-        do_QueryFrame(rootScrollableFrame->GetScrolledFrame());
-      if (canvasFrame) {
-        // Use UnionRect here to ensure that areas where the scrollbars
-        // were are still filled with the background color.
-        canvasArea.UnionRect(canvasArea,
-          canvasFrame->CanvasArea() + builder.ToReferenceFrame(canvasFrame));
-      }
+    nsCanvasFrame* canvasFrame =
+      do_QueryFrame(rootScrollableFrame->GetScrolledFrame());
+    if (canvasFrame) {
+      // Use UnionRect here to ensure that areas where the scrollbars
+      // were are still filled with the background color.
+      canvasArea.UnionRect(canvasArea,
+        canvasFrame->CanvasArea() + builder.ToReferenceFrame(canvasFrame));
     }
   }
 
@@ -4271,6 +4263,25 @@ nsLayoutUtils::GetWholeImageDestination(const nsIntSize& aWholeImageSize,
   nscoord wholeSizeY = NSToCoordRound(aWholeImageSize.height*appUnitsPerCSSPixel*scaleY);
   return nsRect(aDestArea.TopLeft() - nsPoint(destOffsetX, destOffsetY),
                 nsSize(wholeSizeX, wholeSizeY));
+}
+
+/* static */ already_AddRefed<imgIContainer>
+nsLayoutUtils::OrientImage(imgIContainer* aContainer,
+                           const nsStyleImageOrientation& aOrientation)
+{
+  MOZ_ASSERT(aContainer, "Should have an image container");
+  nsCOMPtr<imgIContainer> img(aContainer);
+
+  if (aOrientation.IsFromImage()) {
+    img = ImageOps::Orient(img, img->GetOrientation());
+  } else if (!aOrientation.IsDefault()) {
+    Angle angle = aOrientation.Angle();
+    Flip flip  = aOrientation.IsFlipped() ? Flip::Horizontal
+                                          : Flip::Unflipped;
+    img = ImageOps::Orient(img, Orientation(angle, flip));
+  }
+
+  return img.forget();
 }
 
 static bool NonZeroStyleCoord(const nsStyleCoord& aCoord)

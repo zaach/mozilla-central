@@ -54,7 +54,7 @@
 #include "nsICachingChannel.h"
 #include "nsLayoutUtils.h"
 #include "nsVideoFrame.h"
-#include "BasicLayers.h"
+#include "Layers.h"
 #include <limits>
 #include "nsIAsyncVerifyRedirectCallback.h"
 #include "nsIAppShell.h"
@@ -1845,7 +1845,6 @@ HTMLMediaElement::AddMediaElementToURITable()
     "Should not have entry for element in element table before addition");
   if (!gElementTable) {
     gElementTable = new MediaElementURITable();
-    gElementTable->Init();
   }
   MediaElementSetForURI* entry = gElementTable->PutEntry(mLoadingSrc);
   entry->mElements.AppendElement(this);

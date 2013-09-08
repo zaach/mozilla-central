@@ -90,7 +90,7 @@ public:
 
   JSObject* getArrayBuffer(JSContext* aCx);
 
-protected:  // njn?
+protected:
   static bool areOverlappingRegions(const uint8_t* aStart1, uint32_t aLength1,
                                     const uint8_t* aStart2, uint32_t aLength2);
 };
@@ -673,7 +673,6 @@ protected:
   bool mErrorLoad;
   bool mWaitingForOnStopRequest;
   bool mProgressTimerIsActive;
-  bool mProgressEventWasDelayed;
   bool mIsHtml;
   bool mWarnAboutMultipartHtml;
   bool mWarnAboutSyncHtml;

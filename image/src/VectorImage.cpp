@@ -29,6 +29,7 @@
 #include "nsSVGUtils.h"  // for nsSVGUtils::ConvertToSurfaceSize
 #include "Orientation.h"
 #include "SVGDocumentWrapper.h"
+#include "nsIDOMEventListener.h"
 
 namespace mozilla {
 
@@ -89,7 +90,7 @@ protected:
       // Ignore further invalidations until we draw.
       mHonoringInvalidations = false;
 
-      mVectorImage->InvalidateObserver();
+      mVectorImage->InvalidateObserversOnNextRefreshDriverTick();
     }
 
     // Our caller might've removed us from rendering-observer list.
@@ -313,7 +314,8 @@ VectorImage::VectorImage(imgStatusTracker* aStatusTracker,
   mIsInitialized(false),
   mIsFullyLoaded(false),
   mIsDrawing(false),
-  mHaveAnimations(false)
+  mHaveAnimations(false),
+  mHasPendingInvalidation(false)
 {
 }
 
@@ -391,10 +393,12 @@ VectorImage::OnImageDataComplete(nsIRequest* aRequest,
 
   // Actually fire OnStopRequest.
   if (mStatusTracker) {
+    // XXX(seth): Is this seriously the least insane way to do this?
     nsRefPtr<imgStatusTracker> clone = mStatusTracker->CloneForRecording();
     imgDecoderObserver* observer = clone->GetDecoderObserver();
     observer->OnStopRequest(aLastPart, finalStatus);
-    imgStatusTracker::StatusDiff diff = mStatusTracker->CalculateAndApplyDifference(clone);
+    ImageStatusDiff diff = mStatusTracker->Difference(clone);
+    mStatusTracker->ApplyDifference(diff);
     mStatusTracker->SyncNotifyDifference(diff);
   }
   return finalStatus;
@@ -482,6 +486,18 @@ VectorImage::RequestRefresh(const mozilla::TimeStamp& aTime)
 {
   // TODO: Implement for b666446.
   EvaluateAnimation();
+
+  if (mHasPendingInvalidation && mStatusTracker) {
+    // This method is called under the Tick() of an observing document's
+    // refresh driver. We send out the following notifications here rather than
+    // under WillRefresh() (which would be called by our own refresh driver) so
+    // that we only send these notifications if we actually have a document
+    // that is observing us.
+    mStatusTracker->FrameChanged(&nsIntRect::GetMaxSizedIntRect());
+    mStatusTracker->OnStopFrame();
+  }
+
+  mHasPendingInvalidation = false;
 }
 
 //******************************************************************************
@@ -861,7 +877,8 @@ VectorImage::OnStartRequest(nsIRequest* aRequest, nsISupports* aCtxt)
     nsRefPtr<imgStatusTracker> clone = mStatusTracker->CloneForRecording();
     imgDecoderObserver* observer = clone->GetDecoderObserver();
     observer->OnStartDecode();
-    imgStatusTracker::StatusDiff diff = mStatusTracker->CalculateAndApplyDifference(clone);
+    ImageStatusDiff diff = mStatusTracker->Difference(clone);
+    mStatusTracker->ApplyDifference(diff);
     mStatusTracker->SyncNotifyDifference(diff);
   }
 
@@ -949,7 +966,8 @@ VectorImage::OnSVGDocumentLoaded()
     observer->OnStopFrame();
     observer->OnStopDecode(NS_OK); // Unblock page load.
 
-    imgStatusTracker::StatusDiff diff = mStatusTracker->CalculateAndApplyDifference(clone);
+    ImageStatusDiff diff = mStatusTracker->Difference(clone);
+    mStatusTracker->ApplyDifference(diff);
     mStatusTracker->SyncNotifyDifference(diff);
   }
 
@@ -972,7 +990,8 @@ VectorImage::OnSVGDocumentError()
 
     // Unblock page load.
     observer->OnStopDecode(NS_ERROR_FAILURE);
-    imgStatusTracker::StatusDiff diff = mStatusTracker->CalculateAndApplyDifference(clone);
+    ImageStatusDiff diff = mStatusTracker->Difference(clone);
+    mStatusTracker->ApplyDifference(diff);
     mStatusTracker->SyncNotifyDifference(diff);
   }
 }
@@ -1000,12 +1019,9 @@ VectorImage::OnDataAvailable(nsIRequest* aRequest, nsISupports* aCtxt,
 // Invalidation helper method
 
 void
-VectorImage::InvalidateObserver()
+VectorImage::InvalidateObserversOnNextRefreshDriverTick()
 {
-  if (mStatusTracker) {
-    mStatusTracker->FrameChanged(&nsIntRect::GetMaxSizedIntRect());
-    mStatusTracker->OnStopFrame();
-  }
+  mHasPendingInvalidation = true;
 }
 
 } // namespace image

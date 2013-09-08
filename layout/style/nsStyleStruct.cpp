@@ -1150,11 +1150,16 @@ nsChangeHint nsStyleSVGReset::CalcDifference(const nsStyleSVGReset& aOther) cons
 {
   nsChangeHint hint = nsChangeHint(0);
 
+  bool equalFilters = (mFilters == aOther.mFilters);
+
+  if (!equalFilters) {
+    NS_UpdateHint(hint, nsChangeHint_UpdateOverflow);
+  }
+
   if (!EqualURIs(mClipPath, aOther.mClipPath) ||
       !EqualURIs(mMask, aOther.mMask) ||
-      mFilters != aOther.mFilters) {
+      !equalFilters) {
     NS_UpdateHint(hint, nsChangeHint_UpdateEffects);
-    NS_UpdateHint(hint, nsChangeHint_UpdateOverflow); // for filters only
     NS_UpdateHint(hint, nsChangeHint_RepaintFrame);
   }
 
@@ -2466,6 +2471,7 @@ nsStyleVisibility::nsStyleVisibility(nsPresContext* aPresContext)
 nsStyleVisibility::nsStyleVisibility(const nsStyleVisibility& aSource)
 {
   MOZ_COUNT_CTOR(nsStyleVisibility);
+  mImageOrientation = aSource.mImageOrientation;
   mDirection = aSource.mDirection;
   mVisible = aSource.mVisible;
   mPointerEvents = aSource.mPointerEvents;
@@ -2479,6 +2485,9 @@ nsChangeHint nsStyleVisibility::CalcDifference(const nsStyleVisibility& aOther) 
   if (mDirection != aOther.mDirection || mWritingMode != aOther.mWritingMode) {
     NS_UpdateHint(hint, nsChangeHint_ReconstructFrame);
   } else {
+    if ((mImageOrientation != aOther.mImageOrientation)) {
+      NS_UpdateHint(hint, nsChangeHint_AllReflowHints);
+    }
     if (mVisible != aOther.mVisible) {
       if ((NS_STYLE_VISIBILITY_COLLAPSE == mVisible) ||
           (NS_STYLE_VISIBILITY_COLLAPSE == aOther.mVisible)) {

@@ -8,6 +8,7 @@
 {
   'variables' : {
     'build_with_gonk%': 0,
+    'have_ethtool_cmd_speed_hi%': 1
   },
   'targets' : [
       {
@@ -76,6 +77,10 @@
                 "./src/net/transport_addr.h",
                 "./src/net/transport_addr_reg.c",
                 "./src/net/transport_addr_reg.h",
+                "./src/net/local_addr.c",
+                "./src/net/local_addr.h",
+                "./src/net/nr_interface_prioritizer.c",
+                "./src/net/nr_interface_prioritizer.h",
 
                 # STUN
                 "./src/stun/addrs.c",
@@ -230,6 +235,11 @@
              ['build_with_gonk==1', {
                'defines': [
                   "USE_PLATFORM_NR_STUN_GET_ADDRS",
+               ]
+             }],
+             ['have_ethtool_cmd_speed_hi==0', {
+               'defines': [
+                  "DONT_HAVE_ETHTOOL_SPEED_HI",
                ]
              }]
           ],

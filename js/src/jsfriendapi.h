@@ -35,6 +35,7 @@ class JSAtom;
 struct JSErrorFormatString;
 class JSLinearString;
 struct JSJitInfo;
+class JSErrorReport;
 
 namespace JS {
 template <class T>
@@ -264,6 +265,15 @@ IsAtomsCompartment(JSCompartment *comp);
  */
 extern JS_FRIEND_API(bool)
 ReportIfUndeclaredVarAssignment(JSContext *cx, JS::HandleString propname);
+
+/*
+ * Returns whether we're in a non-strict property set (in that we're in a
+ * non-strict script and the bytecode we're on is a property set).  The return
+ * value does NOT indicate any sort of exception was thrown: it's just a
+ * boolean.
+ */
+extern JS_FRIEND_API(bool)
+IsInNonStrictPropertySet(JSContext *cx);
 
 struct WeakMapTracer;
 
@@ -577,6 +587,14 @@ JS_FRIEND_API(bool)
 IsObjectInContextCompartment(JSObject *obj, const JSContext *cx);
 
 /*
+ * ErrorFromException takes a raw Value so that it's possible to call it during
+ * GC/CC/whatever, when it may not be possible to get a JSContext to create a
+ * Rooted.  It promises to never ever GC.
+ */
+JS_FRIEND_API(JSErrorReport*)
+ErrorFromException(JS::Value val);
+
+/*
  * NB: these flag bits are encoded into the bytecode stream in the immediate
  * operand of JSOP_ITER, so don't change them without advancing vm/Xdr.h's
  * XDR_BYTECODE_VERSION.
@@ -588,16 +606,17 @@ IsObjectInContextCompartment(JSObject *obj, const JSContext *cx);
 #define JSITER_HIDDEN     0x10  /* also enumerate non-enumerable properties */
 #define JSITER_FOR_OF     0x20  /* harmony for-of loop */
 
-inline uintptr_t
-GetNativeStackLimit(const JSRuntime *rt)
-{
-    return PerThreadDataFriendFields::getMainThread(rt)->nativeStackLimit;
-}
+JS_FRIEND_API(bool)
+RunningWithTrustedPrincipals(JSContext *cx);
 
 inline uintptr_t
 GetNativeStackLimit(JSContext *cx)
 {
-    return GetNativeStackLimit(GetRuntime(cx));
+    StackKind kind = RunningWithTrustedPrincipals(cx) ? StackForTrustedScript
+                                                      : StackForUntrustedScript;
+    PerThreadDataFriendFields *mainThread =
+      PerThreadDataFriendFields::getMainThread(GetRuntime(cx));
+    return mainThread->nativeStackLimit[kind];
 }
 
 /*
@@ -657,9 +676,6 @@ JS_FRIEND_API(bool)
 ContextHasOutstandingRequests(const JSContext *cx);
 #endif
 
-JS_FRIEND_API(bool)
-HasUnrootedGlobal(const JSContext *cx);
-
 typedef void
 (* ActivityCallback)(void *arg, bool active);
 
@@ -712,7 +728,7 @@ CastToJSFreeOp(FreeOp *fop)
  * Returns NULL for invalid arguments and JSEXN_INTERNALERR
  */
 extern JS_FRIEND_API(const jschar*)
-GetErrorTypeName(JSContext* cx, int16_t exnType);
+GetErrorTypeName(JSRuntime* rt, int16_t exnType);
 
 #ifdef DEBUG
 extern JS_FRIEND_API(unsigned)

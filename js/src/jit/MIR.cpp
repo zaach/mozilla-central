@@ -273,6 +273,35 @@ MDefinition::defUseCount() const
     return count;
 }
 
+bool
+MDefinition::hasOneUse() const
+{
+    MUseIterator i(uses_.begin());
+    if (i == uses_.end())
+        return false;
+    i++;
+    return i == uses_.end();
+}
+
+bool
+MDefinition::hasOneDefUse() const
+{
+    bool hasOneDefUse = false;
+    for (MUseIterator i(uses_.begin()); i != uses_.end(); i++) {
+        if (!(*i)->consumer()->isDefinition())
+            continue;
+
+        // We already have a definition use. So 1+
+        if (hasOneDefUse)
+            return false;
+
+        // We saw one definition. Loop to test if there is another.
+        hasOneDefUse = true;
+    }
+
+    return hasOneDefUse;
+}
+
 MUseIterator
 MDefinition::removeUse(MUseIterator use)
 {
@@ -596,12 +625,6 @@ MUnbox::printOpcode(FILE *fp) const
     }
 }
 
-MPhi *
-MPhi::New(uint32_t slot)
-{
-    return new MPhi(slot);
-}
-
 void
 MPhi::removeOperand(size_t index)
 {
@@ -856,7 +879,7 @@ MPhi::addInputSlow(MDefinition *ins, bool *ptypeChange)
 uint32_t
 MPrepareCall::argc() const
 {
-    JS_ASSERT(useCount() == 1);
+    JS_ASSERT(hasOneUse());
     MCall *call = usesBegin()->consumer()->toDefinition()->toCall();
     return call->numStackArgs();
 }
@@ -2397,6 +2420,24 @@ MGetPropertyPolymorphic::mightAlias(MDefinition *store)
     return false;
 }
 
+void
+MGetPropertyCache::setBlock(MBasicBlock *block)
+{
+    MDefinition::setBlock(block);
+    // Track where we started.
+    if (!location_.pc) {
+        location_.pc = block->trackedPc();
+        location_.script = block->info().script();
+    }
+}
+
+bool
+MGetPropertyCache::updateForReplacement(MDefinition *ins) {
+    MGetPropertyCache *other = ins->toGetPropertyCache();
+    location_.append(&other->location_);
+    return true;
+}
+
 MDefinition *
 MAsmJSUnsignedToDouble::foldsTo(bool useValueNumbers)
 {
@@ -2454,7 +2495,8 @@ jit::ElementAccessIsDenseNative(MDefinition *obj, MDefinition *id)
 }
 
 bool
-jit::ElementAccessIsTypedArray(MDefinition *obj, MDefinition *id, int *arrayType)
+jit::ElementAccessIsTypedArray(MDefinition *obj, MDefinition *id,
+                               ScalarTypeRepresentation::Type *arrayType)
 {
     if (obj->mightBeType(MIRType_String))
         return false;
@@ -2466,8 +2508,8 @@ jit::ElementAccessIsTypedArray(MDefinition *obj, MDefinition *id, int *arrayType
     if (!types)
         return false;
 
-    *arrayType = types->getTypedArrayType();
-    return *arrayType != TypedArrayObject::TYPE_MAX;
+    *arrayType = (ScalarTypeRepresentation::Type) types->getTypedArrayType();
+    return *arrayType != ScalarTypeRepresentation::TYPE_MAX;
 }
 
 bool

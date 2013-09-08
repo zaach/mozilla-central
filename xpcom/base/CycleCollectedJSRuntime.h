@@ -83,15 +83,8 @@ class CycleCollectedJSRuntime
   friend class IncrementalFinalizeRunnable;
 protected:
   CycleCollectedJSRuntime(uint32_t aMaxbytes,
-                          JSUseHelperThreads aUseHelperThreads,
-                          bool aExpectUnrootedGlobals);
+                          JSUseHelperThreads aUseHelperThreads);
   virtual ~CycleCollectedJSRuntime();
-
-  JSRuntime* Runtime() const
-  {
-    MOZ_ASSERT(mJSRuntime);
-    return mJSRuntime;
-  }
 
   size_t SizeOfExcludingThis(mozilla::MallocSizeOf aMallocSizeOf) const;
   void UnmarkSkippableJSHolders();
@@ -149,12 +142,7 @@ private:
   static void
   TraverseObjectShim(void* aData, void* aThing);
 
-  void MaybeTraverseGlobals(nsCycleCollectionNoteRootCallback& aCb) const;
-
   void TraverseNativeRoots(nsCycleCollectionNoteRootCallback& aCb);
-
-  void MaybeTraceGlobals(JSTracer* aTracer) const;
-
 
   static void TraceBlackJS(JSTracer* aTracer, void* aData);
   static void TraceGrayJS(JSTracer* aTracer, void* aData);
@@ -184,9 +172,6 @@ public:
   void AssertNoObjectsToTrace(void* aPossibleJSHolder);
 #endif
 
-  // This returns the singleton nsCycleCollectionParticipant for JSContexts.
-  static nsCycleCollectionParticipant* JSContextParticipant();
-
   nsCycleCollectionParticipant* GCThingParticipant();
   nsCycleCollectionParticipant* ZoneParticipant();
 
@@ -208,6 +193,11 @@ public:
   
   virtual void DispatchDeferredDeletion(bool aContinuation) = 0;
 
+  JSRuntime* Runtime() const
+  {
+    MOZ_ASSERT(mJSRuntime);
+    return mJSRuntime;
+  }
 private:
   JSGCThingParticipant mGCThingCycleCollectorGlobal;
 
@@ -223,8 +213,6 @@ private:
   DeferredFinalizerTable mDeferredFinalizerTable;
 
   nsRefPtr<IncrementalFinalizeRunnable> mFinalizeRunnable;
-
-  bool mExpectUnrootedGlobals;
 
 #ifdef DEBUG
   void* mObjectToUnlink;

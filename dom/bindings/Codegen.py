@@ -2335,8 +2335,8 @@ numericSuffixes = {
     IDLType.Tags.uint64: 'ULL',
     IDLType.Tags.unrestricted_float: 'F',
     IDLType.Tags.float: 'F',
-    IDLType.Tags.unrestricted_double: 'D',
-    IDLType.Tags.double: 'D'
+    IDLType.Tags.unrestricted_double: '',
+    IDLType.Tags.double: ''
 }
 
 def numericValue(t, v):
@@ -2514,7 +2514,7 @@ class JSToNativeConversionInfo():
 
         holderType: A CGThing representing the type of a "holder" which will
                     hold a possible reference to the C++ thing whose type we
-                    returned in #1, or  None if no such holder is needed.
+                    returned in declType, or  None if no such holder is needed.
 
         dealWithOptional: A boolean indicating whether the caller has to do
                           optional-argument handling.  This should only be set
@@ -2551,6 +2551,28 @@ class JSToNativeConversionInfo():
         self.dealWithOptional = dealWithOptional
         self.declArgs = declArgs
         self.holderArgs = holderArgs
+
+def getHandleDefault(defaultValue):
+    tag = defaultValue.type.tag()
+    if tag in numericSuffixes:
+        # Some numeric literals require a suffix to compile without warnings
+        return numericValue(tag, defaultValue.value)
+    assert(tag == IDLType.Tags.bool)
+    return toStringBool(defaultValue.value)
+
+def handleDefaultStringValue(defaultValue, method):
+    """
+    Returns a string which ends up calling 'method' with a (PRUnichar*, length)
+    pair that sets this string default value.  This string is suitable for
+    passing as the second argument of handleDefault; in particular it does not
+    end with a ';'
+    """
+    assert defaultValue.type.isDOMString()
+    return ("static const PRUnichar data[] = { %s };\n"
+            "%s(data, ArrayLength(data) - 1)" %
+            (", ".join(["'" + char + "'" for char in
+                        defaultValue.value] + ["0"]),
+             method))
 
 # If this function is modified, modify CGNativeMember.getArg and
 # CGNativeMember.getRetvalInfo accordingly.  The latter cares about the decltype
@@ -2868,6 +2890,9 @@ for (uint32_t i = 0; i < length; ++i) {
         # to get traced
         if not isMember and typeNeedsRooting(elementType, descriptorProvider):
             holderType = CGTemplatedType("SequenceRooter", elementInfo.declType)
+            # If our sequence is nullable, this will set the Nullable to be
+            # not-null, but that's ok because we make an explicit SetNull() call
+            # on it as needed if our JS value is actually null.
             holderArgs = "cx, &%s" % arrayRef
         else:
             holderType = None
@@ -2885,9 +2910,6 @@ for (uint32_t i = 0; i < length; ++i) {
         nullable = type.nullable();
         if nullable:
             type = type.inner
-
-        assert(defaultValue is None or
-               (isinstance(defaultValue, IDLNullValue) and nullable))
 
         unionArgumentObj = "${holderName}"
         if nullable:
@@ -3092,15 +3114,36 @@ for (uint32_t i = 0; i < length; ++i) {
             holderArgs = "${declName}"
             constructHolder = None
 
+        if defaultValue and not isinstance(defaultValue, IDLNullValue):
+            tag = defaultValue.type.tag()
+
+            if tag in numericSuffixes or tag is IDLType.Tags.bool:
+                defaultStr = getHandleDefault(defaultValue)
+                value = declLoc + (".Value()" if nullable else "")
+                default = CGGeneric("%s.SetAs%s() = %s;" % (value,
+                                                            defaultValue.type,
+                                                            defaultStr))
+            else:
+                default = CGGeneric(
+                    handleDefaultStringValue(
+                        defaultValue, "%s.SetStringData" % unionArgumentObj) +
+                    ";")
+
+            templateBody = CGIfElseWrapper("!(${haveValue})", default, templateBody)
+
         templateBody = CGList([constructHolder, templateBody], "\n")
+
         if nullable:
             if defaultValue:
-                assert(isinstance(defaultValue, IDLNullValue))
-                valueMissing = "!(${haveValue}) || "
+                if isinstance(defaultValue, IDLNullValue):
+                    extraConditionForNull = "!(${haveValue}) || "
+                else:
+                    extraConditionForNull = "${haveValue} && "
             else:
-                valueMissing = ""
+                extraConditionForNull = ""
             templateBody = handleNull(templateBody, declLoc,
-                                      extraConditionForNull=valueMissing)
+                                      extraConditionForNull=extraConditionForNull)
+
         templateBody = CGList([constructDecl, templateBody], "\n")
 
         return JSToNativeConversionInfo(templateBody.define(),
@@ -3266,7 +3309,8 @@ for (uint32_t i = 0; i < length; ++i) {
     if type.isSpiderMonkeyInterface():
         assert not isEnforceRange and not isClamp
         name = type.name
-        declType = CGGeneric(name)
+        arrayType = CGGeneric(name)
+        declType = arrayType
         if type.nullable():
             declType = CGTemplatedType("Nullable", declType)
             objRef = "${declName}.SetValue()"
@@ -3281,9 +3325,37 @@ for (uint32_t i = 0; i < length; ++i) {
              CGIndenter(onFailureBadType(failureCode, type.name)).define()))
         template = wrapObjectTemplate(template, type, "${declName}.SetNull()",
                                       failureCode)
+        if not isMember:
+            # This is a bit annoying.  In a union we don't want to have a
+            # holder, since unions don't support that.  But if we're optional we
+            # want to have a holder, so that the callee doesn't see
+            # Optional<RootedTypedArray<ArrayType> >.  So do a holder if we're
+            # optional and use a RootedTypedArray otherwise.
+            if isOptional:
+                holderType = CGTemplatedType("TypedArrayRooter", arrayType)
+                # If our typed array is nullable, this will set the Nullable to
+                # be not-null, but that's ok because we make an explicit
+                # SetNull() call on it as needed if our JS value is actually
+                # null.  XXXbz Because "Maybe" takes const refs for constructor
+                # arguments, we can't pass a reference here; have to pass a
+                # pointer.
+                holderArgs = "cx, &%s" % objRef
+                declArgs = None
+            else:
+                holderType = None
+                holderArgs = None
+                declType = CGTemplatedType("RootedTypedArray", declType)
+                declArgs = "cx"
+        else:
+            holderType = None
+            holderArgs = None
+            declArgs = None
         return JSToNativeConversionInfo(template,
                                         declType=declType,
-                                        dealWithOptional=isOptional)
+                                        holderType=holderType,
+                                        dealWithOptional=isOptional,
+                                        declArgs=declArgs,
+                                        holderArgs=holderArgs)
 
     if type.isDOMString():
         assert not isEnforceRange and not isClamp
@@ -3317,25 +3389,30 @@ for (uint32_t i = 0; i < length; ++i) {
 
             if isinstance(defaultValue, IDLNullValue):
                 assert(type.nullable())
-                return handleDefault(conversionCode,
-                                     "%s.SetNull()" % varName)
-            return handleDefault(
-                conversionCode,
-                ("static const PRUnichar data[] = { %s };\n"
-                 "%s.SetData(data, ArrayLength(data) - 1)" %
-                 (", ".join(["'" + char + "'" for char in defaultValue.value] + ["0"]),
-                  varName)))
+                defaultCode = "%s.SetNull()" % varName
+            else:
+                defaultCode = handleDefaultStringValue(defaultValue,
+                                                       "%s.SetData" % varName)
+            return handleDefault(conversionCode, defaultCode)
 
         if isMember:
-            # We have to make a copy, because our jsval may well not
-            # live as long as our string needs to.
+            # We have to make a copy, except in the variadic case, because our
+            # jsval may well not live as long as our string needs to.
             declType = CGGeneric("nsString")
+            if isMember == "Variadic":
+                # The string is kept alive by the argument, so we can just
+                # depend on it.
+                assignString = "${declName}.Rebind(str.Data(), str.Length())"
+            else:
+                assignString = "${declName} = str"
             return JSToNativeConversionInfo(
                 "{\n"
                 "  FakeDependentString str;\n"
                 "%s\n"
-                "  ${declName} = str;\n"
-                "}\n" % CGIndenter(CGGeneric(getConversionCode("str"))).define(),
+                "  %s;\n"
+                "}\n" % (
+                    CGIndenter(CGGeneric(getConversionCode("str"))).define(),
+                    assignString),
                 declType=declType, dealWithOptional=isOptional)
 
         if isOptional:
@@ -3660,18 +3737,11 @@ for (uint32_t i = 0; i < length; ++i) {
         # We already handled IDLNullValue, so just deal with the other ones
         not isinstance(defaultValue, IDLNullValue)):
         tag = defaultValue.type.tag()
-        if tag in numericSuffixes:
-            # Some numeric literals require a suffix to compile without warnings
-            defaultStr = numericValue(tag, defaultValue.value)
-        else:
-            assert(tag == IDLType.Tags.bool)
-            defaultStr = toStringBool(defaultValue.value)
-        template = CGWrapper(CGIndenter(CGGeneric(template)),
-                             pre="if (${haveValue}) {\n",
-                             post=("\n"
-                                   "} else {\n"
-                                   "  %s = %s;\n"
-                                   "}" % (writeLoc, defaultStr))).define()
+        defaultStr = getHandleDefault(defaultValue)
+        template = CGIfElseWrapper("${haveValue}",
+                                   CGGeneric(template),
+                                   CGGeneric("%s = %s;" % (writeLoc,
+                                                           defaultStr))).define()
 
     return JSToNativeConversionInfo(template, declType=declType,
                                     dealWithOptional=isOptional)
@@ -5769,7 +5839,8 @@ class CGMemberJITInfo(CGThing):
             # while we have the right type.
             getter = ("(JSJitGetterOp)get_%s" % self.member.identifier.name)
             getterinfal = "infallible" in self.descriptor.getExtendedAttributes(self.member, getter=True)
-            getterconst = self.member.getExtendedAttribute("Constant")
+            getterconst = (self.member.getExtendedAttribute("SameObject") or
+                           self.member.getExtendedAttribute("Constant"))
             getterpure = getterconst or self.member.getExtendedAttribute("Pure")
             assert (getterinfal or (not getterconst and not getterpure))
 
@@ -6053,6 +6124,8 @@ def getUnionTypeTemplateVars(unionType, type, descriptorProvider, isReturnValue=
     else:
         name = type.name
 
+    ctorArgs = "cx" if type.isSpiderMonkeyInterface() else ""
+
     tryNextCode = ("tryNext = true;\n"
                    "return true;")
     if type.isGeckoInterface():
@@ -6074,18 +6147,18 @@ def getUnionTypeTemplateVars(unionType, type, descriptorProvider, isReturnValue=
     if type.isObject():
         body = ("mUnion.mValue.mObject.SetValue(cx, obj);\n"
                 "mUnion.mType = mUnion.eObject;")
-        setter = ClassMethod("SetToObject", "void",
-                             [Argument("JSContext*", "cx"),
-                              Argument("JSObject*", "obj")],
-                             inline=True, bodyInHeader=True,
-                             body=body)
+        setters = [ClassMethod("SetToObject", "void",
+                               [Argument("JSContext*", "cx"),
+                                Argument("JSObject*", "obj")],
+                               inline=True, bodyInHeader=True,
+                               body=body)]
 
     else:
         jsConversion = string.Template(conversionInfo.template).substitute(
             {
                 "val": "value",
                 "mutableVal": "pvalue",
-                "declName": "SetAs" + name + "()",
+                "declName": "SetAs" + name + "(%s)" % ctorArgs,
                 "holderName": "m" + name + "Holder",
                 }
             )
@@ -6093,20 +6166,28 @@ def getUnionTypeTemplateVars(unionType, type, descriptorProvider, isReturnValue=
                                  pre="tryNext = false;\n",
                                  post="\n"
                                       "return true;")
-        setter = ClassMethod("TrySetTo" + name, "bool",
-                             [Argument("JSContext*", "cx"),
-                              Argument("JS::Handle<JS::Value>", "value"),
-                              Argument("JS::MutableHandle<JS::Value>", "pvalue"),
-                              Argument("bool&", "tryNext")],
-                             inline=True, bodyInHeader=True,
-                             body=jsConversion.define())
+        setters = [ClassMethod("TrySetTo" + name, "bool",
+                               [Argument("JSContext*", "cx"),
+                                Argument("JS::Handle<JS::Value>", "value"),
+                                Argument("JS::MutableHandle<JS::Value>", "pvalue"),
+                                Argument("bool&", "tryNext")],
+                               inline=True, bodyInHeader=True,
+                               body=jsConversion.define())]
+        if type.isString():
+            setters.append(ClassMethod("SetStringData", "void",
+                [Argument("const nsDependentString::char_type*", "aData"),
+                 Argument("nsDependentString::size_type", "aLength")],
+                inline=True, bodyInHeader=True,
+                body="mStringHolder.SetData(aData, aLength);"))
 
     return {
                 "name": name,
                 "structType": structType,
                 "externalType": externalType,
-                "setter": setter,
-                "holderType": conversionInfo.holderType.define() if conversionInfo.holderType else None
+                "setters": setters,
+                "holderType": conversionInfo.holderType.define() if conversionInfo.holderType else None,
+                "ctorArgs": ctorArgs,
+                "ctorArgList": [Argument("JSContext*", "cx")] if type.isSpiderMonkeyInterface() else []
                 }
 
 def mapTemplate(template, templateVarArray):
@@ -6157,13 +6238,13 @@ class CGUnionStruct(CGThing):
                                             isReturnValue=self.isReturnValue)
             if vars["name"] != "Object":
                 body=string.Template("mType = e${name};\n"
-                                     "return mValue.m${name}.SetValue();").substitute(vars)
+                                     "return mValue.m${name}.SetValue(${ctorArgs});").substitute(vars)
                 # bodyInHeader must be false for return values because they own
                 # their union members and we don't want include headers in
                 # UnionTypes.h just to call Addref/Release
                 methods.append(ClassMethod("SetAs" + vars["name"],
                                            vars["structType"] + "&",
-                                           [],
+                                           vars["ctorArgList"],
                                            bodyInHeader=not self.isReturnValue,
                                            body=body))
             body = string.Template('MOZ_ASSERT(Is${name}(), "Wrong type!");\n'
@@ -6264,13 +6345,13 @@ class CGUnionConversionStruct(CGThing):
         for t in self.type.flatMemberTypes:
             vars = getUnionTypeTemplateVars(self.type,
                                             t, self.descriptorProvider)
-            methods.append(vars["setter"])
+            methods.extend(vars["setters"])
             if vars["name"] != "Object":
                 body=string.Template("mUnion.mType = mUnion.e${name};\n"
-                                     "return mUnion.mValue.m${name}.SetValue();").substitute(vars)
+                                     "return mUnion.mValue.m${name}.SetValue(${ctorArgs});").substitute(vars)
                 methods.append(ClassMethod("SetAs" + vars["name"],
                                            vars["structType"] + "&",
-                                           [],
+                                           vars["ctorArgList"],
                                            bodyInHeader=True,
                                            body=body,
                                            visibility="private"))
@@ -7303,12 +7384,9 @@ class CGDOMJSProxyHandler_defineProperty(ClassMethod):
                     "  return true;\n" +
                     "}\n") % (self.descriptor.nativeType)
         elif self.descriptor.supportsIndexedProperties():
-            # XXXbz Once this is fixed to only throw in strict mode, update the
-            # code that decides whether to do a
-            # CGDOMJSProxyHandler_defineProperty at all.
-            set += ("if (IsArrayIndex(GetArrayIndexFromId(cx, id))) {\n" +
-                    "  return ThrowErrorMessage(cx, MSG_NO_PROPERTY_SETTER, \"%s\");\n" +
-                    "}\n") % self.descriptor.name
+            set += ("if (IsArrayIndex(GetArrayIndexFromId(cx, id))) {\n"
+                    "  return js::IsInNonStrictPropertySet(cx) || ThrowErrorMessage(cx, MSG_NO_INDEXED_SETTER, \"%s\");\n"
+                    "}\n" % self.descriptor.name)
 
         if UseHolderForUnforgeable(self.descriptor):
             defineOnUnforgeable = ("bool hasUnforgeable;\n"
@@ -7335,15 +7413,10 @@ class CGDOMJSProxyHandler_defineProperty(ClassMethod):
                     "return true;\n")
         else:
             if self.descriptor.supportsNamedProperties():
-                # XXXbz Once this is fixed to only throw in strict mode, update
-                # the code that decides whether to do a
-                # CGDOMJSProxyHandler_defineProperty at all.  If we support
-                # indexed properties, we won't get down here for indices, so we
-                # can just do our setter unconditionally here.
                 set += (CGProxyNamedPresenceChecker(self.descriptor).define() + "\n" +
                         "if (found) {\n"
-                        "  return ThrowErrorMessage(cx, MSG_NO_PROPERTY_SETTER, \"%s\");\n"
-                        "}" % self.descriptor.name)
+                        "  return js::IsInNonStrictPropertySet(cx) || ThrowErrorMessage(cx, MSG_NO_NAMED_SETTER, \"%s\");\n"
+                        "}\n" % self.descriptor.name)
             set += ("return mozilla::dom::DOMProxyHandler::defineProperty(%s);" %
                     ", ".join(a.name for a in self.args))
         return set
@@ -7726,26 +7799,22 @@ return &instance;"""
 
 class CGDOMJSProxyHandler(CGClass):
     def __init__(self, descriptor):
+        assert (descriptor.supportsIndexedProperties() or
+                descriptor.supportsNamedProperties())
         constructors = [CGDOMJSProxyHandler_CGDOMJSProxyHandler()]
-        methods = [CGDOMJSProxyHandler_getOwnPropertyDescriptor(descriptor)]
-        # XXXbz This should really just test supportsIndexedProperties() and
-        # supportsNamedProperties(), but that would make us throw in all cases
-        # because we don't know whether we're in strict mode.
-        if (descriptor.operations['IndexedSetter'] or
-            descriptor.operations['NamedSetter'] or
-            UseHolderForUnforgeable(descriptor)):
-            methods.extend([CGDOMJSProxyHandler_defineProperty(descriptor),
-                            ClassUsingDeclaration("mozilla::dom::DOMProxyHandler",
-                                                  "defineProperty")])
-        methods.extend([CGDOMJSProxyHandler_getOwnPropertyNames(descriptor),
-                        CGDOMJSProxyHandler_hasOwn(descriptor),
-                        CGDOMJSProxyHandler_get(descriptor),
-                        CGDOMJSProxyHandler_className(descriptor),
-                        CGDOMJSProxyHandler_finalizeInBackground(descriptor),
-                        CGDOMJSProxyHandler_finalize(descriptor),
-                        CGDOMJSProxyHandler_getElementIfPresent(descriptor),
-                        CGDOMJSProxyHandler_getInstance(),
-                        CGDOMJSProxyHandler_delete(descriptor)])
+        methods = [CGDOMJSProxyHandler_getOwnPropertyDescriptor(descriptor),
+                   CGDOMJSProxyHandler_defineProperty(descriptor),
+                   ClassUsingDeclaration("mozilla::dom::DOMProxyHandler",
+                                         "defineProperty"),
+                   CGDOMJSProxyHandler_getOwnPropertyNames(descriptor),
+                   CGDOMJSProxyHandler_hasOwn(descriptor),
+                   CGDOMJSProxyHandler_get(descriptor),
+                   CGDOMJSProxyHandler_className(descriptor),
+                   CGDOMJSProxyHandler_finalizeInBackground(descriptor),
+                   CGDOMJSProxyHandler_finalize(descriptor),
+                   CGDOMJSProxyHandler_getElementIfPresent(descriptor),
+                   CGDOMJSProxyHandler_getInstance(),
+                   CGDOMJSProxyHandler_delete(descriptor)]
         CGClass.__init__(self, 'DOMProxyHandler',
                          bases=[ClassBase('mozilla::dom::DOMProxyHandler')],
                          constructors=constructors,

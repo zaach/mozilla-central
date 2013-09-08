@@ -574,11 +574,11 @@ nsContentUtils::InitializeEventTable() {
     { nullptr }
   };
 
-  sAtomEventTable = new nsDataHashtable<nsISupportsHashKey, EventNameMapping>;
-  sStringEventTable = new nsDataHashtable<nsStringHashKey, EventNameMapping>;
+  sAtomEventTable = new nsDataHashtable<nsISupportsHashKey, EventNameMapping>(
+      int(ArrayLength(eventArray) / 0.75) + 1);
+  sStringEventTable = new nsDataHashtable<nsStringHashKey, EventNameMapping>(
+      int(ArrayLength(eventArray) / 0.75) + 1);
   sUserDefinedEvents = new nsCOMArray<nsIAtom>(64);
-  sAtomEventTable->Init(int(ArrayLength(eventArray) / 0.75) + 1);
-  sStringEventTable->Init(int(ArrayLength(eventArray) / 0.75) + 1);
 
   // Subtract one from the length because of the trailing null
   for (uint32_t i = 0; i < ArrayLength(eventArray) - 1; ++i) {
@@ -1746,6 +1746,7 @@ nsContentUtils::GetDocumentFromContext()
 bool
 nsContentUtils::IsCallerChrome()
 {
+  MOZ_ASSERT(NS_IsMainThread());
   bool is_caller_chrome = false;
   nsresult rv = sSecurityManager->SubjectPrincipalIsSystem(&is_caller_chrome);
   if (NS_FAILED(rv)) {
@@ -1757,6 +1758,22 @@ nsContentUtils::IsCallerChrome()
 
   // If the check failed, look for UniversalXPConnect on the cx compartment.
   return xpc::IsUniversalXPConnectEnabled(GetCurrentJSContext());
+}
+
+namespace mozilla {
+namespace dom {
+namespace workers {
+extern bool IsCurrentThreadRunningChromeWorker();
+}
+}
+}
+
+bool
+nsContentUtils::ThreadsafeIsCallerChrome()
+{
+  return NS_IsMainThread() ?
+    IsCallerChrome() :
+    mozilla::dom::workers::IsCurrentThreadRunningChromeWorker();
 }
 
 bool
@@ -4308,30 +4325,6 @@ nsContentUtils::DestroyAnonymousContent(nsCOMPtr<nsIContent>* aContent)
 
 /* static */
 void
-nsContentUtils::HoldJSObjects(void* aScriptObjectHolder,
-                              nsScriptObjectTracer* aTracer)
-{
-  cyclecollector::AddJSHolder(aScriptObjectHolder, aTracer);
-}
-
-/* static */
-void
-nsContentUtils::DropJSObjects(void* aScriptObjectHolder)
-{
-  cyclecollector::RemoveJSHolder(aScriptObjectHolder);
-}
-
-#ifdef DEBUG
-/* static */
-bool
-nsContentUtils::AreJSObjectsHeld(void* aScriptObjectHolder)
-{
-  return cyclecollector::IsJSHolder(aScriptObjectHolder);
-}
-#endif
-
-/* static */
-void
 nsContentUtils::NotifyInstalledMenuKeyboardListener(bool aInstalling)
 {
   nsIMEStateManager::OnInstalledMenuKeyboardListener(aInstalling);
@@ -4791,11 +4784,40 @@ nsContentUtils::AddScriptRunner(nsIRunnable* aRunnable)
 }
 
 void
+nsContentUtils::EnterMicroTask()
+{
+  MOZ_ASSERT(NS_IsMainThread());
+  ++sMicroTaskLevel;
+}
+
+void
 nsContentUtils::LeaveMicroTask()
 {
+  MOZ_ASSERT(NS_IsMainThread());
   if (--sMicroTaskLevel == 0) {
     nsDOMMutationObserver::HandleMutations();
   }
+}
+
+bool
+nsContentUtils::IsInMicroTask()
+{
+  MOZ_ASSERT(NS_IsMainThread());
+  return sMicroTaskLevel != 0;
+}
+
+uint32_t
+nsContentUtils::MicroTaskLevel()
+{
+  MOZ_ASSERT(NS_IsMainThread());
+  return sMicroTaskLevel;
+}
+
+void
+nsContentUtils::SetMicroTaskLevel(uint32_t aLevel)
+{
+  MOZ_ASSERT(NS_IsMainThread());
+  sMicroTaskLevel = aLevel;
 }
 
 /* 
@@ -4853,10 +4875,9 @@ static void ProcessViewportToken(nsIDocument *aDocument,
 /* static */
 nsViewportInfo
 nsContentUtils::GetViewportInfo(nsIDocument *aDocument,
-                                uint32_t aDisplayWidth,
-                                uint32_t aDisplayHeight)
+                                const ScreenIntSize& aDisplaySize)
 {
-  return aDocument->GetViewportInfo(aDisplayWidth, aDisplayHeight);
+  return aDocument->GetViewportInfo(aDisplaySize);
 }
 
 /* static */
@@ -5493,6 +5514,19 @@ nsContentUtils::GetUTFOrigin(nsIURI* aURI, nsString& aOrigin)
   }
   
   return NS_OK;
+}
+
+/* static */
+void
+nsContentUtils::GetUTFNonNullOrigin(nsIURI* aURI, nsString& aOrigin)
+{
+  aOrigin.Truncate();
+
+  nsString origin;
+  nsresult rv = GetUTFOrigin(aURI, origin);
+  if (NS_SUCCEEDED(rv) && !origin.EqualsLiteral("null")) {
+    aOrigin.Assign(origin);
+  }
 }
 
 /* static */

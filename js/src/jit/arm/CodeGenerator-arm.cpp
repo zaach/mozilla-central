@@ -17,7 +17,6 @@
 #include "jit/IonFrames.h"
 #include "jit/MIR.h"
 #include "jit/MIRGraph.h"
-#include "jit/PerfSpewer.h"
 #include "vm/Shape.h"
 
 #include "jsscriptinlines.h"
@@ -343,8 +342,8 @@ bool
 CodeGeneratorARM::visitSqrtD(LSqrtD *ins)
 {
     FloatRegister input = ToFloatRegister(ins->input());
-    JS_ASSERT(input == ToFloatRegister(ins->output()));
-    masm.ma_vsqrt(input, input);
+    FloatRegister output = ToFloatRegister(ins->output());
+    masm.ma_vsqrt(input, output);
     return true;
 }
 

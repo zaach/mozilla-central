@@ -48,6 +48,7 @@
 #if ENABLE_YARR_JIT
 #include "assembler/jit/ExecutableAllocator.h"
 #endif
+#include "builtin/BinaryData.h"
 #include "builtin/Eval.h"
 #include "builtin/Intl.h"
 #include "builtin/MapObject.h"
@@ -1323,7 +1324,7 @@ JS_InitStandardClasses(JSContext *cx, JSObject *objArg)
 
 #define CLASP(name)                 (&name##Class)
 #define OCLASP(name)                (&name##Object::class_)
-#define TYPED_ARRAY_CLASP(type)     (&TypedArrayObject::classes[TypedArrayObject::type])
+#define TYPED_ARRAY_CLASP(type)     (&TypedArrayObject::classes[ScalarTypeRepresentation::type])
 #define EAGER_ATOM(name)            NAME_OFFSET(name)
 #define EAGER_CLASS_ATOM(name)      NAME_OFFSET(name)
 #define EAGER_ATOM_AND_CLASP(name)  EAGER_CLASS_ATOM(name), CLASP(name)
@@ -1432,9 +1433,9 @@ static const JSStdName standard_class_names[] = {
 #ifdef ENABLE_BINARYDATA
     {js_InitBinaryDataClasses,          EAGER_ATOM_AND_CLASP(Type)},
     {js_InitBinaryDataClasses,          EAGER_ATOM_AND_CLASP(Data)},
-#define BINARYDATA_NUMERIC_NAMES(constant_, type_)\
-    {js_InitBinaryDataClasses,          EAGER_CLASS_ATOM(type_),      &NumericTypeClasses[constant_]},
-    BINARYDATA_FOR_EACH_NUMERIC_TYPES(BINARYDATA_NUMERIC_NAMES)
+#define BINARYDATA_NUMERIC_NAMES(constant_, type_, name_) \
+    {js_InitBinaryDataClasses,          EAGER_CLASS_ATOM(name_),      &NumericTypeClasses[constant_]},
+    JS_FOR_EACH_SCALAR_TYPE_REPR(BINARYDATA_NUMERIC_NAMES)
 #undef BINARYDATA_NUMERIC_NAMES
     {js_InitBinaryDataClasses,          EAGER_CLASS_ATOM(ArrayType),  &js::ArrayType::class_},
     {js_InitBinaryDataClasses,          EAGER_CLASS_ATOM(StructType), &js::StructType::class_},
@@ -1748,11 +1749,7 @@ JS_PUBLIC_API(char *)
 JS_strdup(JSContext *cx, const char *s)
 {
     AssertHeapIsIdle(cx);
-    size_t n = strlen(s) + 1;
-    void *p = cx->malloc_(n);
-    if (!p)
-        return NULL;
-    return (char *)js_memcpy(p, s, n);
+    return js_strdup(cx, s);
 }
 
 JS_PUBLIC_API(char *)
@@ -2382,6 +2379,15 @@ JS_IsGCMarkingTracer(JSTracer *trc)
     return IS_GC_MARKING_TRACER(trc);
 }
 
+#ifdef DEBUG
+extern JS_PUBLIC_API(bool)
+JS_IsMarkingGray(JSTracer *trc)
+{
+    JS_ASSERT(JS_IsGCMarkingTracer(trc));
+    return trc->callback == GCMarker::GrayCallback;
+}
+#endif
+
 JS_PUBLIC_API(void)
 JS_GC(JSRuntime *rt)
 {
@@ -2560,38 +2566,67 @@ JS_GetExternalStringFinalizer(JSString *str)
     return str->asExternal().externalFinalizer();
 }
 
-JS_PUBLIC_API(void)
-JS_SetNativeStackQuota(JSRuntime *rt, size_t stackSize)
+static void
+SetNativeStackQuota(JSRuntime *rt, StackKind kind, size_t stackSize)
 {
-    rt->nativeStackQuota = stackSize;
-    if (!rt->nativeStackBase)
-        return;
+    rt->nativeStackQuota[kind] = stackSize;
+    if (rt->nativeStackBase)
+        RecomputeStackLimit(rt, kind);
+}
 
+void
+js::RecomputeStackLimit(JSRuntime *rt, StackKind kind)
+{
+    size_t stackSize = rt->nativeStackQuota[kind];
 #if JS_STACK_GROWTH_DIRECTION > 0
     if (stackSize == 0) {
-        rt->mainThread.nativeStackLimit = UINTPTR_MAX;
+        rt->mainThread.nativeStackLimit[kind] = UINTPTR_MAX;
     } else {
         JS_ASSERT(rt->nativeStackBase <= size_t(-1) - stackSize);
-        rt->mainThread.nativeStackLimit = rt->nativeStackBase + stackSize - 1;
+        rt->mainThread.nativeStackLimit[kind] =
+          rt->nativeStackBase + stackSize - 1;
     }
 #else
     if (stackSize == 0) {
-        rt->mainThread.nativeStackLimit = 0;
+        rt->mainThread.nativeStackLimit[kind] = 0;
     } else {
         JS_ASSERT(rt->nativeStackBase >= stackSize);
-        rt->mainThread.nativeStackLimit = rt->nativeStackBase - (stackSize - 1);
+        rt->mainThread.nativeStackLimit[kind] =
+          rt->nativeStackBase - (stackSize - 1);
     }
 #endif
 
     // If there's no pending interrupt request set on the runtime's main thread's
     // ionStackLimit, then update it so that it reflects the new nativeStacklimit.
+    //
+    // Note that, for now, we use the untrusted limit for ion. This is fine,
+    // because it's the most conservative limit, and if we hit it, we'll bail
+    // out of ion into the interpeter, which will do a proper recursion check.
 #ifdef JS_ION
-    {
+    if (kind == StackForUntrustedScript) {
         JSRuntime::AutoLockForOperationCallback lock(rt);
         if (rt->mainThread.ionStackLimit != uintptr_t(-1))
-            rt->mainThread.ionStackLimit = rt->mainThread.nativeStackLimit;
+            rt->mainThread.ionStackLimit = rt->mainThread.nativeStackLimit[kind];
     }
 #endif
+}
+
+JS_PUBLIC_API(void)
+JS_SetNativeStackQuota(JSRuntime *rt, size_t systemCodeStackSize,
+                       size_t trustedScriptStackSize,
+                       size_t untrustedScriptStackSize)
+{
+    JS_ASSERT_IF(trustedScriptStackSize,
+                 trustedScriptStackSize < systemCodeStackSize);
+    if (!trustedScriptStackSize)
+        trustedScriptStackSize = systemCodeStackSize;
+    JS_ASSERT_IF(untrustedScriptStackSize,
+                 untrustedScriptStackSize < trustedScriptStackSize);
+    if (!untrustedScriptStackSize)
+        untrustedScriptStackSize = trustedScriptStackSize;
+    SetNativeStackQuota(rt, StackForSystemCode, systemCodeStackSize);
+    SetNativeStackQuota(rt, StackForTrustedScript, trustedScriptStackSize);
+    SetNativeStackQuota(rt, StackForUntrustedScript, untrustedScriptStackSize);
 }
 
 /************************************************************************/
@@ -2849,6 +2884,8 @@ JS_GetObjectId(JSContext *cx, JSObject *obj, jsid *idp)
     return true;
 }
 
+namespace {
+
 class AutoHoldZone
 {
   public:
@@ -2868,6 +2905,8 @@ class AutoHoldZone
     bool *holdp;
     MOZ_DECL_USE_GUARD_OBJECT_NOTIFIER
 };
+
+} /* anonymous namespace */
 
 JS_PUBLIC_API(JSObject *)
 JS_NewGlobalObject(JSContext *cx, JSClass *clasp, JSPrincipals *principals,
@@ -4687,6 +4726,8 @@ ReadCompleteFile(JSContext *cx, FILE *fp, FileContents &buffer)
     return true;
 }
 
+namespace {
+
 class AutoFile
 {
     FILE *fp_;
@@ -4707,6 +4748,8 @@ class AutoFile
         return ReadCompleteFile(cx, fp_, buffer);
     }
 };
+
+} /* anonymous namespace */
 
 /*
  * Open a source file for reading. Supports "-" and NULL to mean stdin. The
@@ -4862,18 +4905,18 @@ JS::CompileOffThread(JSContext *cx, Handle<JSObject*> obj, CompileOptions option
     JS_ASSERT(CanCompileOffThread(cx, options));
     return StartOffThreadParseScript(cx, options, chars, length, obj, callback, callbackData);
 #else
-    MOZ_ASSUME_UNREACHABLE("Off thread compilation is only available with JS_ION");
+    MOZ_ASSUME_UNREACHABLE("Off thread compilation is not available.");
 #endif
 }
 
-JS_PUBLIC_API(void)
-JS::FinishOffThreadScript(JSRuntime *rt, JSScript *script)
+JS_PUBLIC_API(JSScript *)
+JS::FinishOffThreadScript(JSContext *maybecx, JSRuntime *rt, void *token)
 {
 #ifdef JS_WORKER_THREADS
     JS_ASSERT(CurrentThreadCanAccessRuntime(rt));
-    rt->workerThreadState->finishParseTaskForScript(rt, script);
+    return rt->workerThreadState->finishParseTask(maybecx, rt, token);
 #else
-    MOZ_ASSUME_UNREACHABLE("Off thread compilation is only available with JS_ION");
+    MOZ_ASSUME_UNREACHABLE("Off thread compilation is not available.");
 #endif
 }
 
