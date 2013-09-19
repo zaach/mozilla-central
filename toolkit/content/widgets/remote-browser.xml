@@ -113,6 +113,7 @@
         <![CDATA[
           this.messageManager.addMessageListener("DOMTitleChanged", this);
           this.messageManager.addMessageListener("ImageDocumentLoaded", this);
+          this.messageManager.addMessageListener("Event", this);
           this.messageManager.loadFrameScript("chrome://global/content/browser-child.js", true);
 
           if (this.hasAttribute("selectpopup")) {
@@ -159,6 +160,14 @@
               Cu.import("resource://gre/modules/SelectParentHelper.jsm");
               let dropdown = document.getElementById(this.getAttribute("selectpopup"));
               SelectParentHelper.hide(dropdown);
+              break;
+            }
+
+            case "Event": {
+              let event = document.createEvent('HTMLEvents');
+              event.initEvent(aMessage.data.name, true, true, {});
+              this.dispatchEvent(event);
+              break;
             }
           }
         ]]></body>

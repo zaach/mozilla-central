@@ -226,4 +226,13 @@ addEventListener("ImageContentLoaded", function (aEvent) {
   }
 }, false);
 
+// A couple of events, mainly for tests.
+["load", "DOMContentLoaded", "pageshow"].forEach(eventName => {
+  addEventListener(eventName, function eventHandler(aEvent) {
+    if (aEvent.target == content.document) {
+      sendAsyncMessage("Event", {name: aEvent.type});
+    }
+  }, true);
+});
+
 RemoteAddonsChild.init(this);
