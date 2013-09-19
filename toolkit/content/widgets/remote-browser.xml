@@ -12,6 +12,43 @@
 
     <implementation type="application/javascript" implements="nsIObserver, nsIDOMEventListener, nsIMessageListener, nsIMessageListener">
 
+      <property name="_locationStub"
+                readonly="true">
+        <getter><![CDATA[
+          if (!this.__locationStub) {
+            let browser = this;
+
+            let locationStub = function() {
+            };
+            locationStub.prototype = {
+              get href() {
+                dump("LOCATION STUB - get href: " + browser.webNavigation.currentURI.spec + "\n");
+                return browser.webNavigation.currentURI.spec;
+              },
+              set href(val) {
+                dump("LOCATION STUB - set href: " + val + "\n");
+                browser.loadURI(val);
+              }
+            };
+
+            let topStub = function() {
+              this._locationStub = new locationStub();
+            };
+            topStub.prototype = {
+              get location() {
+                return this._locationStub;
+              },
+              set location(val) {
+                dump("TOP STUB: " + val + "\n");
+                this._locationStub.href = val;
+              }
+            };
+            this.__locationStub = new topStub();
+          }
+          return this.__locationStub;
+        ]]></getter>
+      </property>
+
       <field name="_securityUI">null</field>
 
       <property name="securityUI"
@@ -96,11 +133,11 @@
       <field name="_contentWindow">null</field>
 
       <property name="contentWindow"
-                onget="return this._contentWindow"
+                onget="return this._contentWindow || this._locationStub"
                 readonly="true"/>
 
       <property name="contentDocument"
-                onget="return this.contentWindow ? this.contentWindow.document : null"
+                onget="return this._contentWindow ? this._contentWindow.document : this._locationStub"
                 readonly="true"/>
 
       <field name="_imageDocument">null</field>
