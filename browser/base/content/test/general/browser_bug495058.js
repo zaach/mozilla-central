@@ -1,3 +1,5 @@
+e10sSkip("Bug 918634 - swapFrameLoaders (and thus replaceTabWithWindow) not implemented for e10s");
+
 function test() {
   waitForExplicitFinish();
   next();

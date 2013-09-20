@@ -4,6 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+e10sSkip("Bug 918634 - swapFrameLoaders not implemented for e10s (test uses gBrowser.swapBrowsersAndCloseOther");
+
 const TEST_URL_BASES = [
   "http://example.org/browser/browser/base/content/test/general/dummy_page.html#tabmatch",
   "http://example.org/browser/browser/base/content/test/general/moz.png#tabmatch"

@@ -1,6 +1,7 @@
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+e10sSkip("Bug 918634 - swapFrameLoaders (and thus replaceTabWithWindow) not implemented for e10s");
 
 let testPage = "data:text/plain,test bug 491431 Page";
 
