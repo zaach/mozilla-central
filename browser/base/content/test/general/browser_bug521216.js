@@ -1,3 +1,5 @@
+e10sSkip("Bug 918663 - DOMLinkAdded events don't make their way to chrome");
+
 var expected = ["TabOpen", "onStateChange", "onLocationChange", "onLinkIconAvailable"];
 var actual = [];
 var tabIndex = -1;
