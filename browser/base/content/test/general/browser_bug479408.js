@@ -1,3 +1,5 @@
+e10sSkip("Bug 918663 - DOMLinkAdded events don't make their way to chrome");
+
 function test() {
   waitForExplicitFinish();
   let tab = gBrowser.selectedTab = gBrowser.addTab(
