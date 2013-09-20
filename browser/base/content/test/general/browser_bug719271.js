@@ -3,6 +3,8 @@
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 "use strict";
 
+e10sSkip("Bug 691614 - no e10s zoom support yet");
+
 const TEST_PAGE = "http://example.org/browser/browser/base/content/test/general/zoom_test.html";
 const TEST_VIDEO = "http://example.org/browser/browser/base/content/test/general/video.ogg";
 

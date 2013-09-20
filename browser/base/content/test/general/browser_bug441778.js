@@ -6,6 +6,7 @@
  * Test the fix for bug 441778 to ensure site-specific page zoom doesn't get
  * modified by sub-document loads of content from a different domain.
  */
+e10sSkip("Bug 691614 - no e10s zoom support yet");
 
 function test() {
   waitForExplicitFinish();
