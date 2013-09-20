@@ -1,3 +1,5 @@
+e10sSkip("Bug 691601 - no form submit observers");
+
 var gInvalidFormPopup = document.getElementById('invalid-form-popup');
 ok(gInvalidFormPopup,
    "The browser should have a popup to show when a form is invalid");
