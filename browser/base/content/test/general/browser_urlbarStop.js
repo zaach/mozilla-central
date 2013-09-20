@@ -1,3 +1,5 @@
+e10sSkip("Bug ????? - test calls gBrowser.contentWindow.stop");
+
 const goodURL = "http://mochi.test:8888/";
 const badURL = "http://mochi.test:8888/whatever.html";
 

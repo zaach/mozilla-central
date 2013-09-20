@@ -1,3 +1,5 @@
+e10sSkip("Bug ?????? - test uses chrome windowMediator to try and see alert() from content");
+
 function notify(event)
 {
   if (event.target.location == "about:blank")

@@ -1,6 +1,8 @@
 /* Any copyright is dedicated to the Public Domain.
    http://creativecommons.org/publicdomain/zero/1.0/ */
 
+e10sSkip("Bug ?????? - about:newtab tests don't work in e10s");
+
 const PREF_NEWTAB_ENABLED = "browser.newtabpage.enabled";
 
 Services.prefs.setBoolPref(PREF_NEWTAB_ENABLED, true);

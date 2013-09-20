@@ -1,6 +1,7 @@
 /* Any copyright is dedicated to the Public Domain.
  * http://creativecommons.org/publicdomain/zero/1.0/
  */
+e10sSkip("Bug ????? - I don't think either popup notifications nor addon install stuff works?");
 
 const TESTROOT = "http://example.com/browser/toolkit/mozapps/extensions/test/xpinstall/";
 const TESTROOT2 = "http://example.org/browser/toolkit/mozapps/extensions/test/xpinstall/";

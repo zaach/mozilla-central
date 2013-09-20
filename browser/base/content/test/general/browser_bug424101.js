@@ -1,4 +1,5 @@
 /* Make sure that the context menu appears on form elements */
+e10sSkip("Bug ?????? - test directly manipulates content");
 
 function test() {
   waitForExplicitFinish();

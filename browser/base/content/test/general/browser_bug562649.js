@@ -1,3 +1,5 @@
+e10sSkip("Bug 919878 - closing a tab quickly crashes child process");
+
 function test() {
   const URI = "data:text/plain,bug562649";
   browserDOMWindow.openURI(makeURI(URI),
