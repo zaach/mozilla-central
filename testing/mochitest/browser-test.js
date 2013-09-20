@@ -455,6 +455,13 @@ Tester.prototype = {
     var headPath = currentTestDirPath + "/head.js";
     try {
       this._scriptLoader.loadSubScript(headPath, this.currentTest.scope);
+    } catch (ex if ex instanceof this.currentTest.scope._e10sSkip_exception) {
+      // we allow head.js to throw this exception so the entire test subdir
+      // can be skipped.
+      this.currentTest.addResult(new testResult(true, "e10s skip - " + ex.message, null, true));
+      this.currentTest.scope.finish();
+      this.nextTest();
+      return
     } catch (ex) {
       // Ignore if no head.js exists, but report all other errors.  Note this
       // will also ignore an existing head.js attempting to import a missing
@@ -509,12 +516,17 @@ Tester.prototype = {
         this.currentTest.scope.test();
       }
     } catch (ex) {
-      let isExpected = !!this.SimpleTest.isExpectingUncaughtException();
-      if (!this.SimpleTest.isIgnoringAllUncaughtExceptions()) {
-        this.currentTest.addResult(new testResult(isExpected, "Exception thrown", ex, false));
-        this.SimpleTest.expectUncaughtException(false);
+      if (ex instanceof this.currentTest.scope._e10sSkip_exception) {
+        // make these be reported as TODO
+        this.currentTest.addResult(new testResult(true, "e10s skip - " + ex.message, null, true));
       } else {
-        this.currentTest.addResult(new testMessage("Exception thrown: " + ex));
+        let isExpected = !!this.SimpleTest.isExpectingUncaughtException();
+        if (!this.SimpleTest.isIgnoringAllUncaughtExceptions()) {
+          this.currentTest.addResult(new testResult(isExpected, "Exception thrown", ex, false));
+          this.SimpleTest.expectUncaughtException(false);
+        } else {
+          this.currentTest.addResult(new testMessage("Exception thrown: " + ex));
+        }
       }
       this.currentTest.scope.finish();
     }
@@ -729,6 +741,17 @@ function testScope(aTester, aTest) {
     }
     self.__expectedMinAsserts = min;
     self.__expectedMaxAsserts = max;
+  };
+
+  this._e10sSkip_exception = function(message) {
+    this.message = message;
+  };
+
+  this.e10sSkip = function test_e10sSkip(message) {
+    var prefs = Services.prefs;
+    if (prefs.getBoolPref("browser.tabs.remote")) {
+      throw new this._e10sSkip_exception(message);
+    }
   };
 
   this.finish = function test_finish() {
