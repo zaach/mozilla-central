@@ -3151,6 +3151,8 @@
           if (!event.isTrusted)
             return;
 
+          Cu.reportError("A remote browser process crashed - displaying about:tabcrashed");
+
           let browser = event.originalTarget;
           let title = browser.contentTitle;
           let uri = browser.currentURI;
