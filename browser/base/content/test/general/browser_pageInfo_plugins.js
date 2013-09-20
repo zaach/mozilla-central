@@ -1,3 +1,5 @@
+e10sSkip("Bug 866413 - PageInfo doesn't work in e10s");
+
 let gHttpTestRoot = getRootDirectory(gTestPath).replace("chrome://mochitests/content/", "http://127.0.0.1:8888/");
 let gPageInfo = null;
 let gNextTest = null;

@@ -1,3 +1,5 @@
+e10sSkip("Bug 866413 - PageInfo doesn't work in e10s");
+
 function test() {
   waitForExplicitFinish();
 

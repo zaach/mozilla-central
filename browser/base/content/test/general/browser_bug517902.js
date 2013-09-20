@@ -1,4 +1,5 @@
 /* Make sure that "View Image Info" loads the correct image data */
+e10sSkip("Bug 866413 - PageInfo doesn't work in e10s");
 
 function test() {
   waitForExplicitFinish();
