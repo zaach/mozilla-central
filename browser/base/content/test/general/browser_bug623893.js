@@ -1,3 +1,5 @@
+e10sSkip("Bug 916974 - Session history doesn't work in e10s");
+
 function test() {
   waitForExplicitFinish();
 
