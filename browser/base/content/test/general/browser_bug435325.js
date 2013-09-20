@@ -2,6 +2,7 @@
    http://creativecommons.org/publicdomain/zero/1.0/ */
 
 /* Ensure that clicking the button in the Offline mode neterror page makes the browser go online. See bug 435325. */
+e10sSkip("Bug ?????? - test directly manipulates content");
 
 let proxyPrefValue;
 

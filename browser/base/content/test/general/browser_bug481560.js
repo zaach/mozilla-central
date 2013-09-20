@@ -1,3 +1,5 @@
+e10sSkip("Bug ????? - This bug attached an event listener directly to the content");
+
 function test() {
   waitForExplicitFinish();
 
