@@ -1,5 +1,6 @@
 /* Any copyright is dedicated to the Public Domain.
    http://creativecommons.org/publicdomain/zero/1.0/ */
+e10sSkip("Bug 916974 - Session history doesn't work in e10s");
 
 function test() {
   waitForExplicitFinish();
