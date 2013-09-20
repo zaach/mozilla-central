@@ -1,3 +1,5 @@
+e10sSkip("Bug 899347 - no e10s click-to-play support");
+
 var rootDir = getRootDirectory(gTestPath);
 const gTestRoot = rootDir;
 const gHttpTestRoot = rootDir.replace("chrome://mochitests/content/", "http://127.0.0.1:8888/");

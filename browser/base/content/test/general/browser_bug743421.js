@@ -1,3 +1,5 @@
+e10sSkip("Bug 899347 - no e10s click-to-play support");
+
 const gTestRoot = "http://mochi.test:8888/browser/browser/base/content/test/general/";
 
 var gTestBrowser = null;
