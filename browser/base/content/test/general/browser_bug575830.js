@@ -3,6 +3,8 @@
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 "use strict";
 
+e10sSkip("Bug 691614 - no e10s zoom support yet");
+
 function test() {
   let tab1, tab2;
   const TEST_IMAGE = "http://example.org/browser/browser/base/content/test/general/moz.png";

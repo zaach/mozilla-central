@@ -1,3 +1,5 @@
+e10sSkip("Bug 691614 - no e10s zoom support yet");
+
 var tab;
 
 function test() {

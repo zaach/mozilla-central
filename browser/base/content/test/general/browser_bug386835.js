@@ -1,3 +1,5 @@
+e10sSkip("Bug 691614 - no e10s zoom support yet");
+
 var gTestPage = "http://example.org/browser/browser/base/content/test/general/dummy_page.html";
 var gTestImage = "http://example.org/browser/browser/base/content/test/general/moz.png";
 var gTab1, gTab2, gTab3;
