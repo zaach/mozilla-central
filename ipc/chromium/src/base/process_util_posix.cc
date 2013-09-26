@@ -37,13 +37,21 @@ ProcessId GetCurrentProcId() {
 }
 
 ProcessHandle GetCurrentProcessHandle() {
+#if !defined(DEBUG)
   return GetCurrentProcId();
+#else
+  return {GetCurrentProcId, true};
+#endif
 }
 
 bool OpenProcessHandle(ProcessId pid, ProcessHandle* handle) {
+#if !defined(DEBUG)
   // On Posix platforms, process handles are the same as PIDs, so we
   // don't need to do anything.
   *handle = pid;
+#else
+  *handle = {pid, true};  
+#endif
   return true;
 }
 
@@ -54,18 +62,28 @@ bool OpenPrivilegedProcessHandle(ProcessId pid, ProcessHandle* handle) {
 }
 
 void CloseProcessHandle(ProcessHandle process) {
+  NS_ASSERTION(process.open);
   // See OpenProcessHandle, nothing to do.
   return;
 }
 
 ProcessId GetProcId(ProcessHandle process) {
+#if !defined(DEBUG)
   return process;
+#else
+  return process.pid;
+#endif
 }
 
 // Attempts to kill the process identified by the given process
 // entry structure.  Ignores specified exit_code; posix can't force that.
 // Returns true if this is successful, false otherwise.
-bool KillProcess(ProcessHandle process_id, int exit_code, bool wait) {
+bool KillProcess(ProcessHandle process_handle, int exit_code, bool wait) {
+#if !defined(DEBUG)
+  pid_t process_id = process_handle;
+#else
+  pid_t process_id = process_handle.pid;
+#endif
   bool result = kill(process_id, SIGTERM) == 0;
 
   if (result && wait) {
@@ -246,9 +264,10 @@ ProcessMetrics::~ProcessMetrics() { }
 
 bool DidProcessCrash(bool* child_exited, ProcessHandle handle) {
   int status;
-  const int result = HANDLE_EINTR(waitpid(handle, &status, WNOHANG));
+  pid_t pid = GetProcId(handle);
+  const int result = HANDLE_EINTR(waitpid(pid, &status, WNOHANG));
   if (result == -1) {
-    LOG(ERROR) << "waitpid failed pid:" << handle << " errno:" << errno;
+    LOG(ERROR) << "waitpid failed pid:" << pid << " errno:" << errno;
     if (child_exited)
       *child_exited = false;
     return false;

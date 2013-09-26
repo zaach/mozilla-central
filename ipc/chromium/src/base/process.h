@@ -21,8 +21,18 @@ namespace base {
 typedef HANDLE ProcessHandle;
 typedef DWORD ProcessId;
 #elif defined(OS_POSIX)
-// On POSIX, our ProcessHandle will just be the PID.
+#if !defined(DEBUG)
+// On POSIX release builds, our ProcessHandle will just be the PID.
 typedef pid_t ProcessHandle;
+#else
+// but in debug builds we keep a flag to indicate if the handle is "open" - 
+// this will help track issues on other platforms.
+typedef struct {
+  pid_t pid;
+  bool open;
+} ProcessHandle
+#endif
+    
 typedef pid_t ProcessId;
 #endif
 
