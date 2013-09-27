@@ -939,6 +939,8 @@ ContentParent::OnChannelConnected(int32_t pid)
         NS_WARNING("Can't open handle to child process.");
     }
     else {
+        // we need to close the existing handle before setting a new one.
+        base::CloseProcessHandle(OtherProcess());
         SetOtherProcess(handle);
 
 #if defined(ANDROID) || defined(LINUX)
@@ -1242,7 +1244,7 @@ ContentParent::ContentParent(mozIApplication* aApp,
 
     mSubprocess->LaunchAndWaitForProcessHandle();
 
-    Open(mSubprocess->GetChannel(), mSubprocess->GetChildProcessHandle());
+    Open(mSubprocess->GetChannel(), mSubprocess->GetOwnedChildProcessHandle());
 
     // Set the subprocess's priority.  We do this early on because we're likely
     // /lowering/ the process's CPU and memory priority, which it has inherited
@@ -2057,6 +2059,9 @@ ContentParent::KillHard()
         NewRunnableMethod(this, &ContentParent::ShutDownProcess,
                           /* closeWithError */ true),
         3000);
+    // We've now closed the OtherProcess() handle, so must set it to null to
+    // prevent our dtor closing it twice.
+    SetOtherProcess(0);
 }
 
 bool
