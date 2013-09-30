@@ -3,6 +3,8 @@
  * http://creativecommons.org/publicdomain/zero/1.0/
  **/
 
+e10sSkip("Bug 921957 - remote webprogress doesn't supply originalURI attribute on the request object");
+
 var gTests = [
   {
     name: "normal search (search service)",

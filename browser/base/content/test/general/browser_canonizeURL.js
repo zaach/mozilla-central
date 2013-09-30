@@ -1,3 +1,5 @@
+e10sSkip("Bug 921957 - remote webprogress doesn't supply originalURI attribute on the request object");
+
 function test() {
   waitForExplicitFinish();
   testNext();
