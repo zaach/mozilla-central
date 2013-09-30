@@ -21,6 +21,7 @@
  *
  * Note, for all tests we set gHttpTestRoot to use 'https'.
  */
+e10sSkip("Bug 921959 - reload with LOAD_FLAGS_ALLOW_MIXED_CONTENT fails in e10s");
 
 const PREF_ACTIVE = "security.mixed_content.block_active_content";
 

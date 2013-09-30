@@ -2,6 +2,7 @@
  * User Override Mixed Content Block - Tests for Bug 822367
  */
 
+e10sSkip("Bug 921959 - reload with LOAD_FLAGS_ALLOW_MIXED_CONTENT fails in e10s");
 
 const PREF_DISPLAY = "security.mixed_content.block_display_content";
 const PREF_ACTIVE = "security.mixed_content.block_active_content";
