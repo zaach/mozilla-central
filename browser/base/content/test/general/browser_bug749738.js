@@ -4,6 +4,8 @@
 
 "use strict";
 
+e10sSkip("Bug 921935 - focusmanager issues with e10s (test calls waitForFocus)");
+
 const DUMMY_PAGE = "http://example.org/browser/browser/base/content/test/general/dummy_page.html";
 
 function test() {

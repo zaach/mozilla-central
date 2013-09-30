@@ -2,6 +2,8 @@
  * This test checks that focus is adjusted properly when switching tabs.
  */
 
+e10sSkip("Bug 921935 - focusmanager issues with e10s (test calls getFocusedElementForWindow with a content window)");
+
 let testPage1 = "data:text/html,<html id='tab1'><body><button id='button1'>Tab 1</button></body></html>";
 let testPage2 = "data:text/html,<html id='tab2'><body><button id='button2'>Tab 2</button></body></html>";
 let testPage3 = "data:text/html,<html id='tab3'><body><button id='button3'>Tab 3</button></body></html>";
