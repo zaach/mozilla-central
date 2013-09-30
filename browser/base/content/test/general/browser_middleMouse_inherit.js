@@ -1,5 +1,6 @@
 /* Any copyright is dedicated to the Public Domain.
    http://creativecommons.org/publicdomain/zero/1.0/ */
+e10sSkip("Bug 921952 - Content:Click event issues");
 
 const middleMousePastePref = "middlemouse.contentLoadURL";
 const autoScrollPref = "general.autoScroll";
