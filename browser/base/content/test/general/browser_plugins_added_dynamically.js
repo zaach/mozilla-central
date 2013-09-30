@@ -1,3 +1,5 @@
+e10sSkip("Bug ?????? - plugins");
+
 const gTestRoot = "http://mochi.test:8888/browser/browser/base/content/test/general/";
 
 let gTestBrowser = null;
