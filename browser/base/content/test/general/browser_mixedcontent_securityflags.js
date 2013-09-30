@@ -8,6 +8,7 @@
 // have been set correctly again.
 // Bug 838396 - Not setting hasMixedDisplayContentLoaded and
 // hasMixedDisplayContentBlocked flag in nsMixedContentBlocker.cpp
+e10sSkip("Bug ?????? - test directly manipulates content (tries to get/set attributes directly on content docshell)");
 
 const TEST_URI = "https://example.com/browser/browser/base/content/test/general/test-mixedcontent-securityerrors.html";
 let gTestBrowser = null;

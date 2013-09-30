@@ -1,3 +1,4 @@
+e10sSkip("Bug ?????? - test directly manipulates content");
 
 function test() {
   waitForExplicitFinish();

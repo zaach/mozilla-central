@@ -2,6 +2,7 @@
    http://creativecommons.org/publicdomain/zero/1.0/ */
 
 // Tests find bar auto-close behavior
+e10sSkip("Bug ?????? - test directly manipulates content (tries to grab an iframe directly from content)");
 
 let newTab, iframe;
 

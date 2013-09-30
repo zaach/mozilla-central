@@ -1,3 +1,5 @@
+e10sSkip("Bug ?????? - test directly manipulates content");
+
 const HTML_NS = "http://www.w3.org/1999/xhtml";
 
 const INPUT_ID = "input1";

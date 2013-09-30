@@ -1,3 +1,5 @@
+e10sSkip("Bug ?????? - test directly manipulates content (creates and fetches elements directly from content document)");
+
 let doc, range, selection;
 function setSelection(el1, el2, index1, index2) {
   while (el1.nodeType != Node.TEXT_NODE)

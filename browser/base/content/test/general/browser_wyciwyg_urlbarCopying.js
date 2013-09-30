@@ -1,5 +1,6 @@
 /* Any copyright is dedicated to the Public Domain.
    http://creativecommons.org/publicdomain/zero/1.0/ */
+e10sSkip("Bug ?????? - test directly manipulates content (content.document.getElementById)");
 
 function test() {
   waitForExplicitFinish();

@@ -3,6 +3,8 @@
  * http://creativecommons.org/publicdomain/zero/1.0/
  */
 
+e10sSkip("Bug ?????? - test directly manipulates content (tries to inject a function directly into wrappedJSObject)");
+
 // Test clearing plugin data using sanitize.js.
 const testURL1 = "http://mochi.test:8888/browser/browser/base/content/test/general/browser_clearplugindata.html";
 const testURL2 = "http://mochi.test:8888/browser/browser/base/content/test/general/browser_clearplugindata_noage.html";
