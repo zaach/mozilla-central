@@ -13,6 +13,7 @@
 #include "Role.h"
 #include "States.h"
 #include "TextAttrs.h"
+#include "TreeWalker.h"
 
 #include "nsIClipboard.h"
 #include "nsContentUtils.h"
@@ -24,11 +25,13 @@
 #include "nsFrameSelection.h"
 #include "nsILineIterator.h"
 #include "nsIInterfaceRequestorUtils.h"
+#include "nsIPersistentProperties2.h"
 #include "nsIPlaintextEditor.h"
 #include "nsIScrollableFrame.h"
 #include "nsIServiceManager.h"
 #include "nsTextFragment.h"
 #include "mozilla/Selection.h"
+#include "mozilla/MathAlgorithms.h"
 #include "gfxSkipChars.h"
 #include <algorithm>
 
@@ -186,13 +189,14 @@ HyperTextAccessible::GetBoundsForString(nsIFrame* aFrame, uint32_t aStartRendere
     nsPoint frameTextStartPoint;
     rv = frame->GetPointFromOffset(startContentOffset, &frameTextStartPoint);
     NS_ENSURE_SUCCESS(rv, nsIntRect());
-    frameScreenRect.x += frameTextStartPoint.x;
 
     // Use the point for the end offset to calculate the width
     nsPoint frameTextEndPoint;
     rv = frame->GetPointFromOffset(startContentOffset + frameSubStringLength, &frameTextEndPoint);
     NS_ENSURE_SUCCESS(rv, nsIntRect());
-    frameScreenRect.width = frameTextEndPoint.x - frameTextStartPoint.x;
+
+    frameScreenRect.x += std::min(frameTextStartPoint.x, frameTextEndPoint.x);
+    frameScreenRect.width = mozilla::Abs(frameTextStartPoint.x - frameTextEndPoint.x);
 
     screenRect.UnionRect(frameScreenRect, screenRect);
 
@@ -591,14 +595,8 @@ HyperTextAccessible::DOMPointToHypertextOffset(nsINode* aNode,
     // addTextOffset, to put us after the embedded object char. We'll only treat the offset as
     // before the embedded object char if we end at the very beginning of the child.
     addTextOffset = addTextOffset > 0;
-    }
-    else {
-      // Start offset, inclusive
-      // Make sure the offset lands on the embedded object character in order to indicate
-      // the true inner offset is inside the subtree for that link
-      addTextOffset =
-        (nsAccUtils::TextLength(descendantAcc) == addTextOffset) ? 1 : 0;
-    }
+    } else
+      addTextOffset = 0;
 
     descendantAcc = parentAcc;
   }
@@ -779,7 +777,7 @@ HyperTextAccessible::FindOffset(int32_t aOffset, nsDirection aDirection,
       return -1;
 
     // We're on the last continuation since we're on the last character.
-    frameAtOffset = frameAtOffset->GetLastContinuation();
+    frameAtOffset = frameAtOffset->LastContinuation();
   }
 
   // Return hypertext offset of the boundary of the found word.
@@ -2060,6 +2058,31 @@ HyperTextAccessible::RemoveChild(Accessible* aAccessible)
     mOffsets.RemoveElementsAt(childIndex, count);
 
   return Accessible::RemoveChild(aAccessible);
+}
+
+void
+HyperTextAccessible::CacheChildren()
+{
+  // Trailing HTML br element don't play any difference. We don't need to expose
+  // it to AT (see bug https://bugzilla.mozilla.org/show_bug.cgi?id=899433#c16
+  // for details).
+
+  TreeWalker walker(this, mContent);
+  Accessible* child = nullptr;
+  Accessible* lastChild = nullptr;
+  while ((child = walker.NextChild())) {
+    if (lastChild)
+      AppendChild(lastChild);
+
+    lastChild = child;
+  }
+
+  if (lastChild) {
+    if (lastChild->IsHTMLBr())
+      Document()->UnbindFromDocument(lastChild);
+    else
+      AppendChild(lastChild);
+  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////

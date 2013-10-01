@@ -38,11 +38,10 @@ using mozilla::RangedPtr;
 const char *
 js::AtomToPrintableString(ExclusiveContext *cx, JSAtom *atom, JSAutoByteString *bytes)
 {
-    // The only uses for this method when running off the main thread are for
-    // parse errors/warnings, which will not actually be reported in such cases.
-    if (!cx->isJSContext())
-        return "";
-    return js_ValueToPrintable(cx->asJSContext(), StringValue(atom), bytes);
+    JSString *str = js_QuoteString(cx, atom, 0);
+    if (!str)
+        return NULL;
+    return bytes->encodeLatin1(cx, str);
 }
 
 const char * const js::TypeStrings[] = {
@@ -389,13 +388,8 @@ js::AtomizeMaybeGC(ExclusiveContext *cx, const char *bytes, size_t length, Inter
          * js::AtomizeString rarely has to copy the temp string we make.
          */
         jschar inflated[ATOMIZE_BUF_MAX];
-        size_t inflatedLength = ATOMIZE_BUF_MAX - 1;
-        if (!InflateStringToBuffer(cx->maybeJSContext(),
-                                   bytes, length, inflated, &inflatedLength))
-        {
-            return NULL;
-        }
-        return AtomizeAndCopyChars<allowGC>(cx, inflated, inflatedLength, ib);
+        InflateStringToBuffer(bytes, length, inflated);
+        return AtomizeAndCopyChars<allowGC>(cx, inflated, length, ib);
     }
 
     jschar *tbcharsZ = InflateString(cx, bytes, &length);

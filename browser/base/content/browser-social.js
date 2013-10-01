@@ -10,7 +10,8 @@ let SocialUI,
     SocialShare,
     SocialMenu,
     SocialToolbar,
-    SocialSidebar;
+    SocialSidebar,
+    SocialStatus;
 
 (function() {
 
@@ -214,13 +215,20 @@ SocialUI = {
       // enabled == true means we at least have a defaultProvider
       let provider = Social.provider || Social.defaultProvider;
       // We only need to update the command itself - all our menu items use it.
-      let label = gNavigatorBundle.getFormattedString(Social.provider ?
-                                                        "social.turnOff.label" :
-                                                        "social.turnOn.label",
-                                                      [provider.name]);
-      let accesskey = gNavigatorBundle.getString(Social.provider ?
-                                                   "social.turnOff.accesskey" :
-                                                   "social.turnOn.accesskey");
+      let label;
+      if (Social.providers.length == 1) {
+        label = gNavigatorBundle.getFormattedString(Social.provider
+                                                    ? "social.turnOff.label"
+                                                    : "social.turnOn.label",
+                                                    [provider.name]);
+      } else {
+        label = gNavigatorBundle.getString(Social.provider
+                                           ? "social.turnOffAll.label"
+                                           : "social.turnOnAll.label");
+      }
+      let accesskey = gNavigatorBundle.getString(Social.provider
+                                                 ? "social.turnOff.accesskey"
+                                                 : "social.turnOn.accesskey");
       toggleCommand.setAttribute("label", label);
       toggleCommand.setAttribute("accesskey", accesskey);
     }
@@ -866,18 +874,27 @@ SocialToolbar = {
     let toggleNotificationsCommand = document.getElementById("Social:ToggleNotifications");
     toggleNotificationsCommand.setAttribute("hidden", !socialEnabled);
 
-    let parent = document.getElementById("social-notification-panel");
-    while (parent.hasChildNodes()) {
-      let frame = parent.firstChild;
-      SharedFrame.forgetGroup(frame.id);
-      parent.removeChild(frame);
-    }
-
+    // we need to remove buttons and frames if !socialEnabled or the provider
+    // has changed (frame origin does not match current provider). We only
+    // remove frames that are "attached" to buttons in this toolbar button since
+    // other buttons may also be using grouped frames.
     let tbi = document.getElementById("social-provider-button");
     if (tbi) {
       // buttons after social-provider-button are ambient icons
-      while (tbi.nextSibling) {
-        tbi.parentNode.removeChild(tbi.nextSibling);
+      let next = tbi.nextSibling;
+      let currentOrigin = Social.provider ? Social.provider.origin : null;
+
+      while (next) {
+        let button = next;
+        next = next.nextSibling;
+        // get the frame for this button
+        let frameId = button.getAttribute("notificationFrameId");
+        let frame = document.getElementById(frameId);
+        if (!socialEnabled || frame.getAttribute("origin") != currentOrigin) {
+          SharedFrame.forgetGroup(frame.id);
+          frame.parentNode.removeChild(frame);
+          button.parentNode.removeChild(button);
+        }
       }
     }
   },
@@ -1657,12 +1674,12 @@ SocialMarks = {
       {
         type: "link",
         id: "context-marklinkMenu",
-        label: "social.marklink.label"
+        label: "social.marklinkMenu.label"
       },
       {
         type: "page",
         id: "context-markpageMenu",
-        label: "social.markpage.label"
+        label: "social.markpageMenu.label"
       }
     ];
     for (let cfg of contextMenus) {

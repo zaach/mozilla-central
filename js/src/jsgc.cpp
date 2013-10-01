@@ -81,7 +81,6 @@
 #include "jsobjinlines.h"
 #include "jsscriptinlines.h"
 
-#include "vm/Runtime-inl.h"
 #include "vm/Stack-inl.h"
 #include "vm/String-inl.h"
 
@@ -1327,8 +1326,7 @@ void
 ArenaLists::finalizeNow(FreeOp *fop, AllocKind thingKind)
 {
     JS_ASSERT(!IsBackgroundFinalized(thingKind));
-    JS_ASSERT(backgroundFinalizeState[thingKind] == BFS_DONE ||
-              backgroundFinalizeState[thingKind] == BFS_JUST_FINISHED);
+    JS_ASSERT(backgroundFinalizeState[thingKind] == BFS_DONE);
 
     ArenaHeader *arenas = arenaLists[thingKind].head;
     arenaLists[thingKind].clear();
@@ -1936,6 +1934,10 @@ js::TriggerGC(JSRuntime *rt, JS::gcreason::Reason reason)
         return;
     }
 
+    /* Don't trigger GCs when allocating under the operation callback lock. */
+    if (rt->currentThreadOwnsOperationCallbackLock())
+        return;
+
     JS_ASSERT(CurrentThreadCanAccessRuntime(rt));
 
     if (rt->isHeapBusy())
@@ -1957,7 +1959,15 @@ js::TriggerZoneGC(Zone *zone, JS::gcreason::Reason reason)
         return;
     }
 
+    /* Zones in use by a thread with an exclusive context can't be collected. */
+    if (zone->usedByExclusiveThread)
+        return;
+
     JSRuntime *rt = zone->runtimeFromMainThread();
+
+    /* Don't trigger GCs when allocating under the operation callback lock. */
+    if (rt->currentThreadOwnsOperationCallbackLock())
+        return;
 
     if (rt->isHeapBusy())
         return;
@@ -2269,11 +2279,26 @@ GCHelperThread::finish()
 }
 
 #ifdef JS_THREADSAFE
+#ifdef MOZ_NUWA_PROCESS
+extern "C" {
+MFBT_API bool IsNuwaProcess();
+MFBT_API void NuwaMarkCurrentThread(void (*recreate)(void *), void *arg);
+}
+#endif
+
 /* static */
 void
 GCHelperThread::threadMain(void *arg)
 {
     PR_SetCurrentThreadName("JS GC Helper");
+
+#ifdef MOZ_NUWA_PROCESS
+    if (IsNuwaProcess && IsNuwaProcess()) {
+        JS_ASSERT(NuwaMarkCurrentThread != nullptr);
+        NuwaMarkCurrentThread(nullptr, nullptr);
+    }
+#endif
+
     static_cast<GCHelperThread *>(arg)->threadLoop();
 }
 
@@ -2281,6 +2306,10 @@ void
 GCHelperThread::threadLoop()
 {
     AutoLockGC lock(rt);
+
+#if JS_TRACE_LOGGING
+    TraceLogging *logger = TraceLogging::getLogger(TraceLogging::GC_BACKGROUND);
+#endif
 
     /*
      * Even on the first iteration the state can be SHUTDOWN or SWEEPING if
@@ -2295,12 +2324,21 @@ GCHelperThread::threadLoop()
             PR_WaitCondVar(wakeup, PR_INTERVAL_NO_TIMEOUT);
             break;
           case SWEEPING:
+#if JS_TRACE_LOGGING
+            logger->log(TraceLogging::GC_SWEEPING_START);
+#endif
             doSweep();
             if (state == SWEEPING)
                 state = IDLE;
             PR_NotifyAllCondVar(done);
+#if JS_TRACE_LOGGING
+            logger->log(TraceLogging::GC_SWEEPING_STOP);
+#endif
             break;
           case ALLOCATING:
+#if JS_TRACE_LOGGING
+            logger->log(TraceLogging::GC_ALLOCATING_START);
+#endif
             do {
                 Chunk *chunk;
                 {
@@ -2309,14 +2347,21 @@ GCHelperThread::threadLoop()
                 }
 
                 /* OOM stops the background allocation. */
-                if (!chunk)
+                if (!chunk) {
+#if JS_TRACE_LOGGING
+            logger->log(TraceLogging::GC_ALLOCATING_STOP);
+#endif
                     break;
+                }
                 JS_ASSERT(chunk->info.numArenasFreeCommitted == ArenasPerChunk);
                 rt->gcNumArenasFreeCommitted += ArenasPerChunk;
                 rt->gcChunkPool.put(chunk);
             } while (state == ALLOCATING && rt->gcChunkPool.wantBackgroundAllocation(rt));
             if (state == ALLOCATING)
                 state = IDLE;
+#if JS_TRACE_LOGGING
+            logger->log(TraceLogging::GC_ALLOCATING_STOP);
+#endif
             break;
           case CANCEL_ALLOCATION:
             state = IDLE;
@@ -2557,7 +2602,6 @@ static void
 SweepZones(FreeOp *fop, bool lastGC)
 {
     JSRuntime *rt = fop->runtime();
-    JS_ASSERT_IF(lastGC, !rt->hasContexts());
 
     /* Skip the atomsCompartment zone. */
     Zone **read = rt->zones.begin() + 1;
@@ -2764,10 +2808,6 @@ BeginMarkPhase(JSRuntime *rt)
             c->zone()->setPreservingCode(true);
     }
 
-    /* Check that at least one zone is scheduled for collection. */
-    if (!any)
-        return false;
-
     /*
      * Atoms are not in the cross-compartment map. So if there are any
      * zones that are not being collected, we are not allowed to collect
@@ -2792,7 +2832,12 @@ BeginMarkPhase(JSRuntime *rt)
     if (atomsZone->isGCScheduled() && rt->gcIsFull && !keepAtoms) {
         JS_ASSERT(!atomsZone->isCollecting());
         atomsZone->setGCState(Zone::Mark);
+        any = true;
     }
+
+    /* Check that at least one zone is scheduled for collection. */
+    if (!any)
+        return false;
 
     /*
      * At the end of each incremental slice, we call prepareForIncrementalGC,
@@ -3765,7 +3810,7 @@ EndSweepingZoneGroup(JSRuntime *rt)
 }
 
 static void
-BeginSweepPhase(JSRuntime *rt)
+BeginSweepPhase(JSRuntime *rt, bool lastGC)
 {
     /*
      * Sweep phase.
@@ -3782,7 +3827,7 @@ BeginSweepPhase(JSRuntime *rt)
     gcstats::AutoPhase ap(rt->gcStats, gcstats::PHASE_SWEEP);
 
 #ifdef JS_THREADSAFE
-    rt->gcSweepOnBackgroundThread = rt->hasContexts() && rt->useHelperThreads();
+    rt->gcSweepOnBackgroundThread = !lastGC && rt->useHelperThreads();
 #endif
 
 #ifdef DEBUG
@@ -4259,6 +4304,8 @@ IncrementalCollectSlice(JSRuntime *rt,
     AutoCopyFreeListToArenas copy(rt);
     AutoGCSlice slice(rt);
 
+    bool lastGC = (reason == JS::gcreason::DESTROY_RUNTIME);
+
     gc::State initialState = rt->gcIncrementalState;
 
     int zeal = 0;
@@ -4302,7 +4349,7 @@ IncrementalCollectSlice(JSRuntime *rt,
             return;
         }
 
-        if (rt->hasContexts())
+        if (!lastGC)
             PushZealSelectedObjects(rt);
 
         rt->gcIncrementalState = MARK;
@@ -4342,7 +4389,7 @@ IncrementalCollectSlice(JSRuntime *rt,
          * This runs to completion, but we don't continue if the budget is
          * now exhasted.
          */
-        BeginSweepPhase(rt);
+        BeginSweepPhase(rt, lastGC);
         if (sliceBudget.isOverBudget())
             break;
 
@@ -4361,7 +4408,7 @@ IncrementalCollectSlice(JSRuntime *rt,
         if (!finished)
             break;
 
-        EndSweepPhase(rt, gckind, reason == JS::gcreason::LAST_CONTEXT);
+        EndSweepPhase(rt, gckind, lastGC);
 
         if (rt->gcSweepOnBackgroundThread)
             rt->gcHelperThread.startBackgroundSweep(gckind == GC_SHRINK);
@@ -4507,7 +4554,7 @@ ShouldCleanUpEverything(JSRuntime *rt, JS::gcreason::Reason reason, JSGCInvocati
     // DEBUG_MODE_GC indicates we're discarding code because the debug mode
     // has changed; debug mode affects the results of bytecode analysis, so
     // we need to clear everything away.
-    return !rt->hasContexts() ||
+    return reason == JS::gcreason::DESTROY_RUNTIME ||
            reason == JS::gcreason::SHUTDOWN_CC ||
            reason == JS::gcreason::DEBUG_MODE_GC ||
            gckind == GC_SHRINK;
@@ -4569,7 +4616,8 @@ Collect(JSRuntime *rt, bool incremental, int64_t budget,
 
     JS_ASSERT_IF(!incremental || budget != SliceBudget::Unlimited, JSGC_INCREMENTAL);
 
-    AutoStopVerifyingBarriers av(rt, reason == JS::gcreason::SHUTDOWN_CC || !rt->hasContexts());
+    AutoStopVerifyingBarriers av(rt, reason == JS::gcreason::SHUTDOWN_CC ||
+                                     reason == JS::gcreason::DESTROY_RUNTIME);
 
     MinorGC(rt, reason);
 
@@ -4761,7 +4809,7 @@ js::NewCompartment(JSContext *cx, Zone *zone, JSPrincipals *principals,
 
         zone->setGCLastBytes(8192, GC_NORMAL);
 
-        JSPrincipals *trusted = rt->trustedPrincipals();
+        const JSPrincipals *trusted = rt->trustedPrincipals();
         zone->isSystem = principals && principals == trusted;
     }
 
@@ -5189,5 +5237,27 @@ JS::AssertGCThingMustBeTenured(JSObject *obj)
 {
     JS_ASSERT((!IsNurseryAllocable(obj->tenuredGetAllocKind()) || obj->getClass()->finalize) &&
               obj->isTenured());
+}
+
+JS_FRIEND_API(size_t)
+JS::GetGCNumber()
+{
+    JSRuntime *rt = js::TlsPerThreadData.get()->runtimeFromMainThread();
+    if (!rt)
+        return 0;
+    return rt->gcNumber;
+}
+
+JS::AutoAssertNoGC::AutoAssertNoGC()
+{
+    JSRuntime *rt = js::TlsPerThreadData.get()->runtimeFromMainThread();
+    gcNumber = rt ? rt->gcNumber : size_t(-1);
+}
+
+JS::AutoAssertNoGC::~AutoAssertNoGC()
+{
+    JSRuntime *rt = js::TlsPerThreadData.get()->runtimeFromMainThread();
+    if (rt)
+        MOZ_ASSERT(gcNumber == rt->gcNumber, "GC ran inside an AutoAssertNoGC scope");
 }
 #endif

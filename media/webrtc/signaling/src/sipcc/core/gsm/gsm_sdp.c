@@ -100,6 +100,7 @@ gsmsdp_add_remote_track(uint16_t idx, uint16_t track,
 extern cc_media_cap_table_t g_media_table;
 
 extern boolean g_disable_mass_reg_debug_print;
+
 /**
  * A wraper function to return the media capability supported by
  * the platform and session. This is a convient place if policy
@@ -1857,39 +1858,6 @@ gsmsdp_set_setup_attribute(uint16_t level,
 }
 
 /*
- * gsmsdp_set_connection_attribute
- *
- * Description:
- *
- * Adds a connection attribute to the specified SDP.
- *
- * Parameters:
- *
- * level        - The media level of the SDP where the media attribute exists.
- * sdp_p        - Pointer to the SDP to set the ice candidate attribute against.
- * connection_type - Value for the a=connection line
- */
-static void
-gsmsdp_set_connection_attribute(uint16_t level,
-  void *sdp_p, sdp_connection_type_e connection_type) {
-    uint16_t a_instance = 0;
-    sdp_result_e result;
-
-    result = sdp_add_new_attr(sdp_p, level, 0, SDP_ATTR_CONNECTION,
-      &a_instance);
-    if (result != SDP_SUCCESS) {
-        GSM_ERR_MSG("Failed to add attribute");
-        return;
-    }
-
-    result = sdp_attr_set_connection_attribute(sdp_p, level, 0,
-      a_instance, connection_type);
-    if (result != SDP_SUCCESS) {
-        GSM_ERR_MSG("Failed to set attribute");
-    }
-}
-
-/*
  * gsmsdp_set_dtls_fingerprint_attribute
  *
  * Description:
@@ -3541,15 +3509,6 @@ gsmsdp_negotiate_datachannel_attribs(fsmdef_dcb_t* dcb_p, cc_sdp_t* sdp_p, uint1
     sdp_attr_get_fmtp_data_channel_protocol(sdp_p->dest_sdp, level, 0, 1, media->datachannel_protocol);
 
     media->remote_datachannel_port = sdp_get_media_sctp_port(sdp_p->dest_sdp, level);
-
-    /*
-     * TODO: remove the following block when SCTP code is updated
-     * See bug 837035 comment #5
-     */
-    if (offer) {
-        /* Increment port for answer SDP */
-        media->local_datachannel_port = media->remote_datachannel_port + 1;
-    }
 }
 
 /*
@@ -4507,21 +4466,21 @@ gsmsdp_add_rtcp_fb (int level, sdp_t *sdp_p,
 
             /* Add requested a=rtcp-fb:nack attributes */
             for (j = 0; j < SDP_MAX_RTCP_FB_NACK; j++) {
-                if (types & SDP_RTCP_FB_NACK_TO_BITMAP(j)) {
+                if (types & sdp_rtcp_fb_nack_to_bitmap(j)) {
                     gsmsdp_set_rtcp_fb_nack_attribute(level, sdp_p, pt, j);
                 }
             }
 
             /* Add requested a=rtcp-fb:ack attributes */
             for (j = 0; j < SDP_MAX_RTCP_FB_ACK; j++) {
-                if (types & SDP_RTCP_FB_ACK_TO_BITMAP(j)) {
+                if (types & sdp_rtcp_fb_ack_to_bitmap(j)) {
                     gsmsdp_set_rtcp_fb_nack_attribute(level, sdp_p, pt, j);
                 }
             }
 
             /* Add requested a=rtcp-fb:ccm attributes */
             for (j = 0; j < SDP_MAX_RTCP_FB_CCM; j++) {
-                if (types & SDP_RTCP_FB_CCM_TO_BITMAP(j)) {
+                if (types & sdp_rtcp_fb_ccm_to_bitmap(j)) {
                     gsmsdp_set_rtcp_fb_ccm_attribute(level, sdp_p, pt, j);
                 }
             }
@@ -4591,7 +4550,7 @@ gsmsdp_negotiate_rtcp_fb (cc_sdp_t *cc_sdp_p,
             nack_type = sdp_attr_get_rtcp_fb_nack(cc_sdp_p->dest_sdp,
                                                   level, remote_pt, i);
             if (nack_type >= 0 && nack_type < SDP_MAX_RTCP_FB_NACK) {
-                fb_types |= SDP_RTCP_FB_NACK_TO_BITMAP(nack_type);
+                fb_types |= sdp_rtcp_fb_nack_to_bitmap(nack_type);
             }
             i++;
         } while (nack_type != SDP_RTCP_FB_NACK_NOT_FOUND);
@@ -4602,7 +4561,7 @@ gsmsdp_negotiate_rtcp_fb (cc_sdp_t *cc_sdp_p,
             ack_type = sdp_attr_get_rtcp_fb_ack(cc_sdp_p->dest_sdp,
                                                 level, remote_pt, i);
             if (ack_type >= 0 && ack_type < SDP_MAX_RTCP_FB_ACK) {
-                fb_types |= SDP_RTCP_FB_ACK_TO_BITMAP(ack_type);
+                fb_types |= sdp_rtcp_fb_ack_to_bitmap(ack_type);
             }
             i++;
         } while (ack_type != SDP_RTCP_FB_ACK_NOT_FOUND);
@@ -4613,7 +4572,7 @@ gsmsdp_negotiate_rtcp_fb (cc_sdp_t *cc_sdp_p,
             ccm_type = sdp_attr_get_rtcp_fb_ccm(cc_sdp_p->dest_sdp,
                                                 level, remote_pt, i);
             if (ccm_type >= 0 && ccm_type < SDP_MAX_RTCP_FB_CCM) {
-                fb_types |= SDP_RTCP_FB_CCM_TO_BITMAP(ccm_type);
+                fb_types |= sdp_rtcp_fb_ccm_to_bitmap(ccm_type);
             }
             i++;
         } while (ccm_type != SDP_RTCP_FB_CCM_NOT_FOUND);
@@ -4624,9 +4583,9 @@ gsmsdp_negotiate_rtcp_fb (cc_sdp_t *cc_sdp_p,
         switch (codec) {
             case RTP_VP8:
                 fb_types &=
-                  SDP_RTCP_FB_NACK_TO_BITMAP(SDP_RTCP_FB_NACK_BASIC) |
-                  SDP_RTCP_FB_NACK_TO_BITMAP(SDP_RTCP_FB_NACK_PLI) |
-                  SDP_RTCP_FB_CCM_TO_BITMAP(SDP_RTCP_FB_CCM_FIR);
+                  sdp_rtcp_fb_nack_to_bitmap(SDP_RTCP_FB_NACK_BASIC) |
+                  sdp_rtcp_fb_nack_to_bitmap(SDP_RTCP_FB_NACK_PLI) |
+                  sdp_rtcp_fb_ccm_to_bitmap(SDP_RTCP_FB_CCM_FIR);
                 break;
             default:
                 fb_types = 0;
@@ -4674,7 +4633,23 @@ gsmsdp_negotiate_rtcp_fb (cc_sdp_t *cc_sdp_p,
  * initial_offer - Boolean indicating if the remote SDP came in the first OFFER of this session
  * offer - Boolean indicating if the remote SDP came in an OFFER.
  * notify_stream_added - Boolean indicating the UI should be notified of streams added
+ * create_answer - indicates whether the provided offer is supposed to generate
+ *                 an answer (versus simply setting the remote description)
  *
+ * In practice, the initial_offer, offer, and create_answer flags only make
+ * sense in a limited number of configurations:
+ *
+ *   Phase                        | i_o   | offer | c_a
+ *  ------------------------------+-------+-------+-------
+ *   SetRemote (initial offer)    | true  | true  | false
+ *   SetRemote (reneg. offer)     | false | true  | false
+ *   SetRemote (answer)           | false | false | false
+ *   CreateAnswer (initial)       | true  | true  | true
+ *   CreateAnswer (renegotitaion) | false | true  | true
+ *
+ * TODO(adam@nostrum.com): These flags make the code very hard to read at
+ *   the calling site.  They should be replaced by an enumeration that
+ *   contains only those five valid combinations described above.
  */
 cc_causes_t
 gsmsdp_negotiate_media_lines (fsm_fcb_t *fcb_p, cc_sdp_t *sdp_p, boolean initial_offer,
@@ -4709,7 +4684,6 @@ gsmsdp_negotiate_media_lines (fsm_fcb_t *fcb_p, cc_sdp_t *sdp_p, boolean initial
     sdp_result_e    sdp_res;
     boolean         created_media_stream = FALSE;
     int             lsm_rc;
-    sdp_setup_type_e remote_setup_type;
 
     config_get_value(CFGID_SDPMODE, &sdpmode, sizeof(sdpmode));
 
@@ -5006,41 +4980,63 @@ gsmsdp_negotiate_media_lines (fsm_fcb_t *fcb_p, cc_sdp_t *sdp_p, boolean initial
             if (!unsupported_line) {
 
               if (sdpmode) {
+                  sdp_setup_type_e remote_setup_type;
                   int j;
 
-                  /* Find the remote a=setup value */
                   sdp_res = sdp_attr_get_setup_attribute(
                       sdp_p->dest_sdp, i, 0, 1, &remote_setup_type);
 
-
-                  /* setup attribute
-                     We are setting our local SDP to be ACTIVE if the value
-                     in the remote SDP is missing, PASSIVE or ACTPASS.
-                     If the remote value is ACTIVE, then we will respond
-                     with PASSIVE.
-                     If the remote value is HOLDCONN we will respond with
-                     HOLDCONN and set the direction to INACTIVE
-                     The DTLS role will then be set when the TransportFlow
-                     is created */
-                  media->setup = SDP_SETUP_ACTIVE;
-
-                  if (sdp_res == SDP_SUCCESS) {
-                      if (remote_setup_type == SDP_SETUP_ACTIVE) {
-                          media->setup = SDP_SETUP_PASSIVE;
-                      } else if (remote_setup_type == SDP_SETUP_HOLDCONN) {
-                          media->setup = SDP_SETUP_HOLDCONN;
-                          media->direction = SDP_DIRECTION_INACTIVE;
-                      }
+                  /*
+                   * Although a=setup is required for DTLS per RFC 5763,
+                   * there are several implementations (including older
+                   * versions of Firefox) that don't signal direction.
+                   * To work with these cases, we assume that an omitted
+                   * direction in SDP means "PASSIVE" in an offer, and
+                   * "ACTIVE" in an answer.
+                   */
+                  if (sdp_res != SDP_SUCCESS) {
+                      remote_setup_type =
+                          offer ? SDP_SETUP_PASSIVE : SDP_SETUP_ACTIVE;
                   }
 
-                  gsmsdp_set_setup_attribute(media->level, dcb_p->sdp->src_sdp,
-                    media->setup);
+                  /* The DTLS role will be set based on the media->setup
+                     value when the TransportFlow is created */
+                  switch (remote_setup_type) {
+                    case SDP_SETUP_ACTIVE:
+                        media->setup = SDP_SETUP_PASSIVE;
+                        break;
+                    case SDP_SETUP_PASSIVE:
+                        media->setup = SDP_SETUP_ACTIVE;
+                        break;
+                    case SDP_SETUP_ACTPASS:
+                        /*
+                         * This should only happen in an offer. If the
+                         * remote side is ACTPASS, we choose to be ACTIVE;
+                         * this allows us to start setting up the DTLS
+                         * association immediately, saving 1/2 RTT in
+                         * association establishment.
+                         */
+                        media->setup = SDP_SETUP_ACTIVE;
+                        break;
+                    case SDP_SETUP_HOLDCONN:
+                        media->setup = SDP_SETUP_HOLDCONN;
+                        media->direction = SDP_DIRECTION_INACTIVE;
+                        break;
+                    default:
+                        /*
+                         * If we don't recognize the remote endpoint's setup
+                         * attribute, we fall back to being active if they
+                         * sent an offer, and passive if they sent an answer.
+                         */
+                        media->setup =
+                            offer ? SDP_SETUP_ACTIVE : SDP_SETUP_PASSIVE;
+                  }
 
-                  /* TODO(ehugg) we are not yet supporting existing connections
-                     See bug 857115.  We currently always respond with
-                     connection:new */
-                  gsmsdp_set_connection_attribute(media->level,
-                    dcb_p->sdp->src_sdp, SDP_CONNECTION_NEW);
+                  if (create_answer) {
+                      gsmsdp_set_setup_attribute(media->level,
+                                                 dcb_p->sdp->src_sdp,
+                                                 media->setup);
+                  }
 
                   /* Set ICE */
                   for (j=0; j<media->candidate_ct; j++) {
@@ -5554,17 +5550,13 @@ gsmsdp_add_media_line (fsmdef_dcb_t *dcb_p, const cc_media_cap_t *media_cap,
           /* Add supported rtcp-fb types */
           if (media_cap->type == SDP_MEDIA_VIDEO) {
               gsmsdp_add_rtcp_fb (level, dcb_p->sdp->src_sdp, RTP_VP8,
-                  SDP_RTCP_FB_NACK_TO_BITMAP(SDP_RTCP_FB_NACK_BASIC) |
-                  SDP_RTCP_FB_NACK_TO_BITMAP(SDP_RTCP_FB_NACK_PLI) |
-                  SDP_RTCP_FB_CCM_TO_BITMAP(SDP_RTCP_FB_CCM_FIR));
+                  sdp_rtcp_fb_nack_to_bitmap(SDP_RTCP_FB_NACK_BASIC) |
+                  sdp_rtcp_fb_nack_to_bitmap(SDP_RTCP_FB_NACK_PLI) |
+                  sdp_rtcp_fb_ccm_to_bitmap(SDP_RTCP_FB_CCM_FIR));
           }
 
-          /* setup and connection attributes */
+          /* Add a=setup attribute */
           gsmsdp_set_setup_attribute(level, dcb_p->sdp->src_sdp, media->setup);
-
-          /* This is a new media line so we should send connection:new */
-          gsmsdp_set_connection_attribute(level, dcb_p->sdp->src_sdp,
-            SDP_CONNECTION_NEW);
 
           /*
            * wait until here to set ICE candidates as SDP is now initialized
@@ -5667,6 +5659,13 @@ gsmsdp_create_local_sdp (fsmdef_dcb_t *dcb_p, boolean force_streams_enabled,
          */
         if (media_enabled && ( media_cap->enabled || force_streams_enabled)) {
             level = level + 1;  /* next level */
+
+            /* Only audio and video use two ICE components */
+            if (media_cap->type != SDP_MEDIA_AUDIO &&
+                media_cap->type != SDP_MEDIA_VIDEO) {
+                vcmDisableRtcpComponent(dcb_p->peerconnection, level);
+            }
+
             ip_mode = platform_get_ip_address_mode();
             if (ip_mode >= CPR_IP_MODE_IPV6) {
                 if (gsmsdp_add_media_line(dcb_p, media_cap, cap_index,
@@ -7328,3 +7327,31 @@ gsmsdp_find_level_from_mid(fsmdef_dcb_t * dcb_p, const char * mid, uint16_t *lev
     }
     return CC_CAUSE_VALUE_NOT_FOUND;
 }
+
+/**
+ * The function performs cleaning candidate list of a given call. It walks
+ * through the list and deallocates each candidate entry.
+ *
+ * @param[in]dcb   - pointer to fsmdef_def_t for the dcb whose
+ *                   media list to be cleaned.
+ *
+ * @return  none
+ *
+ * @pre     (dcb not_eq NULL)
+ */
+void gsmsdp_clean_candidate_list (fsmdef_dcb_t *dcb_p)
+{
+    fsmdef_candidate_t *candidate = NULL;
+
+    while (TRUE) {
+        /* unlink head and free the media */
+        candidate = (fsmdef_candidate_t *)sll_lite_unlink_head(&dcb_p->candidate_list);
+        if (candidate) {
+            strlib_free(candidate->candidate);
+            free(candidate);
+        } else {
+            break;
+        }
+    }
+}
+

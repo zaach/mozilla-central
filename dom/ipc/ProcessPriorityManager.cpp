@@ -16,25 +16,15 @@
 #include "AudioChannelService.h"
 #include "prlog.h"
 #include "nsPrintfCString.h"
-#include "nsWeakPtr.h"
 #include "nsXULAppAPI.h"
 #include "nsIFrameLoader.h"
-#include "nsIInterfaceRequestorUtils.h"
-#include "nsITimer.h"
-#include "nsIObserver.h"
 #include "nsIObserverService.h"
-#include "nsIDocument.h"
-#include "nsIDOMEventListener.h"
-#include "nsIDOMWindow.h"
-#include "nsIDOMEvent.h"
-#include "nsIDOMDocument.h"
-#include "nsPIDOMWindow.h"
 #include "StaticPtr.h"
 #include "nsIMozBrowserFrame.h"
 #include "nsIObserver.h"
 #include "nsITimer.h"
-#include "nsPrintfCString.h"
-#include "prlog.h"
+#include "nsIPropertyBag2.h"
+#include "nsComponentManagerUtils.h"
 
 #ifdef XP_WIN
 #include <process.h>
@@ -866,7 +856,9 @@ ParticularProcessPriorityManager::ComputePriority()
   }
 
   if (isVisible) {
-    return PROCESS_PRIORITY_FOREGROUND;
+    return HasAppType("keyboard") ?
+      PROCESS_PRIORITY_FOREGROUND_KEYBOARD :
+      PROCESS_PRIORITY_FOREGROUND;
   }
 
   if ((mHoldsCPUWakeLock || mHoldsHighPriorityWakeLock) &&

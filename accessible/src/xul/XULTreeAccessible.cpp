@@ -21,6 +21,7 @@
 #include "nsIAccessibleRelation.h"
 #include "nsIAutoCompleteInput.h"
 #include "nsIAutoCompletePopup.h"
+#include "nsIBoxObject.h"
 #include "nsIDOMXULElement.h"
 #include "nsIDOMXULMenuListElement.h"
 #include "nsIDOMXULMultSelectCntrlEl.h"
@@ -542,10 +543,8 @@ XULTreeAccessible::GetTreeItemAccessible(int32_t aRow)
   nsRefPtr<Accessible> treeItem = CreateTreeItemAccessible(aRow);
   if (treeItem) {
     mAccessibleCache.Put(key, treeItem);
-    if (Document()->BindToDocument(treeItem, nullptr))
-      return treeItem;
-
-    mAccessibleCache.Remove(key);
+    Document()->BindToDocument(treeItem, nullptr);
+    return treeItem;
   }
 
   return nullptr;

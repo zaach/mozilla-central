@@ -24,9 +24,9 @@
 #include "TelephonyCall.h"
 #include "TelephonyCallGroup.h"
 
-USING_TELEPHONY_NAMESPACE
 using namespace mozilla::dom;
 using mozilla::ErrorResult;
+using mozilla::dom::telephony::kOutgoingPlaceholderCallIndex;
 
 namespace {
 
@@ -375,7 +375,7 @@ Telephony::SetSpeakerEnabled(bool aEnabled, ErrorResult& aRv)
 }
 
 void
-Telephony::GetActive(Nullable<TelephonyCallOrTelephonyCallGroupReturnValue>& aValue)
+Telephony::GetActive(Nullable<OwningTelephonyCallOrTelephonyCallGroup>& aValue)
 {
   if (mActiveCall) {
     aValue.SetValue().SetAsTelephonyCall() = mActiveCall;

@@ -52,9 +52,9 @@ class ArrayBufferObject : public JSObject
     static bool fun_slice_impl(JSContext *cx, CallArgs args);
 
   public:
-    static Class class_;
+    static const Class class_;
 
-    static Class protoClass;
+    static const Class protoClass;
     static const JSFunctionSpec jsfuncs[];
 
     static bool byteLengthGetter(JSContext *cx, unsigned argc, Value *vp);
@@ -63,7 +63,7 @@ class ArrayBufferObject : public JSObject
 
     static bool class_constructor(JSContext *cx, unsigned argc, Value *vp);
 
-    static JSObject *create(JSContext *cx, uint32_t nbytes, uint8_t *contents = NULL);
+    static JSObject *create(JSContext *cx, uint32_t nbytes, uint8_t *contents = nullptr);
 
     static JSObject *createSlice(JSContext *cx, ArrayBufferObject &arrayBuffer,
                                  uint32_t begin, uint32_t end);
@@ -150,8 +150,9 @@ class ArrayBufferObject : public JSObject
         header->flags = 0;
         header->initializedLength = bytes;
 
-        // NB: one or both of these fields is clobbered by GetViewList to store the
-        // 'views' link. Set them to 0 to effectively initialize 'views' to NULL.
+        // NB: one or both of these fields is clobbered by GetViewList to store
+        // the 'views' link. Set them to 0 to effectively initialize 'views'
+        // to nullptr.
         header->length = 0;
         header->capacity = 0;
     }
@@ -162,7 +163,7 @@ class ArrayBufferObject : public JSObject
 
     void addView(ArrayBufferViewObject *view);
 
-    bool allocateSlots(JSContext *cx, uint32_t size, uint8_t *contents = NULL);
+    bool allocateSlots(JSContext *cx, uint32_t size, uint8_t *contents = nullptr);
     void changeContents(JSContext *cx, ObjectElements *newHeader);
 
     /*
@@ -268,8 +269,8 @@ class TypedArrayObject : public ArrayBufferViewObject
     static const size_t DATA_SLOT      = 7; // private slot, based on alloc kind
 
   public:
-    static Class classes[ScalarTypeRepresentation::TYPE_MAX];
-    static Class protoClasses[ScalarTypeRepresentation::TYPE_MAX];
+    static const Class classes[ScalarTypeRepresentation::TYPE_MAX];
+    static const Class protoClasses[ScalarTypeRepresentation::TYPE_MAX];
 
     static bool obj_lookupGeneric(JSContext *cx, HandleObject obj, HandleId id,
                                   MutableHandleObject objp, MutableHandleShape propp);
@@ -318,7 +319,7 @@ class TypedArrayObject : public ArrayBufferViewObject
         return static_cast<void*>(getPrivate(DATA_SLOT));
     }
 
-    inline bool isArrayIndex(jsid id, uint32_t *ip = NULL);
+    inline bool isArrayIndex(jsid id, uint32_t *ip = nullptr);
     void copyTypedArrayElement(uint32_t index, MutableHandleValue vp);
 
     void neuter();
@@ -405,7 +406,7 @@ class DataViewObject : public ArrayBufferViewObject
     static const size_t DATA_SLOT      = 7; // private slot, based on alloc kind
 
   private:
-    static Class protoClass;
+    static const Class protoClass;
 
     static bool is(HandleValue v) {
         return v.isObject() && v.toObject().hasClass(&class_);
@@ -424,7 +425,7 @@ class DataViewObject : public ArrayBufferViewObject
     defineGetter(JSContext *cx, PropertyName *name, HandleObject proto);
 
   public:
-    static Class class_;
+    static const Class class_;
 
     static Value byteOffsetValue(DataViewObject *view) {
         Value v = view->getReservedSlot(BYTEOFFSET_SLOT);

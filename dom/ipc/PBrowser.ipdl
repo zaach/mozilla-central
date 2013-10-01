@@ -44,12 +44,12 @@ using nsIntSize;
 using nsKeyEvent;
 using nsMouseEvent;
 using nsMouseScrollEvent;
-using mozilla::widget::WheelEvent;
+using mozilla::WheelEvent;
 using nsQueryContentEvent;
 using nsRect;
 using nsSelectionEvent;
 using nsTextEvent;
-using nsTouchEvent;
+using mozilla::WidgetTouchEvent;
 using RemoteDOMEvent;
 using mozilla::dom::ScreenOrientation;
 using mozilla::layers::TextureFactoryIdentifier;
@@ -163,6 +163,12 @@ parent:
      */
     sync EndIMEComposition(bool cancel) returns (nsString composition);
 
+    /**
+     * Request that the parent process move focus to the browser's frame. If
+     * canRaise is true, the window can be raised if it is inactive.
+     */
+    RequestFocus(bool canRaise);
+
     sync GetInputContext() returns (int32_t IMEEnabled, int32_t IMEOpen,
                                     intptr_t NativeIMEContext);
 
@@ -251,7 +257,7 @@ parent:
     POfflineCacheUpdate(URIParams manifestURI, URIParams documentURI,
                         bool stickDocument);
 
-    sync PIndexedDB(nsCString asciiOrigin)
+    sync PIndexedDB(nsCString group, nsCString asciiOrigin)
         returns (bool allowed);
 
     /**
@@ -361,10 +367,10 @@ child:
     RealMouseEvent(nsMouseEvent event);
     RealKeyEvent(nsKeyEvent event);
     MouseWheelEvent(WheelEvent event);
-    RealTouchEvent(nsTouchEvent event);
+    RealTouchEvent(WidgetTouchEvent event);
     // We use a separate message for touchmove events only to apply
     // compression to them.
-    RealTouchMoveEvent(nsTouchEvent event) compress;
+    RealTouchMoveEvent(WidgetTouchEvent event) compress;
 
     /**
      * @see nsIDOMWindowUtils sendKeyEvent.

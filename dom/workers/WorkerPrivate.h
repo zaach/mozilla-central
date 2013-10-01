@@ -22,7 +22,7 @@
 #include "nsAutoPtr.h"
 #include "nsCOMPtr.h"
 #include "nsEventQueue.h"
-#include "nsStringGlue.h"
+#include "nsString.h"
 #include "nsTArray.h"
 #include "nsTPriorityQueue.h"
 #include "StructuredCloneTags.h"
@@ -34,7 +34,6 @@
 class JSAutoStructuredCloneBuffer;
 class nsIChannel;
 class nsIDocument;
-class nsIMemoryMultiReporter;
 class nsIPrincipal;
 class nsIScriptContext;
 class nsIURI;

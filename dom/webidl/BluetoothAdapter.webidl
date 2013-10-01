@@ -48,27 +48,21 @@ interface BluetoothAdapter : EventTarget {
   [GetterThrows]
   readonly attribute any            uuids;
 
-  [SetterThrows]
            attribute EventHandler   ondevicefound;
 
   // Fired when pairing process is completed
-  [SetterThrows]
            attribute EventHandler   onpairedstatuschanged;
 
   // Fired when a2dp connection status changed
-  [SetterThrows]
            attribute EventHandler   ona2dpstatuschanged;
 
   // Fired when handsfree connection status changed
-  [SetterThrows]
            attribute EventHandler   onhfpstatuschanged;
 
   // Fired when sco connection status changed
-  [SetterThrows]
            attribute EventHandler   onscostatuschanged;
 
   // Fired when remote devices query current media play status
-  [SetterThrows]
            attribute EventHandler   onrequestmediaplaystatus;
 
   [Creator, Throws]
@@ -105,6 +99,10 @@ interface BluetoothAdapter : EventTarget {
    * Connect, multiple profiles are tried sequentially based on the class of
    * device (CoD). If it isn't passed when calling Disconnect, all connected
    * profiles are going to be closed.
+   *
+   * Reply success if the connection of any profile is successfully
+   * established/released; reply error if we failed to connect/disconnect all
+   * of the planned profiles.
    *
    * @param device Remote device
    * @param profile 2-octets service UUID. This is optional.

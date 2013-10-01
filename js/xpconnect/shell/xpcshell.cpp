@@ -18,16 +18,9 @@
 #include "nsXULAppAPI.h"
 #include "nsServiceManagerUtils.h"
 #include "nsComponentManagerUtils.h"
-#include "nsStringAPI.h"
 #include "nsIXPConnect.h"
-#include "nsIXPCScriptable.h"
-#include "nsIInterfaceInfo.h"
-#include "nsIInterfaceInfoManager.h"
 #include "nsIJSNativeInitializer.h"
-#include "nsIXPCScriptable.h"
 #include "nsIServiceManager.h"
-#include "nsIComponentManager.h"
-#include "nsIComponentRegistrar.h"
 #include "nsIFile.h"
 #include "nsStringAPI.h"
 #include "nsIDirectoryService.h"
@@ -37,15 +30,11 @@
 #include "nsArrayEnumerator.h"
 #include "nsCOMArray.h"
 #include "nsDirectoryServiceUtils.h"
-#include "nsMemory.h"
-#include "nsISupportsImpl.h"
 #include "nsIJSRuntimeService.h"
 #include "nsCOMPtr.h"
 #include "nsAutoPtr.h"
-#include "nsIXPCSecurityManager.h"
 #include "nsJSPrincipals.h"
 #include "xpcpublic.h"
-#include "nsXULAppAPI.h"
 #include "BackstagePass.h"
 #include "nsCxPusher.h"
 #ifdef XP_MACOSX
@@ -154,7 +143,7 @@ GetLocationProperty(JSContext *cx, HandleObject obj, HandleId id, MutableHandleV
     //XXX: your platform should really implement this
     return false;
 #else
-    JSScript *script;
+    JS::RootedScript script(cx);
     JS_DescribeScriptedCaller(cx, &script, NULL);
     const char *filename = JS_GetScriptFilename(cx, script);
 
@@ -903,12 +892,6 @@ static const JSFunctionSpec glob_functions[] = {
     JS_FS_END
 };
 
-JSClass global_class = {
-    "global", 0,
-    JS_PropertyStub,  JS_DeletePropertyStub,  JS_PropertyStub,  JS_StrictPropertyStub,
-    JS_EnumerateStub, JS_ResolveStub,   JS_ConvertStub,   nullptr
-};
-
 static bool
 env_setProperty(JSContext *cx, HandleObject obj, HandleId id, bool strict, MutableHandleValue vp)
 {
@@ -1025,7 +1008,7 @@ env_resolve(JSContext *cx, HandleObject obj, HandleId id, unsigned flags,
     return true;
 }
 
-static JSClass env_class = {
+static const JSClass env_class = {
     "environment", JSCLASS_HAS_PRIVATE | JSCLASS_NEW_RESOLVE,
     JS_PropertyStub,  JS_DeletePropertyStub,
     JS_PropertyStub,  env_setProperty,
@@ -1043,7 +1026,7 @@ typedef enum JSShellErrNum {
     JSShellErr_Limit
 } JSShellErrNum;
 
-JSErrorFormatString jsShell_ErrorFormatString[JSShellErr_Limit] = {
+const JSErrorFormatString jsShell_ErrorFormatString[JSShellErr_Limit] = {
 #define MSG_DEF(name, number, count, exception, format) \
     { format, count } ,
 #include "jsshell.msg"
@@ -1189,8 +1172,6 @@ usage(void)
     fprintf(gErrFile, "usage: xpcshell [-g gredir] [-a appdir] [-r manifest]... [-PsSwWCijmIn] [-v version] [-f scriptfile] [-e script] [scriptfile] [scriptarg...]\n");
     return 2;
 }
-
-extern JSClass global_class;
 
 static void
 ProcessArgsForCompartment(JSContext *cx, char **argv, int argc)
@@ -1675,11 +1656,6 @@ main(int argc, char **argv, char **envp)
             printf("failed to get nsXPConnect service!\n");
             return 1;
         }
-
-        // Force the SafeJSContext to be created. This is a workaround for our
-        // implicit dependency on keeping at least one JSContext alive until the
-        // end of shutdown. This can go away when we get bug 905926 landed.
-        xpc->GetSafeJSContext();
 
         nsCOMPtr<nsIPrincipal> systemprincipal;
         // Fetch the system principal and store it away in a global, to use for

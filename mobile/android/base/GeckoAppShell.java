@@ -955,13 +955,12 @@ public class GeckoAppShell
 
     @GeneratableAndroidBridgeTarget(stubName = "GetMimeTypeFromExtensionsWrapper")
     static String getMimeTypeFromExtensions(String aFileExt) {
-        MimeTypeMap mtm = MimeTypeMap.getSingleton();
         StringTokenizer st = new StringTokenizer(aFileExt, ".,; ");
         String type = null;
         String subType = null;
         while (st.hasMoreElements()) {
             String ext = st.nextToken();
-            String mt = mtm.getMimeTypeFromExtension(ext);
+            String mt = getMimeTypeFromExtension(ext);
             if (mt == null)
                 continue;
             int slash = mt.indexOf('/');
@@ -1331,12 +1330,6 @@ public class GeckoAppShell
                 return;
             }
         }
-
-        // Also send a notification to the observer service
-        // New listeners should register for these notifications since they will be called even if
-        // Gecko has been killed and restared between when your notification was shown and when the
-        // user clicked on it.
-        sendEventToGecko(GeckoEvent.createBroadcastEvent("Notification:Clicked", aAlertCookie));
         closeNotification(aAlertName);
     }
 
@@ -1347,6 +1340,11 @@ public class GeckoAppShell
         }
 
         return sDensityDpi;
+    }
+
+    @GeneratableAndroidBridgeTarget()
+    public static float getDensity() {
+        return getContext().getResources().getDisplayMetrics().density;
     }
 
     private static boolean isHighMemoryDevice() {
@@ -1746,6 +1744,14 @@ public class GeckoAppShell
 
     @GeneratableAndroidBridgeTarget
     public static void scanMedia(String aFile, String aMimeType) {
+        // If the platform didn't give us a mimetype, try to guess one from the filename
+        if (TextUtils.isEmpty(aMimeType)) {
+            int extPosition = aFile.lastIndexOf(".");
+            if (extPosition > 0 && extPosition < aFile.length() - 1) {
+                aMimeType = getMimeTypeFromExtension(aFile.substring(extPosition+1));
+            }
+        }
+
         Context context = getContext();
         GeckoMediaScannerClient.startScan(context, aFile, aMimeType);
     }
@@ -1781,10 +1787,14 @@ public class GeckoAppShell
         }
     }
 
+    private static String getMimeTypeFromExtension(String ext) {
+        final MimeTypeMap mtm = MimeTypeMap.getSingleton();
+        return mtm.getMimeTypeFromExtension(ext);
+    }
+    
     private static Drawable getDrawableForExtension(PackageManager pm, String aExt) {
         Intent intent = new Intent(Intent.ACTION_VIEW);
-        MimeTypeMap mtm = MimeTypeMap.getSingleton();
-        String mimeType = mtm.getMimeTypeFromExtension(aExt);
+        final String mimeType = getMimeTypeFromExtension(aExt);
         if (mimeType != null && mimeType.length() > 0)
             intent.setType(mimeType);
         else
@@ -2241,7 +2251,7 @@ public class GeckoAppShell
         sEventDispatcher.registerEventListener(event, listener);
     }
 
-    static EventDispatcher getEventDispatcher() {
+    public static EventDispatcher getEventDispatcher() {
         return sEventDispatcher;
     }
 

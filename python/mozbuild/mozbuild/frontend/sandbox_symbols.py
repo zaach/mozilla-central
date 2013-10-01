@@ -78,10 +78,30 @@ VARIABLES = {
         This variable contains a list of C source files to compile.
         """),
 
-    'DEFINES': (StrictOrderingOnAppendList, list, [],
-        """Compiler defines to declare.
+    'DEFINES': (OrderedDict, dict, OrderedDict(),
+        """Dictionary of compiler defines to declare.
 
-        Command line -D flags passed to the compiler.
+        These are passed in to the compiler as -Dkey='value' for string values,
+        -Dkey=value for numeric values, or -Dkey if the value is True. Note
+        that for string values, the outer-level of single-quotes will be
+        consumed by the shell. If you want to have a string-literal in the
+        program, the value needs to have double-quotes.
+
+        Example:
+        DEFINES['NS_NO_XPCOM'] = True
+        DEFINES['MOZ_EXTENSIONS_DB_SCHEMA'] = 15
+        DEFINES['DLL_SUFFIX'] = '".so"'
+
+        This will result in the compiler flags -DNS_NO_XPCOM,
+        -DMOZ_EXTENSIONS_DB_SCHEMA=15, and -DDLL_SUFFIX='".so"',
+        respectively. These could also be combined into a single
+        update:
+
+        DEFINES.update({
+            'NS_NO_XPCOM': True,
+            'MOZ_EXTENSIONS_DB_SCHEMA': 15,
+            'DLL_SUFFIX': '".so"',
+        })
         """),
 
     'DIRS': (list, list, [],
@@ -239,6 +259,12 @@ VARIABLES = {
         """Whether profile-guided optimization is enabled in this directory.
         """),
 
+    'OS_LIBS': (list, list, [],
+        """System link libraries.
+
+        This variable contains a list of system libaries to link against.
+        """),
+
     'SDK_LIBRARY': (StrictOrderingOnAppendList, list, [],
         """Elements of the distributed SDK.
 
@@ -393,11 +419,67 @@ VARIABLES = {
         These are .ipdl files that will be parsed and converted to .cpp files.
         """),
 
-    'XPCSHELL_TESTS_MANIFESTS': (StrictOrderingOnAppendList, list, [],
-        """XPCSHELL Test Manifest list
+    'WEBIDL_FILES': (StrictOrderingOnAppendList, list, [],
+        """WebIDL source files.
 
-        This is a list of xpcshell.ini manifest files.
-        Formerly XPCSHELL_TESTS=
+        These will be parsed and converted to .cpp and .h files.
+        """),
+
+    'GENERATED_EVENTS_WEBIDL_FILES': (StrictOrderingOnAppendList, list, [],
+        """WebIDL source files for generated events.
+
+        These will be parsed and converted to .cpp and .h files.
+        """),
+
+    'TEST_WEBIDL_FILES': (StrictOrderingOnAppendList, list, [],
+         """Test WebIDL source files.
+
+         These will be parsed and converted to .cpp and .h files if tests are
+         enabled.
+         """),
+
+    'GENERATED_WEBIDL_FILES': (StrictOrderingOnAppendList, list, [],
+         """Generated WebIDL source files.
+
+         These will be generated from some other files.
+         """),
+
+    'PREPROCESSED_TEST_WEBIDL_FILES': (StrictOrderingOnAppendList, list, [],
+         """Preprocessed test WebIDL source files.
+
+         These will be preprocessed, then parsed and converted to .cpp
+         and .h files if tests are enabled.
+         """),
+
+    'PREPROCESSED_WEBIDL_FILES': (StrictOrderingOnAppendList, list, [],
+         """Preprocessed WebIDL source files.
+
+         These will be preprocessed before being parsed and converted.
+         """),
+
+    # Test declaration.
+    'A11Y_MANIFESTS': (StrictOrderingOnAppendList, list, [],
+        """List of manifest files defining a11y tests.
+        """),
+
+    'BROWSER_CHROME_MANIFESTS': (StrictOrderingOnAppendList, list, [],
+        """List of manifest files defining browser chrome tests.
+        """),
+
+    'MOCHITEST_MANIFESTS': (StrictOrderingOnAppendList, list, [],
+        """List of manifest files defining mochitest tests.
+        """),
+
+    'MOCHITEST_CHROME_MANIFESTS': (StrictOrderingOnAppendList, list, [],
+        """List of manifest files defining mochitest chrome tests.
+        """),
+
+    'WEBRTC_SIGNALLING_TEST_MANIFESTS': (StrictOrderingOnAppendList, list, [],
+        """List of manifest files defining WebRTC signalling tests.
+        """),
+
+    'XPCSHELL_TESTS_MANIFESTS': (StrictOrderingOnAppendList, list, [],
+        """List of manifest files defining xpcshell tests.
         """),
 }
 

@@ -361,8 +361,8 @@ IDBTransaction::GetOrCreateConnection(mozIStorageConnection** aResult)
 
   if (!mConnection) {
     nsCOMPtr<mozIStorageConnection> connection =
-      IDBFactory::GetConnection(mDatabase->FilePath(),
-                                mDatabase->Origin());
+      IDBFactory::GetConnection(mDatabase->FilePath(), mDatabase->Type(),
+                                mDatabase->Group(), mDatabase->Origin());
     NS_ENSURE_TRUE(connection, NS_ERROR_FAILURE);
 
     nsresult rv;
@@ -618,8 +618,6 @@ NS_INTERFACE_MAP_END_INHERITING(IDBWrapperCache)
 
 NS_IMPL_ADDREF_INHERITED(IDBTransaction, IDBWrapperCache)
 NS_IMPL_RELEASE_INHERITED(IDBTransaction, IDBWrapperCache)
-
-DOMCI_DATA(IDBTransaction, IDBTransaction)
 
 JSObject*
 IDBTransaction::WrapObject(JSContext* aCx, JS::Handle<JSObject*> aScope)

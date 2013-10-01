@@ -19,6 +19,7 @@
 #include "mozilla/StaticPtr.h"
 #include "nsIAudioManager.h"
 #include "nsIObserverService.h"
+#include "MainThreadUtils.h"
 
 
 using namespace mozilla;
@@ -299,7 +300,6 @@ BluetoothA2dpManager::HandleSinkPropertyChanged(const BluetoothSignal& aSignal)
       mA2dpConnected = true;
       mDeviceAddress = address;
       NotifyConnectionStatusChanged();
-      DispatchConnectionStatusChanged();
 
       OnConnect(EmptyString());
       break;
@@ -319,7 +319,6 @@ BluetoothA2dpManager::HandleSinkPropertyChanged(const BluetoothSignal& aSignal)
   
       mA2dpConnected = false;
       NotifyConnectionStatusChanged();
-      DispatchConnectionStatusChanged();
       mDeviceAddress.Truncate();
 
       // case 7 only
@@ -327,16 +326,9 @@ BluetoothA2dpManager::HandleSinkPropertyChanged(const BluetoothSignal& aSignal)
         OnDisconnect(EmptyString());
       }
       break;
+    default:
+      break;
   }
-}
-
-void
-BluetoothA2dpManager::DispatchConnectionStatusChanged()
-{
-  MOZ_ASSERT(NS_IsMainThread());
-
-  DispatchStatusChangedEvent(
-    NS_LITERAL_STRING(A2DP_STATUS_CHANGED_ID), mDeviceAddress, mA2dpConnected);
 }
 
 void
@@ -344,32 +336,19 @@ BluetoothA2dpManager::NotifyConnectionStatusChanged()
 {
   MOZ_ASSERT(NS_IsMainThread());
 
-  // Broadcast system message to Gaia
-  NS_NAMED_LITERAL_STRING(type, BLUETOOTH_A2DP_STATUS_CHANGED_ID);
-  InfallibleTArray<BluetoothNamedValue> parameters;
-
-  BluetoothValue v = mA2dpConnected;
-  parameters.AppendElement(
-    BluetoothNamedValue(NS_LITERAL_STRING("connected"), v));
-
-  v = mDeviceAddress;
-  parameters.AppendElement(
-    BluetoothNamedValue(NS_LITERAL_STRING("address"), v));
-
-  if (!BroadcastSystemMessage(type, parameters)) {
-    NS_WARNING("Failed to broadcast system message to settings");
-  }
-
   // Notify Gecko observers
-  nsCOMPtr<nsIObserverService> obs =
-    do_GetService("@mozilla.org/observer-service;1");
+  nsCOMPtr<nsIObserverService> obs = services::GetObserverService();
   NS_ENSURE_TRUE_VOID(obs);
 
   if (NS_FAILED(obs->NotifyObservers(this,
                                      BLUETOOTH_A2DP_STATUS_CHANGED_ID,
                                      mDeviceAddress.get()))) {
-    NS_WARNING("Failed to notify bluetooth-a2dp-status-changed observsers!");
+    BT_WARNING("Failed to notify bluetooth-a2dp-status-changed observsers!");
   }
+
+  // Dispatch an event of status change
+  DispatchStatusChangedEvent(
+    NS_LITERAL_STRING(A2DP_STATUS_CHANGED_ID), mDeviceAddress, mA2dpConnected);
 }
 
 void

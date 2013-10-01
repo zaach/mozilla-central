@@ -12,9 +12,7 @@
 #include "nsStyleSet.h"
 #include "nsCSSRules.h"
 #include "nsStyleAnimation.h"
-#include "nsSMILKeySpline.h"
 #include "nsEventDispatcher.h"
-#include "nsCSSFrameConstructor.h"
 #include "nsLayoutUtils.h"
 #include <math.h>
 
@@ -981,7 +979,8 @@ nsAnimationManager::GetAnimationRule(mozilla::dom::Element* aElement,
     return nullptr;
   }
 
-  NS_WARN_IF_FALSE(ea->mStyleRuleRefreshTime ==
+  NS_WARN_IF_FALSE(!ea->mNeedsRefreshes ||
+                   ea->mStyleRuleRefreshTime ==
                      mPresContext->RefreshDriver()->MostRecentRefresh(),
                    "should already have refreshed style rule");
 

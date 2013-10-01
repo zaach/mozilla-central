@@ -5,6 +5,8 @@
 
 /* struct containing the input to nsIFrame::Reflow */
 
+#include "nsHTMLReflowState.h"
+
 #include "nsStyleConsts.h"
 #include "nsCSSAnonBoxes.h"
 #include "nsFrame.h"
@@ -49,7 +51,7 @@ static eNormalLineHeightControl sNormalLineHeightControl = eUninitialized;
 // use for measuring things.
 nsHTMLReflowState::nsHTMLReflowState(nsPresContext*       aPresContext,
                                      nsIFrame*            aFrame,
-                                     nsRenderingContext* aRenderingContext,
+                                     nsRenderingContext*  aRenderingContext,
                                      const nsSize&        aAvailableSpace,
                                      uint32_t             aFlags)
   : nsCSSOffsetState(aFrame, aRenderingContext)
@@ -72,7 +74,9 @@ nsHTMLReflowState::nsHTMLReflowState(nsPresContext*       aPresContext,
     mFlags.mDummyParentReflowState = true;
   }
 
-  Init(aPresContext);
+  if (!(aFlags & CALLER_WILL_INIT)) {
+    Init(aPresContext);
+  }
 }
 
 static bool CheckNextInFlowParenthood(nsIFrame* aFrame, nsIFrame* aParent)
@@ -121,6 +125,7 @@ FontSizeInflationListMarginAdjustment(const nsIFrame* aFrame)
 
   return 0;
 }
+
 // Initialize a reflow state for a child frame's reflow. Some state
 // is copied from the parent reflow state; the remaining state is
 // computed.
@@ -130,7 +135,7 @@ nsHTMLReflowState::nsHTMLReflowState(nsPresContext*           aPresContext,
                                      const nsSize&            aAvailableSpace,
                                      nscoord                  aContainingBlockWidth,
                                      nscoord                  aContainingBlockHeight,
-                                     bool                     aInit)
+                                     uint32_t                 aFlags)
   : nsCSSOffsetState(aFrame, aParentReflowState.rendContext)
   , mBlockDelta(0)
   , mReflowDepth(aParentReflowState.mReflowDepth + 1)
@@ -175,11 +180,15 @@ nsHTMLReflowState::nsHTMLReflowState(nsPresContext*           aPresContext,
   mFlags.mDummyParentReflowState = false;
 
   mDiscoveredClearance = nullptr;
-  mPercentHeightObserver = (aParentReflowState.mPercentHeightObserver && 
-                            aParentReflowState.mPercentHeightObserver->NeedsToObserve(*this)) 
+  mPercentHeightObserver = (aParentReflowState.mPercentHeightObserver &&
+                            aParentReflowState.mPercentHeightObserver->NeedsToObserve(*this))
                            ? aParentReflowState.mPercentHeightObserver : nullptr;
 
-  if (aInit) {
+  if (aFlags & DUMMY_PARENT_REFLOW_STATE) {
+    mFlags.mDummyParentReflowState = true;
+  }
+
+  if (!(aFlags & CALLER_WILL_INIT)) {
     Init(aPresContext, aContainingBlockWidth, aContainingBlockHeight);
   }
 }
@@ -520,7 +529,7 @@ nsHTMLReflowState::InitResizeFlags(nsPresContext* aPresContext, nsIAtom* aFrameT
   // at least nsBoxFrame).
   if (IS_TABLE_CELL(aFrameType) &&
       (mFlags.mSpecialHeightReflow ||
-       (frame->GetFirstInFlow()->GetStateBits() &
+       (frame->FirstInFlow()->GetStateBits() &
          NS_TABLE_CELL_HAD_SPECIAL_REFLOW)) &&
       (frame->GetStateBits() & NS_FRAME_CONTAINS_RELATIVE_HEIGHT)) {
     // Need to set the bit on the cell so that
@@ -824,6 +833,17 @@ nsHTMLReflowState::ComputeRelativeOffsets(uint8_t aCBDirection,
     // Computed value for 'bottom' is minus the value of 'top'
     aComputedOffsets.bottom = -aComputedOffsets.top;
   }
+
+  // Store the offset
+  FrameProperties props = aFrame->Properties();
+  nsMargin* offsets = static_cast<nsMargin*>
+    (props.Get(nsIFrame::ComputedOffsetProperty()));
+  if (offsets) {
+    *offsets = aComputedOffsets;
+  } else {
+    props.Set(nsIFrame::ComputedOffsetProperty(),
+              new nsMargin(aComputedOffsets));
+  }
 }
 
 /* static */ void
@@ -831,6 +851,15 @@ nsHTMLReflowState::ApplyRelativePositioning(nsIFrame* aFrame,
                                             const nsMargin& aComputedOffsets,
                                             nsPoint* aPosition)
 {
+  if (!aFrame->IsRelativelyPositioned()) {
+    NS_ASSERTION(!aFrame->Properties().Get(nsIFrame::NormalPositionProperty()),
+                 "We assume that changing the 'position' property causes "
+                 "frame reconstruction.  If that ever changes, this code "
+                 "should call "
+                 "props.Delete(nsIFrame::NormalPositionProperty())");
+    return;
+  }
+
   // Store the normal position
   FrameProperties props = aFrame->Properties();
   nsPoint* normalPosition = static_cast<nsPoint*>
@@ -844,9 +873,21 @@ nsHTMLReflowState::ApplyRelativePositioning(nsIFrame* aFrame,
   const nsStyleDisplay* display = aFrame->StyleDisplay();
   if (NS_STYLE_POSITION_RELATIVE == display->mPosition) {
     *aPosition += nsPoint(aComputedOffsets.left, aComputedOffsets.top);
-  } else if (NS_STYLE_POSITION_STICKY == display->mPosition) {
-    *aPosition = StickyScrollContainer::StickyScrollContainerForFrame(aFrame)->
-      ComputePosition(aFrame);
+  } else if (NS_STYLE_POSITION_STICKY == display->mPosition &&
+             !aFrame->GetNextContinuation() &&
+             !aFrame->GetPrevContinuation() &&
+             !(aFrame->GetStateBits() & NS_FRAME_IS_SPECIAL)) {
+    // Sticky positioning for elements with multiple frames needs to be
+    // computed all at once. We can't safely do that here because we might be
+    // partway through (re)positioning the frames, so leave it until the scroll
+    // container reflows and calls StickyScrollContainer::UpdatePositions.
+    // For single-frame sticky positioned elements, though, go ahead and apply
+    // it now to avoid unnecessary overflow updates later.
+    StickyScrollContainer* ssc =
+      StickyScrollContainer::GetStickyScrollContainerForFrame(aFrame);
+    if (ssc) {
+      *aPosition = ssc->ComputePosition(aFrame);
+    }
   }
 }
 
@@ -1838,7 +1879,7 @@ nsHTMLReflowState::InitConstraints(nsPresContext* aPresContext,
 
   // If this is a reflow root, then set the computed width and
   // height equal to the available space
-  if (nullptr == parentReflowState) {
+  if (nullptr == parentReflowState || mFlags.mDummyParentReflowState) {
     // XXXldb This doesn't mean what it used to!
     InitOffsets(aContainingBlockWidth,
                 VerticalOffsetPercentBasis(frame, aContainingBlockWidth,

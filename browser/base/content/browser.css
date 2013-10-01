@@ -259,7 +259,7 @@ panel[noactions] > richlistbox > richlistitem[type~="action"] > .ac-url-box > .a
 
 #wrapper-urlbar-container > #urlbar-container > #urlbar {
   -moz-user-input: disabled;
-  cursor: -moz-grab;
+  cursor: grab;
 }
 
 #PopupAutoComplete {
@@ -544,7 +544,6 @@ statuspanel {
   -moz-binding: url("chrome://browser/content/tabbrowser.xml#statuspanel");
   position: fixed;
   margin-top: -3em;
-  left: 0;
   max-width: calc(100% - 5px);
   pointer-events: none;
 }

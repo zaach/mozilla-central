@@ -3,12 +3,9 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "base/basictypes.h"
 #include "CanvasRenderingContext2D.h"
 
 #include "nsXULElement.h"
-
-#include "prenv.h"
 
 #include "nsIServiceManager.h"
 #include "nsMathUtils.h"
@@ -20,12 +17,10 @@
 #include "nsSVGEffects.h"
 #include "nsPresContext.h"
 #include "nsIPresShell.h"
-#include "nsIVariant.h"
 
 #include "nsIInterfaceRequestorUtils.h"
 #include "nsIFrame.h"
 #include "nsError.h"
-#include "nsIScriptError.h"
 
 #include "nsCSSParser.h"
 #include "mozilla/css/StyleRule.h"
@@ -39,11 +34,9 @@
 
 #include "nsColor.h"
 #include "nsGfxCIID.h"
-#include "nsIScriptSecurityManager.h"
 #include "nsIDocShell.h"
 #include "nsIDOMWindow.h"
 #include "nsPIDOMWindow.h"
-#include "nsIXPConnect.h"
 #include "nsDisplayList.h"
 
 #include "nsTArray.h"
@@ -90,9 +83,6 @@
 #include "mozilla/unused.h"
 #include "nsCCUncollectableMarker.h"
 #include "nsWrapperCacheInlines.h"
-#include "nsJSUtils.h"
-#include "XPCQuickStubs.h"
-#include "mozilla/dom/BindingUtils.h"
 #include "mozilla/dom/CanvasRenderingContext2DBinding.h"
 #include "mozilla/dom/HTMLImageElement.h"
 #include "mozilla/dom/HTMLVideoElement.h"
@@ -143,11 +133,11 @@ static int64_t gCanvasAzureMemoryUsed = 0;
 // This is KIND_OTHER because it's not always clear where in memory the pixels
 // of a canvas are stored.  Furthermore, this memory will be tracked by the
 // underlying surface implementations.  See bug 655638 for details.
-class Canvas2dPixelsReporter MOZ_FINAL : public MemoryReporterBase
+class Canvas2dPixelsReporter MOZ_FINAL : public MemoryUniReporter
 {
   public:
     Canvas2dPixelsReporter()
-      : MemoryReporterBase("canvas-2d-pixels", KIND_OTHER, UNITS_BYTES,
+      : MemoryUniReporter("canvas-2d-pixels", KIND_OTHER, UNITS_BYTES,
 "Memory used by 2D canvases. Each canvas requires (width * height * 4) bytes.")
     {}
 private:
@@ -648,7 +638,7 @@ CanvasRenderingContext2D::SetStyleFromString(const nsAString& str,
 }
 
 void
-CanvasRenderingContext2D::GetStyleAsUnion(StringOrCanvasGradientOrCanvasPatternReturnValue& aValue,
+CanvasRenderingContext2D::GetStyleAsUnion(OwningStringOrCanvasGradientOrCanvasPattern& aValue,
                                           Style aWhichStyle)
 {
   const ContextState &state = CurrentState();
@@ -1088,7 +1078,7 @@ CanvasRenderingContext2D::GetInputStream(const char *aMimeType,
     new gfxImageSurface(imageBuffer.get(),
                         gfxIntSize(mWidth, mHeight),
                         mWidth * 4,
-                        gfxASurface::ImageFormatARGB32);
+                        gfxImageFormatARGB32);
 
   if (!imgsurf || imgsurf->CairoStatus()) {
     return NS_ERROR_FAILURE;
@@ -3268,7 +3258,7 @@ CanvasRenderingContext2D::DrawWindow(nsIDOMWindow* window, double x,
   } else {
     drawSurf =
       gfxPlatform::GetPlatform()->CreateOffscreenSurface(gfxIntSize(ceil(sw), ceil(sh)),
-                                                         gfxASurface::CONTENT_COLOR_ALPHA);
+                                                         GFX_CONTENT_COLOR_ALPHA);
     if (!drawSurf) {
       error.Throw(NS_ERROR_FAILURE);
       return;
@@ -3688,7 +3678,7 @@ CanvasRenderingContext2D::PutImageData_explicit(int32_t x, int32_t y, uint32_t w
   }
 
   nsRefPtr<gfxImageSurface> imgsurf = new gfxImageSurface(gfxIntSize(w, h),
-                                                          gfxASurface::ImageFormatARGB32,
+                                                          gfxImageFormatARGB32,
                                                           false);
   if (!imgsurf || imgsurf->CairoStatus()) {
     return NS_ERROR_FAILURE;

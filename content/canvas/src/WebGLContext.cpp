@@ -10,7 +10,7 @@
 #include "WebGLContextUtils.h"
 #include "WebGLBuffer.h"
 #include "WebGLVertexAttribData.h"
-#include "WebGLMemoryMultiReporterWrapper.h"
+#include "WebGLMemoryReporterWrapper.h"
 #include "WebGLFramebuffer.h"
 #include "WebGLVertexArray.h"
 #include "WebGLQuery.h"
@@ -179,7 +179,7 @@ WebGLContext::WebGLContext()
     mPixelStorePackAlignment = 4;
     mPixelStoreUnpackAlignment = 4;
 
-    WebGLMemoryMultiReporterWrapper::AddWebGLContext(this);
+    WebGLMemoryReporterWrapper::AddWebGLContext(this);
 
     mAllowRestore = true;
     mContextLossTimerRunning = false;
@@ -213,7 +213,7 @@ WebGLContext::WebGLContext()
 WebGLContext::~WebGLContext()
 {
     DestroyResourcesAndContext();
-    WebGLMemoryMultiReporterWrapper::RemoveWebGLContext(this);
+    WebGLMemoryReporterWrapper::RemoveWebGLContext(this);
     TerminateContextLossTimer();
     mContextRestorer = nullptr;
 }
@@ -601,7 +601,7 @@ WebGLContext::Render(gfxContext *ctx, gfxPattern::GraphicsFilter f, uint32_t aFl
         return NS_OK;
 
     nsRefPtr<gfxImageSurface> surf = new gfxImageSurface(gfxIntSize(mWidth, mHeight),
-                                                         gfxASurface::ImageFormatARGB32);
+                                                         gfxImageFormatARGB32);
     if (surf->CairoStatus() != 0)
         return NS_ERROR_FAILURE;
 
@@ -653,8 +653,8 @@ void WebGLContext::LoseOldestWebGLContextIfLimitExceeded()
     // when choosing which one to lose first.
     UpdateLastUseIndex();
 
-    WebGLMemoryMultiReporterWrapper::ContextsArrayType &contexts
-      = WebGLMemoryMultiReporterWrapper::Contexts();
+    WebGLMemoryReporterWrapper::ContextsArrayType &contexts
+      = WebGLMemoryReporterWrapper::Contexts();
 
     // quick exit path, should cover a majority of cases
     if (contexts.Length() <= kMaxWebGLContextsPerPrincipal) {
@@ -731,7 +731,7 @@ WebGLContext::GetInputStream(const char* aMimeType,
         return NS_ERROR_FAILURE;
 
     nsRefPtr<gfxImageSurface> surf = new gfxImageSurface(gfxIntSize(mWidth, mHeight),
-                                                         gfxASurface::ImageFormatARGB32);
+                                                         gfxImageFormatARGB32);
     if (surf->CairoStatus() != 0)
         return NS_ERROR_FAILURE;
 

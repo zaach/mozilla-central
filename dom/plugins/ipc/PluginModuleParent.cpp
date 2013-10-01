@@ -16,7 +16,7 @@
 #include "base/process_util.h"
 #include "mozilla/Attributes.h"
 #include "mozilla/dom/PCrashReporterParent.h"
-#include "mozilla/ipc/SyncChannel.h"
+#include "mozilla/ipc/MessageChannel.h"
 #include "mozilla/plugins/BrowserStreamParent.h"
 #include "mozilla/plugins/PluginInstanceParent.h"
 #include "mozilla/Preferences.h"
@@ -30,6 +30,7 @@
 #include "nsPrintfCString.h"
 #include "PluginIdentifierParent.h"
 #include "prsystem.h"
+#include "GeckoProfiler.h"
 
 #ifdef XP_WIN
 #include "PluginHangUIParent.h"
@@ -50,7 +51,7 @@
 using base::KillProcess;
 
 using mozilla::PluginLibrary;
-using mozilla::ipc::SyncChannel;
+using mozilla::ipc::MessageChannel;
 using mozilla::dom::PCrashReporterParent;
 using mozilla::dom::CrashReporterParent;
 
@@ -247,7 +248,7 @@ void
 PluginModuleParent::SetChildTimeout(const int32_t aChildTimeout)
 {
     int32_t timeoutMs = (aChildTimeout > 0) ? (1000 * aChildTimeout) :
-                      SyncChannel::kNoTimeout;
+                      MessageChannel::kNoTimeout;
     SetReplyTimeoutMs(timeoutMs);
 }
 
@@ -493,19 +494,10 @@ PluginModuleParent::TerminateChildProcess(MessageLoop* aMsgLoop)
     // this must run before the error notification from the channel,
     // or not at all
     bool isFromHangUI = aMsgLoop != MessageLoop::current();
-    if (isFromHangUI) {
-        // If we're posting from a different thread we can't create
-        // the task via mTaskFactory
-        aMsgLoop->PostTask(FROM_HERE,
-                           NewRunnableMethod(this,
-                               &PluginModuleParent::CleanupFromTimeout,
-                               isFromHangUI));
-    } else {
-        aMsgLoop->PostTask(
-            FROM_HERE,
-            mTaskFactory.NewRunnableMethod(
-                &PluginModuleParent::CleanupFromTimeout, isFromHangUI));
-    }
+    aMsgLoop->PostTask(
+        FROM_HERE,
+        mTaskFactory.NewRunnableMethod(
+            &PluginModuleParent::CleanupFromTimeout, isFromHangUI));
 
     if (!KillProcess(OtherProcess(), 1, false))
         NS_WARNING("failed to kill subprocess!");

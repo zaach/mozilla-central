@@ -19,11 +19,11 @@
 
 #include "nsISupports.h"
 #include "nsISupportsImpl.h"
-#include "nsCycleCollectionHoldDrop.h"
 #include "nsCycleCollectionParticipant.h"
 #include "jswrapper.h"
 #include "mozilla/Assertions.h"
 #include "mozilla/ErrorResult.h"
+#include "mozilla/HoldDropJSObjects.h"
 #include "mozilla/Util.h"
 #include "nsContentUtils.h"
 #include "nsCxPusher.h"
@@ -104,6 +104,9 @@ private:
     mozilla::HoldJSObjects(this);
   }
 
+  CallbackObject(const CallbackObject&) MOZ_DELETE;
+  CallbackObject& operator =(const CallbackObject&) MOZ_DELETE;
+
 protected:
   void DropCallback()
   {
@@ -151,10 +154,6 @@ protected:
 
     // And now members whose construction/destruction order we need to control.
 
-    // Put our nsAutoMicrotask first, so it gets destroyed after everything else
-    // is gone
-    nsAutoMicroTask mMt;
-
     nsCxPusher mCxPusher;
 
     // Constructed the rooter within the scope of mCxPusher above, so that it's
@@ -172,6 +171,7 @@ protected:
     ErrorResult& mErrorResult;
     const ExceptionHandling mExceptionHandling;
     uint32_t mSavedJSContextOptions;
+    const bool mIsMainThread;
   };
 };
 

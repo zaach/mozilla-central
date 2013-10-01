@@ -38,8 +38,11 @@
 #include "mozilla/dom/HTMLTemplateElement.h"
 #include "mozilla/dom/TextDecoder.h"
 #include "mozilla/Likely.h"
+#include "mozilla/MouseEvents.h"
+#include "mozilla/MutationEvent.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/Selection.h"
+#include "mozilla/TextEvents.h"
 #include "mozilla/Util.h"
 #include "nsAString.h"
 #include "nsAttrName.h"
@@ -144,7 +147,6 @@
 #include "nsIXPConnect.h"
 #include "nsJSUtils.h"
 #include "nsLWBrkCIID.h"
-#include "nsMutationEvent.h"
 #include "nsNetCID.h"
 #include "nsNetUtil.h"
 #include "nsNodeInfoManager.h"
@@ -251,17 +253,16 @@ bool nsContentUtils::sDOMWindowDumpEnabled;
 
 namespace {
 
-static const char kJSStackContractID[] = "@mozilla.org/js/xpc/ContextStack;1";
 static NS_DEFINE_CID(kParserServiceCID, NS_PARSERSERVICE_CID);
 static NS_DEFINE_CID(kCParserCID, NS_PARSER_CID);
 
 static PLDHashTable sEventListenerManagersHash;
 
-class DOMEventListenerManagersHashReporter MOZ_FINAL : public MemoryReporterBase
+class DOMEventListenerManagersHashReporter MOZ_FINAL : public MemoryUniReporter
 {
 public:
   DOMEventListenerManagersHashReporter()
-    : MemoryReporterBase(
+    : MemoryUniReporter(
         "explicit/dom/event-listener-managers-hash",
         KIND_HEAP,
         UNITS_BYTES,
@@ -1766,6 +1767,7 @@ namespace mozilla {
 namespace dom {
 namespace workers {
 extern bool IsCurrentThreadRunningChromeWorker();
+extern JSContext* GetCurrentThreadJSContext();
 }
 }
 }
@@ -2217,13 +2219,6 @@ static inline void KeyAppendInt(int32_t aInt, nsACString& aKey)
   KeyAppendSep(aKey);
 
   aKey.Append(nsPrintfCString("%d", aInt));
-}
-
-static inline void KeyAppendAtom(nsIAtom* aAtom, nsACString& aKey)
-{
-  NS_PRECONDITION(aAtom, "KeyAppendAtom: aAtom can not be null!\n");
-
-  KeyAppendString(nsAtomCString(aAtom), aKey);
 }
 
 static inline bool IsAutocompleteOff(const nsIContent* aElement)
@@ -3019,6 +3014,24 @@ nsresult nsContentUtils::FormatLocalizedString(PropertiesFile aFile,
                                       getter_Copies(aResult));
 }
 
+/* static */ void
+nsContentUtils::LogSimpleConsoleError(const nsAString& aErrorText,
+                                      const char * classification)
+{
+  nsCOMPtr<nsIScriptError> scriptError =
+    do_CreateInstance(NS_SCRIPTERROR_CONTRACTID);
+  if (scriptError) {
+    nsCOMPtr<nsIConsoleService> console =
+      do_GetService(NS_CONSOLESERVICE_CONTRACTID);
+    if (console && NS_SUCCEEDED(scriptError->Init(aErrorText, EmptyString(),
+                                                  EmptyString(), 0, 0,
+                                                  nsIScriptError::errorFlag,
+                                                  classification))) {
+      console->LogMessage(scriptError);
+    }
+  }
+}
+
 /* static */ nsresult
 nsContentUtils::ReportToConsole(uint32_t aErrorFlags,
                                 const nsACString& aCategory,
@@ -3695,7 +3708,7 @@ nsContentUtils::MaybeFireNodeRemoved(nsINode* aChild, nsINode* aParent,
 
   if (HasMutationListeners(aChild,
         NS_EVENT_BITS_MUTATION_NODEREMOVED, aParent)) {
-    nsMutationEvent mutation(true, NS_MUTATION_NODEREMOVED);
+    InternalMutationEvent mutation(true, NS_MUTATION_NODEREMOVED);
     mutation.mRelatedNode = do_QueryInterface(aParent);
 
     mozAutoSubtreeModified subtree(aOwnerDoc, aParent);
@@ -5198,6 +5211,17 @@ nsContentUtils::GetSafeJSContext()
 }
 
 /* static */
+JSContext *
+nsContentUtils::GetDefaultJSContextForThread()
+{
+  if (MOZ_LIKELY(NS_IsMainThread())) {
+    return GetSafeJSContext();
+  } else {
+    return workers::GetCurrentThreadJSContext();
+  }
+}
+
+/* static */
 nsresult
 nsContentUtils::ASCIIToLower(nsAString& aStr)
 {
@@ -5910,6 +5934,27 @@ nsContentUtils::PlatformToDOMLineBreaks(nsString &aString)
   }
 }
 
+void
+nsContentUtils::PopulateStringFromStringBuffer(nsStringBuffer* aBuf,
+                                               nsAString& aResultString)
+{
+  MOZ_ASSERT(aBuf, "Expecting a non-null string buffer");
+
+  uint32_t stringLen = NS_strlen(static_cast<PRUnichar*>(aBuf->Data()));
+
+  // SANITY CHECK: In case the nsStringBuffer isn't correctly
+  // null-terminated, let's clamp its length using the allocated size, to be
+  // sure the resulting string doesn't sample past the end of the the buffer.
+  // (Note that StorageSize() is in units of bytes, so we have to convert that
+  // to units of PRUnichars, and subtract 1 for the null-terminator.)
+  uint32_t allocStringLen = (aBuf->StorageSize() / sizeof(PRUnichar)) - 1;
+  MOZ_ASSERT(stringLen <= allocStringLen,
+             "string buffer lacks null terminator!");
+  stringLen = std::min(stringLen, allocStringLen);
+
+  aBuf->ToString(stringLen, aResultString);
+}
+
 nsIPresShell*
 nsContentUtils::FindPresShellForDocument(const nsIDocument* aDoc)
 {
@@ -6092,9 +6137,9 @@ nsContentUtils::IsPatternMatching(nsAString& aValue, nsAString& aPattern,
   aPattern.Insert(NS_LITERAL_STRING("^(?:"), 0);
   aPattern.Append(NS_LITERAL_STRING(")$"));
 
-  JSObject* re = JS_NewUCRegExpObjectNoStatics(cx, static_cast<jschar*>
-                                                 (aPattern.BeginWriting()),
-                                               aPattern.Length(), 0);
+  JS::RootedObject re(cx, JS_NewUCRegExpObjectNoStatics(cx, static_cast<jschar*>
+                                                        (aPattern.BeginWriting()),
+                                                        aPattern.Length(), 0));
   if (!re) {
     JS_ClearPendingException(cx);
     return true;
@@ -6104,7 +6149,7 @@ nsContentUtils::IsPatternMatching(nsAString& aValue, nsAString& aPattern,
   size_t idx = 0;
   if (!JS_ExecuteRegExpNoStatics(cx, re,
                                  static_cast<jschar*>(aValue.BeginWriting()),
-                                 aValue.Length(), &idx, true, rval.address())) {
+                                 aValue.Length(), &idx, true, &rval)) {
     JS_ClearPendingException(cx);
     return true;
   }

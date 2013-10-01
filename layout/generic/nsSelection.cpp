@@ -21,7 +21,6 @@
 #include "nsIDOMNode.h"
 #include "nsRange.h"
 #include "nsCOMArray.h"
-#include "nsGUIEvent.h"
 #include "nsIDOMKeyEvent.h"
 #include "nsITableCellLayout.h"
 #include "nsTArray.h"
@@ -55,6 +54,8 @@ static NS_DEFINE_CID(kFrameTraversalCID, NS_FRAMETRAVERSAL_CID);
 #include "nsIPresShell.h"
 #include "nsCaret.h"
 
+#include "mozilla/MouseEvents.h"
+#include "mozilla/TextEvents.h"
 
 #include "nsITimer.h"
 #include "nsFrameManager.h"
@@ -77,8 +78,6 @@ static NS_DEFINE_CID(kFrameTraversalCID, NS_FRAMETRAVERSAL_CID);
 using namespace mozilla;
 
 //#define DEBUG_TABLE 1
-
-static NS_DEFINE_IID(kCContentIteratorCID, NS_CONTENTITERATOR_CID);
 
 static bool IsValidSelectionPoint(nsFrameSelection *aFrameSel, nsINode *aNode);
 
@@ -1516,7 +1515,7 @@ printf(" * TakeFocus - moving into new cell\n");
 
         // XXXX We need to REALLY get the current key shift state
         //  (we'd need to add event listener -- let's not bother for now)
-        event.modifiers &= ~widget::MODIFIER_SHIFT; //aContinueSelection;
+        event.modifiers &= ~MODIFIER_SHIFT; //aContinueSelection;
         if (parent)
         {
           mCellParent = cellparent;
@@ -4384,7 +4383,7 @@ Selection::Collapse(nsINode* aParentNode, int32_t aOffset)
   nsresult result;
 
   nsRefPtr<nsPresContext> presContext = GetPresContext();
-  if (presContext->Document() != aParentNode->OwnerDoc())
+  if (!presContext || presContext->Document() != aParentNode->OwnerDoc())
     return NS_ERROR_FAILURE;
 
   // Delete all of the current ranges
@@ -4625,7 +4624,7 @@ Selection::Extend(nsINode* aParentNode, int32_t aOffset)
     return NS_ERROR_FAILURE;
 
   nsRefPtr<nsPresContext> presContext = GetPresContext();
-  if (presContext->Document() != aParentNode->OwnerDoc())
+  if (!presContext || presContext->Document() != aParentNode->OwnerDoc())
     return NS_ERROR_FAILURE;
 
   //mFrameSelection->InvalidateDesiredX();

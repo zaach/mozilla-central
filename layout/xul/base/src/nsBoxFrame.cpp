@@ -67,6 +67,8 @@
 // Needed for Print Preview
 #include "nsIURI.h"
 
+#include "mozilla/TouchEvents.h"
+
 using namespace mozilla;
 using namespace mozilla::dom;
 
@@ -1237,6 +1239,13 @@ nsBoxFrame::AttributeChanged(int32_t aNameSpaceID,
   else if (aAttribute == nsGkAtoms::accesskey) {
     RegUnregAccessKey(true);
   }
+  else if (aAttribute == nsGkAtoms::rows &&
+           tag == nsGkAtoms::tree) {
+    // Reflow ourselves and all our children if "rows" changes, since
+    // nsTreeBodyFrame's layout reads this from its parent (this frame).
+    PresContext()->PresShell()->
+      FrameNeedsReflow(this, nsIPresShell::eStyleChange, NS_FRAME_IS_DIRTY);
+  }
 
   return rv;
 }
@@ -2071,7 +2080,7 @@ nsBoxFrame::GetEventPoint(nsGUIEvent* aEvent, nsIntPoint &aPoint) {
   NS_ENSURE_TRUE(aEvent, false);
 
   if (aEvent->eventStructType == NS_TOUCH_EVENT) {
-    nsTouchEvent* touchEvent = static_cast<nsTouchEvent*>(aEvent);
+    WidgetTouchEvent* touchEvent = static_cast<WidgetTouchEvent*>(aEvent);
     // return false if there is more than one touch on the page, or if
     // we can't find a touch point
     if (touchEvent->touches.Length() != 1) {

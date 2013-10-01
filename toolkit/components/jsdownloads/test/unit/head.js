@@ -364,24 +364,24 @@ function promiseStartLegacyDownload(aSourceUrl, aOptions) {
 
   let deferred = Promise.defer();
 
-  let isPrivate = aOptions && aOptions.isPrivate;
-  let promise = isPrivate ? Downloads.getPrivateDownloadList()
-                          : Downloads.getPublicDownloadList();
-  promise.then(function (aList) {
+  Downloads.getList(Downloads.ALL).then(function (aList) {
     // Temporarily register a view that will get notified when the download we
     // are controlling becomes visible in the list of downloads.
     aList.addView({
       onDownloadAdded: function (aDownload) {
-        aList.removeView(this);
+        aList.removeView(this).then(null, do_report_unexpected_exception);
 
         // Remove the download to keep the list empty for the next test.  This
         // also allows the caller to register the "onchange" event directly.
-        aList.remove(aDownload);
+        let promise = aList.remove(aDownload);
 
         // When the download object is ready, make it available to the caller.
-        deferred.resolve(aDownload);
+        promise.then(() => deferred.resolve(aDownload),
+                     do_report_unexpected_exception);
       },
-    });
+    }).then(null, do_report_unexpected_exception);
+
+    let isPrivate = aOptions && aOptions.isPrivate;
 
     // Initialize the components so they reference each other.  This will cause
     // the Download object to be created and added to the public downloads.
@@ -417,21 +417,22 @@ function promiseStartExternalHelperAppServiceDownload(aSourceUrl) {
 
   let deferred = Promise.defer();
 
-  Downloads.getPublicDownloadList().then(function (aList) {
+  Downloads.getList(Downloads.PUBLIC).then(function (aList) {
     // Temporarily register a view that will get notified when the download we
     // are controlling becomes visible in the list of downloads.
     aList.addView({
       onDownloadAdded: function (aDownload) {
-        aList.removeView(this);
+        aList.removeView(this).then(null, do_report_unexpected_exception);
 
         // Remove the download to keep the list empty for the next test.  This
         // also allows the caller to register the "onchange" event directly.
-        aList.remove(aDownload);
+        let promise = aList.remove(aDownload);
 
         // When the download object is ready, make it available to the caller.
-        deferred.resolve(aDownload);
+        promise.then(() => deferred.resolve(aDownload),
+                     do_report_unexpected_exception);
       },
-    });
+    }).then(null, do_report_unexpected_exception);
 
     let channel = NetUtil.newChannel(sourceURI);
 
@@ -465,29 +466,79 @@ function promiseStartExternalHelperAppServiceDownload(aSourceUrl) {
 }
 
 /**
- * Returns a new public DownloadList object.
+ * Waits for a download to reach half of its progress, in case it has not
+ * reached the expected progress already.
+ *
+ * @param aDownload
+ *        The Download object to wait upon.
  *
  * @return {Promise}
- * @resolves The newly created DownloadList object.
- * @rejects JavaScript exception.
+ * @resolves When the download has reached half of its progress.
+ * @rejects Never.
  */
-function promiseNewDownloadList() {
-  // Force the creation of a new public download list.
-  Downloads._promisePublicDownloadList = null;
-  return Downloads.getPublicDownloadList();
+function promiseDownloadMidway(aDownload) {
+  let deferred = Promise.defer();
+
+  // Wait for the download to reach half of its progress.
+  let onchange = function () {
+    if (!aDownload.stopped && !aDownload.canceled && aDownload.progress == 50) {
+      aDownload.onchange = null;
+      deferred.resolve();
+    }
+  };
+
+  // Register for the notification, but also call the function directly in
+  // case the download already reached the expected progress.
+  aDownload.onchange = onchange;
+  onchange();
+
+  return deferred.promise;
 }
 
 /**
- * Returns a new private DownloadList object.
+ * Waits for a download to finish, in case it has not finished already.
+ *
+ * @param aDownload
+ *        The Download object to wait upon.
+ *
+ * @return {Promise}
+ * @resolves When the download has finished successfully.
+ * @rejects JavaScript exception if the download failed.
+ */
+function promiseDownloadStopped(aDownload) {
+  if (!aDownload.stopped) {
+    // The download is in progress, wait for the current attempt to finish and
+    // report any errors that may occur.
+    return aDownload.start();
+  }
+
+  if (aDownload.succeeded) {
+    return Promise.resolve();
+  }
+
+  // The download failed or was canceled.
+  return Promise.reject(aDownload.error || new Error("Download canceled."));
+}
+
+/**
+ * Returns a new public or private DownloadList object.
+ *
+ * @param aIsPrivate
+ *        True for the private list, false or undefined for the public list.
  *
  * @return {Promise}
  * @resolves The newly created DownloadList object.
  * @rejects JavaScript exception.
  */
-function promiseNewPrivateDownloadList() {
-  // Force the creation of a new public download list.
-  Downloads._promisePrivateDownloadList = null;
-  return Downloads.getPrivateDownloadList();
+function promiseNewList(aIsPrivate)
+{
+  // We need to clear all the internal state for the list and summary objects,
+  // since all the objects are interdependent internally.
+  Downloads._promiseListsInitialized = null;
+  Downloads._lists = {};
+  Downloads._summaries = {};
+
+  return Downloads.getList(aIsPrivate ? Downloads.PRIVATE : Downloads.PUBLIC);
 }
 
 /**
@@ -720,6 +771,13 @@ add_task(function test_common_initialize()
       let bos =  new BinaryOutputStream(aResponse.bodyOutputStream);
       bos.writeByteArray(TEST_DATA_SHORT_GZIP_ENCODED_SECOND,
                          TEST_DATA_SHORT_GZIP_ENCODED_SECOND.length);
+    });
+
+  // This URL will emulate being blocked by Windows Parental controls
+  gHttpServer.registerPathHandler("/parentalblocked.zip",
+    function (aRequest, aResponse) {
+      aResponse.setStatusLine(aRequest.httpVersion, 450,
+                              "Blocked by Windows Parental Controls");
     });
 
   // Disable integration with the host application requiring profile access.

@@ -7,25 +7,20 @@
 #ifndef mozilla_tabs_TabParent_h
 #define mozilla_tabs_TabParent_h
 
-#include "base/basictypes.h"
-
-#include "mozilla/dom/ContentParent.h"
 #include "mozilla/dom/PBrowserParent.h"
 #include "mozilla/dom/PContentDialogParent.h"
 #include "mozilla/dom/TabContext.h"
-#include "mozilla/ipc/GeckoChildProcessHost.h"
+#include "mozilla/TouchEvents.h"
 #include "nsCOMPtr.h"
 #include "nsIAuthPromptProvider.h"
 #include "nsIBrowserDOMWindow.h"
 #include "nsIDialogParamBlock.h"
 #include "nsISecureBrowserUI.h"
 #include "nsITabParent.h"
-#include "nsWeakReference.h"
 #include "Units.h"
 #include "js/TypeDecls.h"
 
 struct gfxMatrix;
-class mozIApplication;
 class nsFrameLoader;
 class nsIURI;
 class CpowHolder;
@@ -44,6 +39,7 @@ class RenderFrameParent;
 namespace dom {
 
 class ClonedMessageData;
+class ContentParent;
 class Element;
 struct StructuredCloneData;
 
@@ -149,6 +145,7 @@ public:
                                      const nsString& aActionHint,
                                      const int32_t& aCause,
                                      const int32_t& aFocusChange);
+    virtual bool RecvRequestFocus(const bool& aCanRaise);
     virtual bool RecvSetCursor(const uint32_t& aValue);
     virtual bool RecvSetBackgroundColor(const nscolor& aValue);
     virtual bool RecvSetStatus(const uint32_t& aType, const nsString& aStatus);
@@ -197,9 +194,9 @@ public:
                       int32_t aCharCode, int32_t aModifiers,
                       bool aPreventDefault);
     bool SendRealMouseEvent(nsMouseEvent& event);
-    bool SendMouseWheelEvent(mozilla::widget::WheelEvent& event);
+    bool SendMouseWheelEvent(mozilla::WheelEvent& event);
     bool SendRealKeyEvent(nsKeyEvent& event);
-    bool SendRealTouchEvent(nsTouchEvent& event);
+    bool SendRealTouchEvent(WidgetTouchEvent& event);
 
     virtual PDocumentRendererParent*
     AllocPDocumentRendererParent(const nsRect& documentRect, const gfxMatrix& transform,
@@ -248,13 +245,16 @@ protected:
 
     virtual void ActorDestroy(ActorDestroyReason why) MOZ_OVERRIDE;
 
-    virtual PIndexedDBParent* AllocPIndexedDBParent(const nsCString& aASCIIOrigin,
-                                                    bool* /* aAllowed */);
+    virtual PIndexedDBParent* AllocPIndexedDBParent(
+                                                  const nsCString& aGroup,
+                                                  const nsCString& aASCIIOrigin,
+                                                  bool* /* aAllowed */);
 
     virtual bool DeallocPIndexedDBParent(PIndexedDBParent* aActor);
 
     virtual bool
     RecvPIndexedDBConstructor(PIndexedDBParent* aActor,
+                              const nsCString& aGroup,
                               const nsCString& aASCIIOrigin,
                               bool* aAllowed);
 
@@ -306,7 +306,7 @@ protected:
     nsIntSize mDimensions;
     ScreenOrientation mOrientation;
     float mDPI;
-    double mDefaultScale;
+    CSSToLayoutDeviceScale mDefaultScale;
     bool mShown;
     bool mUpdatedDimensions;
 

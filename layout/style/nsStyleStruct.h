@@ -1887,7 +1887,8 @@ enum nsStyleContentType {
   eStyleContentType_CloseQuote    = 41,
   eStyleContentType_NoOpenQuote   = 42,
   eStyleContentType_NoCloseQuote  = 43,
-  eStyleContentType_AltContent    = 50
+  eStyleContentType_AltContent    = 50,
+  eStyleContentType_Uninitialized
 };
 
 struct nsStyleContentData {
@@ -1902,7 +1903,7 @@ struct nsStyleContentData {
 #endif
 
   nsStyleContentData()
-    : mType(nsStyleContentType(0))
+    : mType(eStyleContentType_Uninitialized)
 #ifdef DEBUG
     , mImageTracked(false)
 #endif
@@ -2280,14 +2281,14 @@ enum nsStyleSVGPaintType {
   eStyleSVGPaintType_None = 1,
   eStyleSVGPaintType_Color,
   eStyleSVGPaintType_Server,
-  eStyleSVGPaintType_ObjectFill,
-  eStyleSVGPaintType_ObjectStroke
+  eStyleSVGPaintType_ContextFill,
+  eStyleSVGPaintType_ContextStroke
 };
 
 enum nsStyleSVGOpacitySource {
   eStyleSVGOpacitySource_Normal,
-  eStyleSVGOpacitySource_ObjectFillOpacity,
-  eStyleSVGOpacitySource_ObjectStrokeOpacity
+  eStyleSVGOpacitySource_ContextFillOpacity,
+  eStyleSVGOpacitySource_ContextStrokeOpacity
 };
 
 struct nsStyleSVGPaint

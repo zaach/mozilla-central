@@ -9,9 +9,7 @@
 
 #include "xpcprivate.h"
 #include "XPCWrapper.h"
-#include "mozilla/Mutex.h"
 #include "nsDOMJSUtils.h"
-#include "nsIScriptGlobalObject.h"
 #include "nsNullPrincipal.h"
 #include "mozilla/dom/BindingUtils.h"
 
@@ -24,9 +22,9 @@ using mozilla::dom::DestroyProtoAndIfaceCache;
 
 XPCJSContextStack::~XPCJSContextStack()
 {
-    if (mOwnSafeJSContext) {
-        JS_DestroyContext(mOwnSafeJSContext);
-        mOwnSafeJSContext = nullptr;
+    if (mSafeJSContext) {
+        JS_DestroyContextNoGC(mSafeJSContext);
+        mSafeJSContext = nullptr;
     }
 }
 
@@ -125,7 +123,7 @@ SafeFinalize(JSFreeOp *fop, JSObject* obj)
     DestroyProtoAndIfaceCache(obj);
 }
 
-JSClass xpc::SafeJSContextGlobalClass = {
+const JSClass xpc::SafeJSContextGlobalClass = {
     "global_for_XPCJSContextStack_SafeJSContext",
     XPCONNECT_GLOBAL_FLAGS,
     JS_PropertyStub, JS_DeletePropertyStub, JS_PropertyStub, JS_StrictPropertyStub,
@@ -182,9 +180,6 @@ XPCJSContextStack::GetSafeJSContext()
         MOZ_CRASH();
 
     JS_FireOnNewGlobalObject(mSafeJSContext, glob);
-
-    // Save it off so we can destroy it later.
-    mOwnSafeJSContext = mSafeJSContext;
 
     return mSafeJSContext;
 }

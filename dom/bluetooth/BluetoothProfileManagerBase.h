@@ -14,6 +14,8 @@
  */
 #define ERR_ALREADY_CONNECTED           "AlreadyConnectedError"
 #define ERR_ALREADY_DISCONNECTED        "AlreadyDisconnectedError"
+#define ERR_CONNECTION_FAILED           "ConnectionFailedError"
+#define ERR_DISCONNECTION_FAILED        "DisconnectionFailedError"
 #define ERR_NO_AVAILABLE_RESOURCE       "NoAvailableResourceError"
 #define ERR_REACHED_CONNECTION_LIMIT    "ReachedConnectionLimitError"
 #define ERR_SERVICE_CHANNEL_NOT_FOUND   "DeviceChannelRetrievalError"
@@ -61,6 +63,11 @@ public:
    */
   virtual void OnConnect(const nsAString& aErrorStr) = 0;
   virtual void OnDisconnect(const nsAString& aErrorStr) = 0;
+
+  /**
+   * Returns string of profile name
+   */
+  virtual void GetName(nsACString& aName) = 0;
 };
 
 END_BLUETOOTH_NAMESPACE

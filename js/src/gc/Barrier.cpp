@@ -6,9 +6,10 @@
 
 #include "gc/Barrier.h"
 
+#include "jscompartment.h"
 #include "jsobj.h"
 
-#include "vm/ObjectImpl-inl.h"
+#include "gc/Zone.h"
 
 namespace js {
 
@@ -49,6 +50,11 @@ HeapSlot::preconditionForWriteBarrierPost(JSObject *obj, Kind kind, uint32_t slo
                  static_cast<HeapSlot *>(obj->getDenseElements() + slot)->get() == target);
 }
 
+bool
+RuntimeFromMainThreadIsHeapMajorCollecting(JS::shadow::Zone *shadowZone)
+{
+    return shadowZone->runtimeFromMainThread()->isHeapMajorCollecting();
+}
 #endif // DEBUG
 
 } // namespace js

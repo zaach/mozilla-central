@@ -7,7 +7,6 @@
 
 #include "mozilla/DebugOnly.h"
 #include "mozilla/dom/Date.h"
-#include "mozilla/dom/HTMLInputElementBinding.h"
 #include "nsAsyncDOMEvent.h"
 #include "nsAttrValueInlines.h"
 
@@ -24,6 +23,7 @@
 #include "nsContentCID.h"
 #include "nsIComponentManager.h"
 #include "nsIDOMHTMLFormElement.h"
+#include "nsIDOMProgressEvent.h"
 #include "nsGkAtoms.h"
 #include "nsStyleConsts.h"
 #include "nsPresContext.h"
@@ -42,7 +42,6 @@
 #include "nsIServiceManager.h"
 #include "nsError.h"
 #include "nsIEditor.h"
-#include "nsGUIEvent.h"
 #include "nsIIOService.h"
 #include "nsDocument.h"
 #include "nsAttrValueOrString.h"
@@ -58,7 +57,10 @@
 #include "nsLayoutUtils.h"
 
 #include "nsIDOMMutationEvent.h"
-#include "nsMutationEvent.h"
+#include "mozilla/ContentEvents.h"
+#include "mozilla/MutationEvent.h"
+#include "mozilla/TextEvents.h"
+#include "mozilla/TouchEvents.h"
 #include "nsEventListenerManager.h"
 
 #include "nsRuleData.h"
@@ -101,6 +103,8 @@
 #include "nsIColorPicker.h"
 #include "nsIStringEnumerator.h"
 #include "HTMLSplitOnSpacesTokenizer.h"
+#include "nsIController.h"
+#include "nsIMIMEInfo.h"
 
 // input type=date
 #include "js/Date.h"
@@ -213,6 +217,9 @@ const Decimal HTMLInputElement::kStepAny = 0;
   0x4479,                                          \
   {0xb5, 0x13, 0x7b, 0x36, 0x93, 0x43, 0xe3, 0xa0} \
 }
+
+#define PROGRESS_STR "progress"
+static const uint32_t kProgressEventInterval = 50; // ms
 
 class HTMLInputElementState MOZ_FINAL : public nsISupports
 {
@@ -483,6 +490,7 @@ public:
         nsCOMPtr<nsIDOMFile> domFile = do_QueryInterface(tmp);
         MOZ_ASSERT(domFile);
         mFileList.AppendElement(domFile);
+        mInput->SetFileListProgress(mFileList.Length());
       }
       return NS_DispatchToMainThread(this);
     }
@@ -495,6 +503,7 @@ public:
     // event because it will think this is done by a script.
     // So, we can safely send one by ourself.
     mInput->SetFiles(mFileList, true);
+    mInput->MaybeDispatchProgressEvent(true); // last progress event
     nsresult rv =
       nsContentUtils::DispatchTrustedEvent(mInput->OwnerDoc(),
                                            static_cast<nsIDOMHTMLInputElement*>(mInput.get()),
@@ -566,6 +575,9 @@ HTMLInputElement::nsFilePickerShownCallback::Done(int16_t aResult)
     nsCOMPtr<nsIEventTarget> target
       = do_GetService(NS_STREAMTRANSPORTSERVICE_CONTRACTID);
     NS_ASSERTION(target, "Must have stream transport service");
+
+    mInput->ResetProgressCounters();
+    mInput->StartProgressEventTimer();
 
     // DirPickerBuildFileListTask takes care of calling SetFiles() and
     // dispatching the "change" event.
@@ -992,6 +1004,8 @@ static nsresult FireEventForAccessibility(nsIDOMHTMLInputElement* aTarget,
 HTMLInputElement::HTMLInputElement(already_AddRefed<nsINodeInfo> aNodeInfo,
                                    FromParser aFromParser)
   : nsGenericHTMLFormElementWithState(aNodeInfo)
+  , mFileListProgress(0)
+  , mLastFileListProgress(0)
   , mType(kInputDefaultType->value)
   , mDisabledChanged(false)
   , mValueChanged(false)
@@ -1008,6 +1022,7 @@ HTMLInputElement::HTMLInputElement(already_AddRefed<nsINodeInfo> aNodeInfo,
   , mCanShowInvalidUI(true)
   , mHasRange(false)
   , mIsDraggingRange(false)
+  , mProgressTimerIsActive(false)
 {
   // We are in a type=text so we now we currenty need a nsTextEditorState.
   mInputData.mState = new nsTextEditorState(this);
@@ -1096,7 +1111,7 @@ NS_IMPL_RELEASE_INHERITED(HTMLInputElement, Element)
 
 // QueryInterface implementation for HTMLInputElement
 NS_INTERFACE_TABLE_HEAD_CYCLE_COLLECTION_INHERITED(HTMLInputElement)
-  NS_INTERFACE_TABLE_INHERITED8(HTMLInputElement,
+  NS_INTERFACE_TABLE_INHERITED9(HTMLInputElement,
                                 nsIDOMHTMLInputElement,
                                 nsITextControlElement,
                                 nsIPhonetic,
@@ -1104,6 +1119,7 @@ NS_INTERFACE_TABLE_HEAD_CYCLE_COLLECTION_INHERITED(HTMLInputElement)
                                 nsIImageLoadingContent,
                                 imgIOnloadBlocker,
                                 nsIDOMNSEditableElement,
+                                nsITimerCallback,
                                 nsIConstraintValidation)
 NS_INTERFACE_TABLE_TAIL_INHERITING(nsGenericHTMLFormElementWithState)
 
@@ -2431,6 +2447,93 @@ HTMLInputElement::OpenDirectoryPicker(ErrorResult& aRv)
   InitFilePicker(FILE_PICKER_DIRECTORY);
 }
 
+void
+HTMLInputElement::StartProgressEventTimer()
+{
+  if (!mProgressTimer) {
+    mProgressTimer = do_CreateInstance(NS_TIMER_CONTRACTID);
+  }
+  if (mProgressTimer) {
+    mProgressTimerIsActive = true;
+    mProgressTimer->Cancel();
+    mProgressTimer->InitWithCallback(this, kProgressEventInterval,
+                                           nsITimer::TYPE_ONE_SHOT);
+  }
+}
+
+// nsITimerCallback's only method
+NS_IMETHODIMP
+HTMLInputElement::Notify(nsITimer* aTimer)
+{
+  if (mProgressTimer == aTimer) {
+    mProgressTimerIsActive = false;
+    MaybeDispatchProgressEvent(false);
+    return NS_OK;
+  }
+
+  // Just in case some JS user wants to QI to nsITimerCallback and play with us...
+  NS_WARNING("Unexpected timer!");
+  return NS_ERROR_INVALID_POINTER;
+}
+
+void
+HTMLInputElement::MaybeDispatchProgressEvent(bool aFinalProgress)
+{
+  nsRefPtr<HTMLInputElement> kungFuDeathGrip;
+
+  if (aFinalProgress && mProgressTimerIsActive) {
+    // mProgressTimer may hold the last reference to us, so take another strong
+    // ref to make sure we don't die under Cancel() and leave this method
+    // running on deleted memory.
+    kungFuDeathGrip = this;
+
+    mProgressTimerIsActive = false;
+    mProgressTimer->Cancel();
+  }
+
+  if (mProgressTimerIsActive ||
+      mFileListProgress == mLastFileListProgress) {
+    return;
+  }
+
+  if (!aFinalProgress) {
+    StartProgressEventTimer();
+  }
+
+  mLastFileListProgress = mFileListProgress;
+
+  DispatchProgressEvent(NS_LITERAL_STRING(PROGRESS_STR),
+                        false, mLastFileListProgress,
+                        0);
+}
+
+void
+HTMLInputElement::DispatchProgressEvent(const nsAString& aType,
+                                        bool aLengthComputable,
+                                        uint64_t aLoaded, uint64_t aTotal)
+{
+  NS_ASSERTION(!aType.IsEmpty(), "missing event type");
+
+  nsCOMPtr<nsIDOMEvent> event;
+  nsresult rv = NS_NewDOMProgressEvent(getter_AddRefs(event), this,
+                                       nullptr, nullptr);
+  if (NS_FAILED(rv)) {
+    return;
+  }
+
+  nsCOMPtr<nsIDOMProgressEvent> progress = do_QueryInterface(event);
+  if (!progress) {
+    return;
+  }
+
+  progress->InitProgressEvent(aType, false, false, aLengthComputable,
+                              aLoaded, (aTotal == UINT64_MAX) ? 0 : aTotal);
+
+  event->SetTrusted(true);
+
+  DispatchDOMEvent(nullptr, event, nullptr, nullptr);
+}
+
 nsresult
 HTMLInputElement::UpdateFileList()
 {
@@ -2707,7 +2810,7 @@ HTMLInputElement::MaybeSubmitForm(nsPresContext* aPresContext)
     // If there's only one text control, just submit the form
     // Hold strong ref across the event
     nsRefPtr<mozilla::dom::HTMLFormElement> form = mForm;
-    nsFormEvent event(true, NS_FORM_SUBMIT);
+    InternalFormEvent event(true, NS_FORM_SUBMIT);
     nsEventStatus status = nsEventStatus_eIgnore;
     shell->HandleDOMEventWithTarget(mForm, &event, &status);
   }
@@ -2909,7 +3012,7 @@ HTMLInputElement::PreHandleEvent(nsEventChainPreVisitor& aVisitor)
   // DOMActivate that was dispatched directly, this will be set, but if we're
   // a DOMActivate dispatched from click handling, it will not be set.
   bool outerActivateEvent =
-    (NS_IS_MOUSE_LEFT_CLICK(aVisitor.mEvent) ||
+    (aVisitor.mEvent->IsLeftClickEvent() ||
      (aVisitor.mEvent->message == NS_UI_ACTIVATE && !mInInternalActivate));
 
   if (outerActivateEvent) {
@@ -3139,7 +3242,7 @@ HTMLInputElement::MaybeInitPickers(nsEventChainPostVisitor& aVisitor)
   // - it's the left mouse button.
   // We do not prevent non-trusted click because authors can already use
   // .click(). However, the pickers will follow the rules of popup-blocking.
-  if (NS_IS_MOUSE_LEFT_CLICK(aVisitor.mEvent) &&
+  if (aVisitor.mEvent->IsLeftClickEvent() &&
       !aVisitor.mEvent->mFlags.mDefaultPrevented) {
     if (mType == NS_FORM_INPUT_FILE) {
       return InitFilePicker(FILE_PICKER_FILE);
@@ -3193,7 +3296,7 @@ HTMLInputElement::PostHandleEvent(nsEventChainPostVisitor& aVisitor)
   // the click.
   if (aVisitor.mEventStatus != nsEventStatus_eConsumeNoDefault &&
       !IsSingleLineTextControl(true) &&
-      NS_IS_MOUSE_LEFT_CLICK(aVisitor.mEvent) &&
+      aVisitor.mEvent->IsLeftClickEvent() &&
       !ShouldPreventDOMActivateDispatch(aVisitor.mEvent->originalTarget)) {
     nsUIEvent actEvent(aVisitor.mEvent->mFlags.mIsTrusted, NS_UI_ACTIVATE, 1);
 
@@ -3290,7 +3393,7 @@ HTMLInputElement::PostHandleEvent(nsEventChainPostVisitor& aVisitor)
           // just because we raised a window.
           nsIFocusManager* fm = nsFocusManager::GetFocusManager();
           if (fm && IsSingleLineTextControl(false) &&
-              !(static_cast<nsFocusEvent*>(aVisitor.mEvent))->fromRaise &&
+              !(static_cast<InternalFocusEvent*>(aVisitor.mEvent))->fromRaise &&
               SelectTextFieldOnFocus()) {
             nsIDocument* document = GetCurrentDoc();
             if (document) {
@@ -3513,8 +3616,8 @@ HTMLInputElement::PostHandleEvent(nsEventChainPostVisitor& aVisitor)
         case NS_FORM_INPUT_SUBMIT:
         case NS_FORM_INPUT_IMAGE:
           if (mForm) {
-            nsFormEvent event(true, (mType == NS_FORM_INPUT_RESET) ?
-                              NS_FORM_RESET : NS_FORM_SUBMIT);
+            InternalFormEvent event(true,
+              (mType == NS_FORM_INPUT_RESET) ? NS_FORM_RESET : NS_FORM_SUBMIT);
             event.originator      = this;
             nsEventStatus status  = nsEventStatus_eIgnore;
 
@@ -3606,7 +3709,8 @@ HTMLInputElement::PostHandleEventForRangeThumb(nsEventChainPostVisitor& aVisitor
           CancelRangeThumbDrag();
         }
       } else {
-        nsTouchEvent* touchEvent = static_cast<nsTouchEvent*>(aVisitor.mEvent);
+        WidgetTouchEvent* touchEvent =
+          static_cast<WidgetTouchEvent*>(aVisitor.mEvent);
         if (touchEvent->touches.Length() == 1) {
           StartRangeThumbDrag(inputEvent);
         } else if (mIsDraggingRange) {
@@ -4172,8 +4276,8 @@ HTMLInputElement::ParseAttribute(int32_t aNamespaceID,
         newType = aResult.GetEnumValue();
         if ((IsExperimentalMobileType(newType) &&
              !Preferences::GetBool("dom.experimental_forms", false)) ||
-            (newType == NS_FORM_INPUT_RANGE &&
-             !Preferences::GetBool("dom.experimental_forms_range", false)) ||
+            (newType == NS_FORM_INPUT_NUMBER &&
+             !Preferences::GetBool("dom.forms.number", false)) ||
             (newType == NS_FORM_INPUT_COLOR &&
              !Preferences::GetBool("dom.forms.color", false))) {
           newType = kInputDefaultType->value;
@@ -4404,6 +4508,11 @@ HTMLInputElement::SetSelectionRange(int32_t aSelectionStart,
       if (!aRv.Failed()) {
         aRv = textControlFrame->ScrollSelectionIntoView();
       }
+
+      nsContentUtils::DispatchTrustedEvent(OwnerDoc(),
+                                           static_cast<nsIDOMHTMLInputElement*>(this),
+                                           NS_LITERAL_STRING("select"), true,
+                                           false);
     }
   }
 }
@@ -4419,6 +4528,113 @@ HTMLInputElement::SetSelectionRange(int32_t aSelectionStart,
 
   SetSelectionRange(aSelectionStart, aSelectionEnd, direction, rv);
   return rv.ErrorCode();
+}
+
+void
+HTMLInputElement::SetRangeText(const nsAString& aReplacement, ErrorResult& aRv)
+{
+  if (!SupportsSetRangeText()) {
+    aRv.Throw(NS_ERROR_DOM_NOT_SUPPORTED_ERR);
+    return;
+  }
+
+  int32_t start, end;
+  aRv = GetSelectionRange(&start, &end);
+  if (aRv.Failed()) {
+    nsTextEditorState* state = GetEditorState();
+    if (state && state->IsSelectionCached()) {
+      start = state->GetSelectionProperties().mStart;
+      end = state->GetSelectionProperties().mEnd;
+      aRv = NS_OK;
+    }
+  }
+
+  SetRangeText(aReplacement, start, end, mozilla::dom::SelectionMode::Preserve,
+               aRv, start, end);
+}
+
+void
+HTMLInputElement::SetRangeText(const nsAString& aReplacement, uint32_t aStart,
+                               uint32_t aEnd, const SelectionMode& aSelectMode,
+                               ErrorResult& aRv, int32_t aSelectionStart,
+                               int32_t aSelectionEnd)
+{
+  if (!SupportsSetRangeText()) {
+    aRv.Throw(NS_ERROR_DOM_NOT_SUPPORTED_ERR);
+    return;
+  }
+
+  if (aStart > aEnd) {
+    aRv.Throw(NS_ERROR_DOM_INDEX_SIZE_ERR);
+    return;
+  }
+
+  nsAutoString value;
+  GetValueInternal(value);
+  uint32_t inputValueLength = value.Length();
+
+  if (aStart > inputValueLength) {
+    aStart = inputValueLength;
+  }
+
+  if (aEnd > inputValueLength) {
+    aEnd = inputValueLength;
+  }
+
+  if (aSelectionStart == -1 && aSelectionEnd == -1) {
+      aRv = GetSelectionRange(&aSelectionStart, &aSelectionEnd);
+      if (aRv.Failed()) {
+        nsTextEditorState* state = GetEditorState();
+        if (state && state->IsSelectionCached()) {
+          aSelectionStart = state->GetSelectionProperties().mStart;
+          aSelectionEnd = state->GetSelectionProperties().mEnd;
+          aRv = NS_OK;
+        }
+      }
+  }
+
+  if (aStart < aEnd) {
+    value.Replace(aStart, aEnd - aStart, aReplacement);
+    SetValueInternal(value, false, false);
+  }
+
+  uint32_t newEnd = aStart + aReplacement.Length();
+  int32_t delta =  aReplacement.Length() - (aEnd - aStart);
+
+  switch (aSelectMode) {
+    case mozilla::dom::SelectionMode::Select:
+    {
+      aSelectionStart = aStart;
+      aSelectionEnd = newEnd;
+    }
+    break;
+    case mozilla::dom::SelectionMode::Start:
+    {
+      aSelectionStart = aSelectionEnd = aStart;
+    }
+    break;
+    case mozilla::dom::SelectionMode::End:
+    {
+      aSelectionStart = aSelectionEnd = newEnd;
+    }
+    break;
+    case mozilla::dom::SelectionMode::Preserve:
+    {
+      if ((uint32_t)aSelectionStart > aEnd)
+        aSelectionStart += delta;
+      else if ((uint32_t)aSelectionStart > aStart)
+       aSelectionStart = aStart;
+
+      if ((uint32_t)aSelectionEnd > aEnd)
+        aSelectionEnd += delta;
+      else if ((uint32_t)aSelectionEnd > aStart)
+        aSelectionEnd = newEnd;
+    }
+    break;
+  }
+
+  Optional<nsAString> direction;
+  SetSelectionRange(aSelectionStart, aSelectionEnd, direction, aRv);
 }
 
 int32_t
@@ -5996,7 +6212,7 @@ HTMLInputElement::IsValidEmailAddressList(const nsAString& aValue)
     }
   }
 
-  return !tokenizer.lastTokenEndedWithSeparator();
+  return !tokenizer.separatorAfterCurrentToken();
 }
 
 //static

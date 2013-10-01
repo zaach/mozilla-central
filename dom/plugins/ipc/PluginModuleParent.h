@@ -10,6 +10,7 @@
 #include "base/process.h"
 #include "mozilla/FileUtils.h"
 #include "mozilla/PluginLibrary.h"
+#include "mozilla/plugins/ScopedMethodFactory.h"
 #include "mozilla/plugins/PluginProcessParent.h"
 #include "mozilla/plugins/PPluginModuleParent.h"
 #include "npapi.h"
@@ -133,7 +134,7 @@ public:
 #endif // XP_WIN
 
 protected:
-    virtual mozilla::ipc::RPCChannel::RacyRPCPolicy
+    virtual mozilla::ipc::RacyRPCPolicy
     MediateRPCRace(const Message& parent, const Message& child) MOZ_OVERRIDE
     {
         return MediateRace(parent, child);
@@ -302,7 +303,7 @@ private:
     const NPNetscapeFuncs* mNPNIface;
     nsDataHashtable<nsPtrHashKey<void>, PluginIdentifierParent*> mIdentifiers;
     nsNPAPIPlugin* mPlugin;
-    ScopedRunnableMethodFactory<PluginModuleParent> mTaskFactory;
+    ScopedMethodFactory<PluginModuleParent> mTaskFactory;
     nsString mPluginDumpID;
     nsString mBrowserDumpID;
     nsString mHangID;

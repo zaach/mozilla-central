@@ -34,6 +34,7 @@
 extern "C" {
 #include "ccsdp.h"
 #include "vcm.h"
+#include "cc_call_feature.h"
 #include "cip_mmgr_mediadefinitions.h"
 #include "cip_Sipcc_CodecMask.h"
 
@@ -68,6 +69,7 @@ VcmSIPCCBinding * VcmSIPCCBinding::gSelf = NULL;
 int VcmSIPCCBinding::gAudioCodecMask = 0;
 int VcmSIPCCBinding::gVideoCodecMask = 0;
 nsIThread *VcmSIPCCBinding::gMainThread = NULL;
+nsIEventTarget *VcmSIPCCBinding::gSTSThread = NULL;
 
 static mozilla::RefPtr<TransportFlow> vcmCreateTransportFlow(
     sipcc::PeerConnectionImpl *pc,
@@ -102,10 +104,58 @@ VcmSIPCCBinding::VcmSIPCCBinding ()
     gSelf = this;
 }
 
+class VcmIceOpaque : public NrIceOpaque {
+ public:
+  VcmIceOpaque(cc_streamid_t stream_id,
+               cc_call_handle_t call_handle,
+               uint16_t level) :
+      stream_id_(stream_id),
+      call_handle_(call_handle),
+      level_(level) {}
+
+  virtual ~VcmIceOpaque() {}
+
+  cc_streamid_t stream_id_;
+  cc_call_handle_t call_handle_;
+  uint16_t level_;
+};
+
+
 VcmSIPCCBinding::~VcmSIPCCBinding ()
 {
     assert(gSelf);
     gSelf = NULL;
+    // In case we're torn down while STS is still running,
+    // we try to dispatch to STS to disconnect all of the
+    // ICE signals. If STS is no longer running, this will
+    // harmlessly fail.
+    SyncRunnable::DispatchToThread(
+      gSTSThread,
+      WrapRunnable(this, &VcmSIPCCBinding::disconnect_all),
+      true);
+}
+
+void VcmSIPCCBinding::CandidateReady(NrIceMediaStream* stream,
+                                     const std::string& candidate)
+{
+    // This is called on the STS thread
+    NrIceOpaque *opaque = stream->opaque();
+    MOZ_ASSERT(opaque);
+
+    VcmIceOpaque *vcm_opaque = static_cast<VcmIceOpaque *>(opaque);
+    CSFLogDebug(logTag, "Candidate ready on call %u, level %u",
+                vcm_opaque->call_handle_, vcm_opaque->level_);
+
+    char *candidate_tmp = (char *)malloc(candidate.size() + 1);
+    if (!candidate_tmp)
+	return;
+    sstrncpy(candidate_tmp, candidate.c_str(), candidate.size() + 1);
+    // Send a message to the GSM thread.
+    CC_CallFeature_FoundICECandidate(vcm_opaque->call_handle_,
+				     candidate_tmp,
+				     NULL,
+				     vcm_opaque->level_,
+				     NULL);
 }
 
 void VcmSIPCCBinding::setStreamObserver(StreamObserver* obs)
@@ -163,9 +213,21 @@ void VcmSIPCCBinding::setMainThread(nsIThread *thread)
   gMainThread = thread;
 }
 
+void VcmSIPCCBinding::setSTSThread(nsIEventTarget *thread)
+{
+  gSTSThread = thread;
+}
+
 nsIThread* VcmSIPCCBinding::getMainThread()
 {
   return gMainThread;
+}
+
+void VcmSIPCCBinding::connectCandidateSignal(
+    NrIceMediaStream *stream)
+{
+  stream->SignalCandidate.connect(gSelf,
+                                  &VcmSIPCCBinding::CandidateReady);
 }
 
 /* static */
@@ -462,6 +524,12 @@ static short vcmRxAllocICE_m(cc_mcapid_t mcap_id,
     return VCM_ERROR;
   }
 
+  // Set the opaque so we can correlate events.
+  stream->SetOpaque(new VcmIceOpaque(stream_id, call_handle, level));
+
+  // Attach ourself to the candidate signal.
+  VcmSIPCCBinding::connectCandidateSignal(stream);
+
   std::vector<std::string> candidates = stream->GetCandidates();
   CSFLogDebug( logTag, "%s: Got %lu candidates", __FUNCTION__, candidates.size());
 
@@ -733,6 +801,7 @@ static short vcmSetIceCandidate_m(const char *peerconnection,
   return 0;
 }
 
+
 /* Set ice candidate for trickle ICE.
  *
  * This is a thunk to vcmSetIceCandidate_m
@@ -791,7 +860,6 @@ static short vcmStartIceChecks_m(const char *peerconnection, cc_boolean isContro
 
   return 0;
 }
-
 
 /* Start ICE checks
  *
@@ -1486,7 +1554,8 @@ static int vcmRxStartICE_m(cc_mcapid_t mcap_id,
     {
       config_raw = new mozilla::VideoCodecConfig(
         payloads[i].remote_rtp_pt,
-        ccsdpCodecName(payloads[i].codec_type));
+        ccsdpCodecName(payloads[i].codec_type),
+        payloads[i].video.rtcp_fb_types);
       configs.push_back(config_raw);
     }
 
@@ -2117,7 +2186,8 @@ static int vcmTxStartICE_m(cc_mcapid_t mcap_id,
     mozilla::VideoCodecConfig *config_raw;
     config_raw = new mozilla::VideoCodecConfig(
       payload->remote_rtp_pt,
-      ccsdpCodecName(payload->codec_type));
+      ccsdpCodecName(payload->codec_type),
+      payload->video.rtcp_fb_types);
 
     // Take possession of this pointer
     mozilla::ScopedDeletePtr<mozilla::VideoCodecConfig> config(config_raw);

@@ -197,7 +197,6 @@ const UnsolicitedNotifications = {
   "addonListChanged": "addonListChanged",
   "tabNavigated": "tabNavigated",
   "pageError": "pageError",
-  "webappsEvent": "webappsEvent",
   "documentLoad": "documentLoad",
   "enteredFrame": "enteredFrame",
   "exitedFrame": "exitedFrame"
@@ -238,7 +237,7 @@ this.DebuggerClient = function DebuggerClient(aTransport)
   ]);
 
   this.request = this.request.bind(this);
-  this.localTransport = (this._transport instanceof LocalDebuggerTransport);
+  this.localTransport = this._transport.onOutputStreamReady === undefined;
 
   /*
    * As the first thing on the connection, expect a greeting packet from
@@ -2010,32 +2009,50 @@ SourceClient.prototype = {
       to: this._form.actor,
       type: "source"
     };
-    this._client.request(packet, function (aResponse) {
+    this._client.request(packet, aResponse => {
+      this._onSourceResponse(aResponse, aCallback)
+    });
+  },
+
+  /**
+   * Pretty print this source's text.
+   */
+  prettyPrint: function SC_prettyPrint(aIndent, aCallback) {
+    const packet = {
+      to: this._form.actor,
+      type: "prettyPrint",
+      indent: aIndent
+    };
+    this._client.request(packet, aResponse => {
+      this._onSourceResponse(aResponse, aCallback);
+    });
+  },
+
+  _onSourceResponse: function SC__onSourceResponse(aResponse, aCallback) {
+    if (aResponse.error) {
+      aCallback(aResponse);
+      return;
+    }
+
+    if (typeof aResponse.source === "string") {
+      aCallback(aResponse);
+      return;
+    }
+
+    let { contentType, source } = aResponse;
+    let longString = this._client.activeThread.threadLongString(
+      source);
+    longString.substring(0, longString.length, function (aResponse) {
       if (aResponse.error) {
         aCallback(aResponse);
         return;
       }
 
-      if (typeof aResponse.source === "string") {
-        aCallback(aResponse);
-        return;
-      }
-
-      let { contentType, source } = aResponse;
-      let longString = this._client.activeThread.threadLongString(
-        source);
-      longString.substring(0, longString.length, function (aResponse) {
-        if (aResponse.error) {
-          aCallback(aResponse);
-          return;
-        }
-
-        aCallback({
-          source: aResponse.substring,
-          contentType: contentType
-        });
+      aCallback({
+        source: aResponse.substring,
+        contentType: contentType
       });
-    }.bind(this));
+    });
   }
 };
 

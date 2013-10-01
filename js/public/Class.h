@@ -9,6 +9,8 @@
 #ifndef js_Class_h
 #define js_Class_h
 
+#include "mozilla/NullPtr.h"
+ 
 #include "jstypes.h"
 
 #include "js/CallArgs.h"
@@ -35,7 +37,7 @@ class SpecialId;
 
 // This is equal to JSFunction::class_.  Use it in places where you don't want
 // to #include jsfun.h.
-extern JS_FRIEND_DATA(js::Class* const) FunctionClassPtr;
+extern JS_FRIEND_DATA(const js::Class* const) FunctionClassPtr;
 
 static JS_ALWAYS_INLINE jsid
 SPECIALID_TO_JSID(const SpecialId &sid);
@@ -73,7 +75,7 @@ class SpecialId
     SpecialId(JSObject &obj)
       : bits_(uintptr_t(&obj) | TYPE_OBJECT)
     {
-        JS_ASSERT(&obj != NULL);
+        JS_ASSERT(&obj != nullptr);
         JS_ASSERT((uintptr_t(&obj) & TYPE_MASK) == 0);
     }
 
@@ -437,7 +439,7 @@ struct ClassExtension
     JSWeakmapKeyDelegateOp weakmapKeyDelegateOp;
 };
 
-#define JS_NULL_CLASS_EXT   {NULL,NULL,NULL,false,NULL}
+#define JS_NULL_CLASS_EXT   {nullptr,nullptr,nullptr,false,nullptr}
 
 struct ObjectOps
 {
@@ -469,8 +471,9 @@ struct ObjectOps
 };
 
 #define JS_NULL_OBJECT_OPS                                                    \
-    {NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,   \
-     NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL}
+    {nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr, \
+     nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr, \
+     nullptr,nullptr,nullptr,nullptr,nullptr,nullptr}
 
 } // namespace js
 
@@ -629,22 +632,12 @@ JS_STATIC_ASSERT(offsetof(JSClass, hasInstance) == offsetof(Class, hasInstance))
 JS_STATIC_ASSERT(offsetof(JSClass, trace) == offsetof(Class, trace));
 JS_STATIC_ASSERT(sizeof(JSClass) == sizeof(Class));
 
-static JS_ALWAYS_INLINE JSClass *
-Jsvalify(Class *c)
-{
-    return (JSClass *)c;
-}
 static JS_ALWAYS_INLINE const JSClass *
 Jsvalify(const Class *c)
 {
     return (const JSClass *)c;
 }
 
-static JS_ALWAYS_INLINE Class *
-Valueify(JSClass *c)
-{
-    return (Class *)c;
-}
 static JS_ALWAYS_INLINE const Class *
 Valueify(const JSClass *c)
 {

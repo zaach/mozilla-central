@@ -15,7 +15,6 @@
 
 using namespace mozilla;
 void AndroidBridge::InitStubs(JNIEnv *jEnv) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     initInit();
 
     mGeckoAppShellClass = getClassGlobalRef("org/mozilla/gecko/GeckoAppShell");
@@ -43,6 +42,7 @@ void AndroidBridge::InitStubs(JNIEnv *jEnv) {
     jGetContext = getStaticMethod("getContext", "()Landroid/content/Context;");
     jGetCurrentBatteryInformationWrapper = getStaticMethod("getCurrentBatteryInformation", "()[D");
     jGetCurrentNetworkInformationWrapper = getStaticMethod("getCurrentNetworkInformation", "()[D");
+    jGetDensity = getStaticMethod("getDensity", "()F");
     jGetDpiWrapper = getStaticMethod("getDpi", "()I");
     jGetExtensionFromMimeTypeWrapper = getStaticMethod("getExtensionFromMimeType", "(Ljava/lang/String;)Ljava/lang/String;");
     jGetGfxInfoDataWrapper = getStaticMethod("getGfxInfoData", "()Ljava/lang/String;");
@@ -124,7 +124,6 @@ void AndroidBridge::InitStubs(JNIEnv *jEnv) {
 }
 
 void AndroidBridge::AcknowledgeEvent() {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -147,12 +146,10 @@ void AndroidBridge::AcknowledgeEvent() {
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 void AndroidBridge::AddPluginViewWrapper(jobject a0, jfloat a1, jfloat a2, jfloat a3, jfloat a4, bool a5) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -183,12 +180,10 @@ void AndroidBridge::AddPluginViewWrapper(jobject a0, jfloat a1, jfloat a2, jfloa
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 void AndroidBridge::AlertsProgressListener_OnProgress(const nsAString& a0, int64_t a1, int64_t a2, const nsAString& a3) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -217,12 +212,10 @@ void AndroidBridge::AlertsProgressListener_OnProgress(const nsAString& a0, int64
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 void AndroidBridge::CancelVibrate() {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -245,12 +238,10 @@ void AndroidBridge::CancelVibrate() {
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 void AndroidBridge::CheckURIVisited(const nsAString& a0) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -275,12 +266,10 @@ void AndroidBridge::CheckURIVisited(const nsAString& a0) {
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 void AndroidBridge::ClearMessageList(int32_t a0) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -303,12 +292,10 @@ void AndroidBridge::ClearMessageList(int32_t a0) {
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 void AndroidBridge::CloseCamera() {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -331,12 +318,10 @@ void AndroidBridge::CloseCamera() {
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 void AndroidBridge::CloseNotification(const nsAString& a0) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -361,12 +346,10 @@ void AndroidBridge::CloseNotification(const nsAString& a0) {
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 void AndroidBridge::CreateMessageListWrapper(int64_t a0, int64_t a1, jobjectArray a2, int32_t a3, int32_t a4, bool a5, int32_t a6) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -398,12 +381,10 @@ void AndroidBridge::CreateMessageListWrapper(int64_t a0, int64_t a1, jobjectArra
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 void AndroidBridge::CreateShortcut(const nsAString& a0, const nsAString& a1, const nsAString& a2, const nsAString& a3) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -432,12 +413,10 @@ void AndroidBridge::CreateShortcut(const nsAString& a0, const nsAString& a1, con
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 void AndroidBridge::DeleteMessageWrapper(int32_t a0, int32_t a1) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -460,12 +439,10 @@ void AndroidBridge::DeleteMessageWrapper(int32_t a0, int32_t a1) {
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 void AndroidBridge::DisableBatteryNotifications() {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -488,12 +465,10 @@ void AndroidBridge::DisableBatteryNotifications() {
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 void AndroidBridge::DisableNetworkNotifications() {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -516,12 +491,10 @@ void AndroidBridge::DisableNetworkNotifications() {
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 void AndroidBridge::DisableScreenOrientationNotifications() {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -544,12 +517,10 @@ void AndroidBridge::DisableScreenOrientationNotifications() {
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 void AndroidBridge::DisableSensor(int32_t a0) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -572,12 +543,10 @@ void AndroidBridge::DisableSensor(int32_t a0) {
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 void AndroidBridge::EnableBatteryNotifications() {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -600,12 +569,10 @@ void AndroidBridge::EnableBatteryNotifications() {
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 void AndroidBridge::EnableLocation(bool a0) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -628,12 +595,10 @@ void AndroidBridge::EnableLocation(bool a0) {
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 void AndroidBridge::EnableLocationHighAccuracy(bool a0) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -656,12 +621,10 @@ void AndroidBridge::EnableLocationHighAccuracy(bool a0) {
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 void AndroidBridge::EnableNetworkNotifications() {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -684,12 +647,10 @@ void AndroidBridge::EnableNetworkNotifications() {
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 void AndroidBridge::EnableScreenOrientationNotifications() {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -712,12 +673,10 @@ void AndroidBridge::EnableScreenOrientationNotifications() {
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 void AndroidBridge::EnableSensor(int32_t a0) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -740,12 +699,10 @@ void AndroidBridge::EnableSensor(int32_t a0) {
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 jobject AndroidBridge::GetContext() {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIForThread();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -769,12 +726,10 @@ jobject AndroidBridge::GetContext() {
         return nullptr;
     }
     jobject ret = static_cast<jobject>(env->PopLocalFrame(temp));
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     return ret;
 }
 
 jdoubleArray AndroidBridge::GetCurrentBatteryInformationWrapper() {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -798,12 +753,10 @@ jdoubleArray AndroidBridge::GetCurrentBatteryInformationWrapper() {
         return nullptr;
     }
     jdoubleArray ret = static_cast<jdoubleArray>(env->PopLocalFrame(temp));
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     return ret;
 }
 
 jdoubleArray AndroidBridge::GetCurrentNetworkInformationWrapper() {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -827,12 +780,37 @@ jdoubleArray AndroidBridge::GetCurrentNetworkInformationWrapper() {
         return nullptr;
     }
     jdoubleArray ret = static_cast<jdoubleArray>(env->PopLocalFrame(temp));
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     return ret;
 }
 
+jfloat AndroidBridge::GetDensity() {
+    JNIEnv *env = GetJNIEnv();
+    if (!env) {
+        ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
+        return 0.0;
+    }
+
+    if (env->PushLocalFrame(0) != 0) {
+        ALOG_BRIDGE("Exceptional exit of: %s", __PRETTY_FUNCTION__);
+        env->ExceptionDescribe();
+        env->ExceptionClear();
+        return 0.0;
+    }
+
+    jfloat temp = env->CallStaticFloatMethod(mGeckoAppShellClass, jGetDensity);
+
+    if (env->ExceptionCheck()) {
+        ALOG_BRIDGE("Exceptional exit of: %s", __PRETTY_FUNCTION__);
+        env->ExceptionDescribe();
+        env->ExceptionClear();
+        env->PopLocalFrame(NULL);
+        return 0.0;
+    }
+    env->PopLocalFrame(NULL);
+    return temp;
+}
+
 int32_t AndroidBridge::GetDpiWrapper() {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -856,12 +834,10 @@ int32_t AndroidBridge::GetDpiWrapper() {
         return 0;
     }
     env->PopLocalFrame(NULL);
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     return temp;
 }
 
 jstring AndroidBridge::GetExtensionFromMimeTypeWrapper(const nsAString& a0) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -887,12 +863,10 @@ jstring AndroidBridge::GetExtensionFromMimeTypeWrapper(const nsAString& a0) {
         return nullptr;
     }
     jstring ret = static_cast<jstring>(env->PopLocalFrame(temp));
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     return ret;
 }
 
 jstring AndroidBridge::GetGfxInfoDataWrapper() {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -916,12 +890,10 @@ jstring AndroidBridge::GetGfxInfoDataWrapper() {
         return nullptr;
     }
     jstring ret = static_cast<jstring>(env->PopLocalFrame(temp));
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     return ret;
 }
 
 jobjectArray AndroidBridge::GetHandlersForMimeTypeWrapper(const nsAString& a0, const nsAString& a1) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -948,12 +920,10 @@ jobjectArray AndroidBridge::GetHandlersForMimeTypeWrapper(const nsAString& a0, c
         return nullptr;
     }
     jobjectArray ret = static_cast<jobjectArray>(env->PopLocalFrame(temp));
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     return ret;
 }
 
 jobjectArray AndroidBridge::GetHandlersForURLWrapper(const nsAString& a0, const nsAString& a1) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -980,12 +950,10 @@ jobjectArray AndroidBridge::GetHandlersForURLWrapper(const nsAString& a0, const 
         return nullptr;
     }
     jobjectArray ret = static_cast<jobjectArray>(env->PopLocalFrame(temp));
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     return ret;
 }
 
 jbyteArray AndroidBridge::GetIconForExtensionWrapper(const nsAString& a0, int32_t a1) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -1011,12 +979,10 @@ jbyteArray AndroidBridge::GetIconForExtensionWrapper(const nsAString& a0, int32_
         return nullptr;
     }
     jbyteArray ret = static_cast<jbyteArray>(env->PopLocalFrame(temp));
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     return ret;
 }
 
 void AndroidBridge::GetMessageWrapper(int32_t a0, int32_t a1) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -1039,12 +1005,10 @@ void AndroidBridge::GetMessageWrapper(int32_t a0, int32_t a1) {
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 jstring AndroidBridge::GetMimeTypeFromExtensionsWrapper(const nsAString& a0) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -1070,12 +1034,10 @@ jstring AndroidBridge::GetMimeTypeFromExtensionsWrapper(const nsAString& a0) {
         return nullptr;
     }
     jstring ret = static_cast<jstring>(env->PopLocalFrame(temp));
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     return ret;
 }
 
 void AndroidBridge::GetNextMessageInListWrapper(int32_t a0, int32_t a1) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -1098,12 +1060,10 @@ void AndroidBridge::GetNextMessageInListWrapper(int32_t a0, int32_t a1) {
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 jstring AndroidBridge::GetProxyForURIWrapper(const nsAString& a0, const nsAString& a1, const nsAString& a2, int32_t a3) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -1133,12 +1093,10 @@ jstring AndroidBridge::GetProxyForURIWrapper(const nsAString& a0, const nsAStrin
         return nullptr;
     }
     jstring ret = static_cast<jstring>(env->PopLocalFrame(temp));
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     return ret;
 }
 
 int32_t AndroidBridge::GetScreenDepthWrapper() {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -1162,12 +1120,10 @@ int32_t AndroidBridge::GetScreenDepthWrapper() {
         return 0;
     }
     env->PopLocalFrame(NULL);
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     return temp;
 }
 
 int16_t AndroidBridge::GetScreenOrientationWrapper() {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -1191,12 +1147,10 @@ int16_t AndroidBridge::GetScreenOrientationWrapper() {
         return 0;
     }
     env->PopLocalFrame(NULL);
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     return temp;
 }
 
 bool AndroidBridge::GetShowPasswordSetting() {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -1220,12 +1174,10 @@ bool AndroidBridge::GetShowPasswordSetting() {
         return false;
     }
     env->PopLocalFrame(NULL);
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     return temp;
 }
 
 jintArray AndroidBridge::GetSystemColoursWrapper() {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -1249,12 +1201,10 @@ jintArray AndroidBridge::GetSystemColoursWrapper() {
         return nullptr;
     }
     jintArray ret = static_cast<jintArray>(env->PopLocalFrame(temp));
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     return ret;
 }
 
 jstring AndroidBridge::HandleGeckoMessageWrapper(const nsAString& a0) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -1280,12 +1230,10 @@ jstring AndroidBridge::HandleGeckoMessageWrapper(const nsAString& a0) {
         return nullptr;
     }
     jstring ret = static_cast<jstring>(env->PopLocalFrame(temp));
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     return ret;
 }
 
 void AndroidBridge::HideProgressDialog() {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -1308,12 +1256,10 @@ void AndroidBridge::HideProgressDialog() {
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 jintArray AndroidBridge::InitCameraWrapper(const nsAString& a0, int32_t a1, int32_t a2, int32_t a3) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -1343,12 +1289,10 @@ jintArray AndroidBridge::InitCameraWrapper(const nsAString& a0, int32_t a1, int3
         return nullptr;
     }
     jintArray ret = static_cast<jintArray>(env->PopLocalFrame(temp));
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     return ret;
 }
 
 bool AndroidBridge::IsNetworkLinkKnown() {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -1372,12 +1316,10 @@ bool AndroidBridge::IsNetworkLinkKnown() {
         return false;
     }
     env->PopLocalFrame(NULL);
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     return temp;
 }
 
 bool AndroidBridge::IsNetworkLinkUp() {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -1401,12 +1343,10 @@ bool AndroidBridge::IsNetworkLinkUp() {
         return false;
     }
     env->PopLocalFrame(NULL);
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     return temp;
 }
 
 bool AndroidBridge::IsTablet() {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -1430,12 +1370,10 @@ bool AndroidBridge::IsTablet() {
         return false;
     }
     env->PopLocalFrame(NULL);
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     return temp;
 }
 
 void AndroidBridge::KillAnyZombies() {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -1458,12 +1396,10 @@ void AndroidBridge::KillAnyZombies() {
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 void AndroidBridge::LockScreenOrientation(int32_t a0) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -1486,12 +1422,10 @@ void AndroidBridge::LockScreenOrientation(int32_t a0) {
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 void AndroidBridge::MarkURIVisited(const nsAString& a0) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -1516,12 +1450,10 @@ void AndroidBridge::MarkURIVisited(const nsAString& a0) {
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 void AndroidBridge::MoveTaskToBack() {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -1544,12 +1476,10 @@ void AndroidBridge::MoveTaskToBack() {
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 void AndroidBridge::NotifyDefaultPrevented(bool a0) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -1572,12 +1502,10 @@ void AndroidBridge::NotifyDefaultPrevented(bool a0) {
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 void AndroidBridge::NotifyIME(int32_t a0) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     if (!sBridge) {
         ALOG_BRIDGE("Aborted: No sBridge - %s", __PRETTY_FUNCTION__);
         return;
@@ -1605,12 +1533,10 @@ void AndroidBridge::NotifyIME(int32_t a0) {
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 void AndroidBridge::NotifyIMEChange(const nsAString& a0, int32_t a1, int32_t a2, int32_t a3) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     if (!sBridge) {
         ALOG_BRIDGE("Aborted: No sBridge - %s", __PRETTY_FUNCTION__);
         return;
@@ -1644,12 +1570,10 @@ void AndroidBridge::NotifyIMEChange(const nsAString& a0, int32_t a1, int32_t a2,
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 void AndroidBridge::NotifyIMEContext(int32_t a0, const nsAString& a1, const nsAString& a2, const nsAString& a3) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     if (!sBridge) {
         ALOG_BRIDGE("Aborted: No sBridge - %s", __PRETTY_FUNCTION__);
         return;
@@ -1683,12 +1607,10 @@ void AndroidBridge::NotifyIMEContext(int32_t a0, const nsAString& a1, const nsAS
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 void AndroidBridge::NotifyWakeLockChanged(const nsAString& a0, const nsAString& a1) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -1714,12 +1636,10 @@ void AndroidBridge::NotifyWakeLockChanged(const nsAString& a0, const nsAString& 
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 void AndroidBridge::NotifyXreExit() {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -1742,12 +1662,10 @@ void AndroidBridge::NotifyXreExit() {
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 bool AndroidBridge::OpenUriExternal(const nsAString& a0, const nsAString& a1, const nsAString& a2, const nsAString& a3, const nsAString& a4, const nsAString& a5) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -1779,12 +1697,10 @@ bool AndroidBridge::OpenUriExternal(const nsAString& a0, const nsAString& a1, co
         return false;
     }
     env->PopLocalFrame(NULL);
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     return temp;
 }
 
 void AndroidBridge::PerformHapticFeedback(bool a0) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -1807,12 +1723,10 @@ void AndroidBridge::PerformHapticFeedback(bool a0) {
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 bool AndroidBridge::PumpMessageLoop() {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -1836,12 +1750,10 @@ bool AndroidBridge::PumpMessageLoop() {
         return false;
     }
     env->PopLocalFrame(NULL);
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     return temp;
 }
 
 void AndroidBridge::RegisterSurfaceTextureFrameListener(jobject a0, int32_t a1) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -1864,12 +1776,10 @@ void AndroidBridge::RegisterSurfaceTextureFrameListener(jobject a0, int32_t a1) 
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 void AndroidBridge::RemovePluginView(jobject a0, bool a1) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -1892,12 +1802,10 @@ void AndroidBridge::RemovePluginView(jobject a0, bool a1) {
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 void AndroidBridge::ScanMedia(const nsAString& a0, const nsAString& a1) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -1923,12 +1831,10 @@ void AndroidBridge::ScanMedia(const nsAString& a0, const nsAString& a1) {
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 void AndroidBridge::ScheduleRestart() {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -1951,12 +1857,10 @@ void AndroidBridge::ScheduleRestart() {
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 void AndroidBridge::SendMessageWrapper(const nsAString& a0, const nsAString& a1, int32_t a2) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -1984,12 +1888,10 @@ void AndroidBridge::SendMessageWrapper(const nsAString& a0, const nsAString& a1,
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 void AndroidBridge::SetFullScreen(bool a0) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -2012,12 +1914,10 @@ void AndroidBridge::SetFullScreen(bool a0) {
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 void AndroidBridge::SetKeepScreenOn(bool a0) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -2040,12 +1940,10 @@ void AndroidBridge::SetKeepScreenOn(bool a0) {
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 void AndroidBridge::SetSelectedLocale(const nsAString& a0) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -2070,12 +1968,10 @@ void AndroidBridge::SetSelectedLocale(const nsAString& a0) {
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 void AndroidBridge::SetURITitle(const nsAString& a0, const nsAString& a1) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -2101,12 +1997,10 @@ void AndroidBridge::SetURITitle(const nsAString& a0, const nsAString& a1) {
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 void AndroidBridge::ShowAlertNotificationWrapper(const nsAString& a0, const nsAString& a1, const nsAString& a2, const nsAString& a3, const nsAString& a4) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -2136,12 +2030,10 @@ void AndroidBridge::ShowAlertNotificationWrapper(const nsAString& a0, const nsAS
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 void AndroidBridge::ShowFilePickerAsyncWrapper(const nsAString& a0, int64_t a1) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -2166,12 +2058,10 @@ void AndroidBridge::ShowFilePickerAsyncWrapper(const nsAString& a0, int64_t a1) 
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 jstring AndroidBridge::ShowFilePickerForExtensionsWrapper(const nsAString& a0) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -2197,12 +2087,10 @@ jstring AndroidBridge::ShowFilePickerForExtensionsWrapper(const nsAString& a0) {
         return nullptr;
     }
     jstring ret = static_cast<jstring>(env->PopLocalFrame(temp));
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     return ret;
 }
 
 jstring AndroidBridge::ShowFilePickerForMimeTypeWrapper(const nsAString& a0) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -2228,12 +2116,10 @@ jstring AndroidBridge::ShowFilePickerForMimeTypeWrapper(const nsAString& a0) {
         return nullptr;
     }
     jstring ret = static_cast<jstring>(env->PopLocalFrame(temp));
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     return ret;
 }
 
 void AndroidBridge::ShowInputMethodPicker() {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -2256,12 +2142,10 @@ void AndroidBridge::ShowInputMethodPicker() {
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 bool AndroidBridge::UnlockProfile() {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -2285,12 +2169,10 @@ bool AndroidBridge::UnlockProfile() {
         return false;
     }
     env->PopLocalFrame(NULL);
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     return temp;
 }
 
 void AndroidBridge::UnlockScreenOrientation() {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -2313,12 +2195,10 @@ void AndroidBridge::UnlockScreenOrientation() {
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 void AndroidBridge::UnregisterSurfaceTextureFrameListener(jobject a0) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIForThread();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -2341,12 +2221,10 @@ void AndroidBridge::UnregisterSurfaceTextureFrameListener(jobject a0) {
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 void AndroidBridge::Vibrate1(int64_t a0) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -2369,12 +2247,10 @@ void AndroidBridge::Vibrate1(int64_t a0) {
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 void AndroidBridge::VibrateA(jlongArray a0, int32_t a1) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -2397,12 +2273,10 @@ void AndroidBridge::VibrateA(jlongArray a0, int32_t a1) {
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 jstring AndroidBridge::GetFrameNameJavaProfilingWrapper(int32_t a0, int32_t a1, int32_t a2) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIForThread();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -2431,12 +2305,10 @@ jstring AndroidBridge::GetFrameNameJavaProfilingWrapper(int32_t a0, int32_t a1, 
         return nullptr;
     }
     jstring ret = static_cast<jstring>(env->PopLocalFrame(temp));
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     return ret;
 }
 
 jdouble AndroidBridge::GetSampleTimeJavaProfiling(int32_t a0, int32_t a1) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIForThread();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -2460,12 +2332,10 @@ jdouble AndroidBridge::GetSampleTimeJavaProfiling(int32_t a0, int32_t a1) {
         return 0.0;
     }
     env->PopLocalFrame(NULL);
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     return temp;
 }
 
 jstring AndroidBridge::GetThreadNameJavaProfilingWrapper(int32_t a0) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIForThread();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -2489,12 +2359,10 @@ jstring AndroidBridge::GetThreadNameJavaProfilingWrapper(int32_t a0) {
         return nullptr;
     }
     jstring ret = static_cast<jstring>(env->PopLocalFrame(temp));
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     return ret;
 }
 
 void AndroidBridge::PauseJavaProfiling() {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIForThread();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -2517,12 +2385,10 @@ void AndroidBridge::PauseJavaProfiling() {
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 void AndroidBridge::StartJavaProfiling(int32_t a0, int32_t a1) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIForThread();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -2545,12 +2411,10 @@ void AndroidBridge::StartJavaProfiling(int32_t a0, int32_t a1) {
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 void AndroidBridge::StopJavaProfiling() {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIForThread();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -2573,12 +2437,10 @@ void AndroidBridge::StopJavaProfiling() {
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 void AndroidBridge::UnpauseJavaProfiling() {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIForThread();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -2601,12 +2463,10 @@ void AndroidBridge::UnpauseJavaProfiling() {
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 void AndroidBridge::SendThumbnail(jobject a0, int32_t a1, bool a2) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -2634,12 +2494,10 @@ void AndroidBridge::SendThumbnail(jobject a0, int32_t a1, bool a2) {
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 jobject AndroidBridge::ProvideEGLSurfaceWrapper(jobject aTarget) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIForThread();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -2663,12 +2521,10 @@ jobject AndroidBridge::ProvideEGLSurfaceWrapper(jobject aTarget) {
         return nullptr;
     }
     jobject ret = static_cast<jobject>(env->PopLocalFrame(temp));
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     return ret;
 }
 
 jobject AndroidBridge::RegisterCompositorWrapper() {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIForThread();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -2692,12 +2548,10 @@ jobject AndroidBridge::RegisterCompositorWrapper() {
         return nullptr;
     }
     jobject ret = static_cast<jobject>(env->PopLocalFrame(temp));
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     return ret;
 }
 
 void AndroidBridge::PostDelayedCallbackWrapper(jobject aTarget, int64_t a0) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIForThread();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -2720,12 +2574,10 @@ void AndroidBridge::PostDelayedCallbackWrapper(jobject aTarget, int64_t a0) {
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 void AndroidBridge::RequestContentRepaintWrapper(jobject aTarget, jfloat a0, jfloat a1, jfloat a2, jfloat a3, jfloat a4) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIForThread();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -2755,12 +2607,10 @@ void AndroidBridge::RequestContentRepaintWrapper(jobject aTarget, jfloat a0, jfl
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }
 
 jstring AndroidBridge::GetClipboardTextWrapper() {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -2784,12 +2634,10 @@ jstring AndroidBridge::GetClipboardTextWrapper() {
         return nullptr;
     }
     jstring ret = static_cast<jstring>(env->PopLocalFrame(temp));
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     return ret;
 }
 
 void AndroidBridge::SetClipboardText(const nsAString& a0) {
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
     JNIEnv *env = GetJNIEnv();
     if (!env) {
         ALOG_BRIDGE("Aborted: No env - %s", __PRETTY_FUNCTION__);
@@ -2814,6 +2662,5 @@ void AndroidBridge::SetClipboardText(const nsAString& a0) {
         env->PopLocalFrame(NULL);
         return;
     }
-    ALOG_BRIDGE("Exit of: %s", __PRETTY_FUNCTION__);
     env->PopLocalFrame(NULL);
 }

@@ -9,11 +9,8 @@
 
 #include "mozilla/Attributes.h"
 #include "mozilla/dom/PContentChild.h"
-#include "mozilla/dom/TabContext.h"
 #include "mozilla/dom/ipc/Blob.h"
-
-#include "nsTArray.h"
-#include "nsIConsoleListener.h"
+#include "nsWeakPtr.h"
 
 struct ChromePackage;
 class nsIDOMBlob;
@@ -146,7 +143,8 @@ public:
             const nsCString& aContentDisposition,
             const bool& aForceSave,
             const int64_t& aContentLength,
-            const OptionalURIParams& aReferrer);
+            const OptionalURIParams& aReferrer,
+            PBrowserChild* aBrowser);
     virtual bool DeallocPExternalHelperAppChild(PExternalHelperAppChild *aService);
 
     virtual PSmsChild* AllocPSmsChild();
@@ -218,6 +216,8 @@ public:
                                       const bool& aIsMediaPresent,
                                       const bool& aIsSharing);
 
+    virtual bool RecvNuwaFork() MOZ_OVERRIDE;
+
     virtual bool RecvNotifyProcessPriorityChanged(const hal::ProcessPriority& aPriority);
     virtual bool RecvMinimizeMemoryUsage();
     virtual bool RecvCancelMinimizeMemoryUsage();
@@ -225,6 +225,7 @@ public:
     virtual bool RecvLoadAndRegisterSheet(const URIParams& aURI, const uint32_t& aType);
     virtual bool RecvUnregisterSheet(const URIParams& aURI, const uint32_t& aType);
 
+    virtual bool RecvNotifyPhoneStateChange(const nsString& state);
 #ifdef ANDROID
     gfxIntSize GetScreenSize() { return mScreenSize; }
 #endif

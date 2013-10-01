@@ -18,8 +18,6 @@
 
 #include "jsgcinlines.h"
 
-#include "vm/ObjectImpl-inl.h"
-
 using namespace js;
 using namespace js::gc;
 
@@ -53,7 +51,7 @@ JS::Zone::Zone(JSRuntime *rt)
 Zone::~Zone()
 {
     if (this == runtimeFromMainThread()->systemZone)
-        runtimeFromMainThread()->systemZone = NULL;
+        runtimeFromMainThread()->systemZone = nullptr;
 }
 
 bool

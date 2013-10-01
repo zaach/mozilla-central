@@ -160,7 +160,7 @@ static const struct pm_const {
 static bool pm_construct(JSContext* cx, unsigned argc, jsval* vp);
 static void pm_finalize(JSFreeOp* fop, JSObject* obj);
 
-static JSClass pm_class = {
+static const JSClass pm_class = {
     "PerfMeasurement", JSCLASS_HAS_PRIVATE,
     JS_PropertyStub, JS_DeletePropertyStub, JS_PropertyStub, JS_StrictPropertyStub,
     JS_EnumerateStub, JS_ResolveStub, JS_ConvertStub, pm_finalize
@@ -206,11 +206,11 @@ GetPM(JSContext* cx, JS::HandleValue value, const char* fname)
 {
     if (!value.isObject()) {
         JS_ReportErrorNumber(cx, js_GetErrorMessage, 0, JSMSG_NOT_NONNULL_OBJECT);
-        return NULL;
+        return nullptr;
     }
     RootedObject obj(cx, &value.toObject());
     PerfMeasurement* p = (PerfMeasurement*)
-        JS_GetInstancePrivate(cx, obj, &pm_class, NULL);
+        JS_GetInstancePrivate(cx, obj, &pm_class, nullptr);
     if (p)
         return p;
 
@@ -218,7 +218,7 @@ GetPM(JSContext* cx, JS::HandleValue value, const char* fname)
     // is nonzero, so we have to do it by hand.
     JS_ReportErrorNumber(cx, js_GetErrorMessage, 0, JSMSG_INCOMPATIBLE_PROTO,
                          pm_class.name, fname, JS_GetClass(obj)->name);
-    return NULL;
+    return nullptr;
 }
 
 namespace JS {
@@ -227,7 +227,7 @@ JSObject*
 RegisterPerfMeasurement(JSContext *cx, JSObject *global)
 {
     RootedObject prototype(cx);
-    prototype = JS_InitClass(cx, global, NULL /* parent */,
+    prototype = JS_InitClass(cx, global, nullptr /* parent */,
                              &pm_class, pm_construct, 1,
                              pm_props, pm_fns, 0, 0);
     if (!prototype)

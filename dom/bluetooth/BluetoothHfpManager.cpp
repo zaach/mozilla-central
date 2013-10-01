@@ -27,6 +27,7 @@
 #include "nsISettingsService.h"
 #include "nsITelephonyProvider.h"
 #include "nsRadioInterfaceLayer.h"
+#include "nsServiceManagerUtils.h"
 
 /**
  * BRSF bitmask of AG supported features. See 4.34.1 "Bluetooth Defined AT
@@ -54,8 +55,6 @@
 #define CR_LF "\xd\xa";
 
 #define MOZSETTINGS_CHANGED_ID               "mozsettings-changed"
-#define MOBILE_CONNECTION_ICCINFO_CHANGED_ID "mobile-connection-iccinfo-changed"
-#define MOBILE_CONNECTION_VOICE_CHANGED_ID   "mobile-connection-voice-changed"
 #define AUDIO_VOLUME_BT_SCO_ID               "audio.volume.bt_sco"
 
 using namespace mozilla;
@@ -173,7 +172,7 @@ public:
     NS_ENSURE_TRUE(cx, NS_OK);
 
     if (!aResult.isNumber()) {
-      NS_WARNING("'" AUDIO_VOLUME_BT_SCO_ID "' is not a number!");
+      BT_WARNING("'" AUDIO_VOLUME_BT_SCO_ID "' is not a number!");
       return NS_OK;
     }
 
@@ -186,7 +185,7 @@ public:
   NS_IMETHOD
   HandleError(const nsAString& aName)
   {
-    NS_WARNING("Unable to get value for '" AUDIO_VOLUME_BT_SCO_ID "'");
+    BT_WARNING("Unable to get value for '" AUDIO_VOLUME_BT_SCO_ID "'");
     return NS_OK;
   }
 };
@@ -203,10 +202,6 @@ BluetoothHfpManager::Observe(nsISupports* aSubject,
     HandleVolumeChanged(nsDependentString(aData));
   } else if (!strcmp(aTopic, NS_XPCOM_SHUTDOWN_OBSERVER_ID)) {
     HandleShutdown();
-  } else if (!strcmp(aTopic, MOBILE_CONNECTION_ICCINFO_CHANGED_ID)) {
-    HandleIccInfoChanged();
-  } else if (!strcmp(aTopic, MOBILE_CONNECTION_VOICE_CHANGED_ID)) {
-    HandleVoiceConnectionChanged();
   } else {
     MOZ_ASSERT(false, "BluetoothHfpManager got unexpected topic!");
     return NS_ERROR_UNEXPECTED;
@@ -261,7 +256,7 @@ public:
     }
 
     if (!sBluetoothHfpManager) {
-      NS_WARNING("BluetoothHfpManager no longer exists, cannot send ring!");
+      BT_WARNING("BluetoothHfpManager no longer exists, cannot send ring!");
       return;
     }
 
@@ -372,18 +367,16 @@ BluetoothHfpManager::Init()
   NS_ENSURE_TRUE(obs, false);
 
   if (NS_FAILED(obs->AddObserver(this, MOZSETTINGS_CHANGED_ID, false)) ||
-      NS_FAILED(obs->AddObserver(this, NS_XPCOM_SHUTDOWN_OBSERVER_ID, false)) ||
-      NS_FAILED(obs->AddObserver(this, MOBILE_CONNECTION_ICCINFO_CHANGED_ID, false)) ||
-      NS_FAILED(obs->AddObserver(this, MOBILE_CONNECTION_VOICE_CHANGED_ID, false))) {
+      NS_FAILED(obs->AddObserver(this, NS_XPCOM_SHUTDOWN_OBSERVER_ID, false))) {
     BT_WARNING("Failed to add observers!");
     return false;
   }
 
   hal::RegisterBatteryObserver(this);
 
-  mListener = new BluetoothTelephonyListener();
+  mListener = new BluetoothRilListener();
   if (!mListener->StartListening()) {
-    NS_WARNING("Failed to start listening RIL");
+    BT_WARNING("Failed to start listening RIL");
     return false;
   }
 
@@ -413,7 +406,7 @@ BluetoothHfpManager::Init()
 BluetoothHfpManager::~BluetoothHfpManager()
 {
   if (!mListener->StopListening()) {
-    NS_WARNING("Failed to stop listening RIL");
+    BT_WARNING("Failed to stop listening RIL");
   }
   mListener = nullptr;
 
@@ -421,9 +414,7 @@ BluetoothHfpManager::~BluetoothHfpManager()
   NS_ENSURE_TRUE_VOID(obs);
 
   if (NS_FAILED(obs->RemoveObserver(this, NS_XPCOM_SHUTDOWN_OBSERVER_ID)) ||
-      NS_FAILED(obs->RemoveObserver(this, MOZSETTINGS_CHANGED_ID)) ||
-      NS_FAILED(obs->RemoveObserver(this, MOBILE_CONNECTION_ICCINFO_CHANGED_ID)) ||
-      NS_FAILED(obs->RemoveObserver(this, MOBILE_CONNECTION_VOICE_CHANGED_ID))) {
+      NS_FAILED(obs->RemoveObserver(this, MOZSETTINGS_CHANGED_ID))) {
     BT_WARNING("Failed to remove observers!");
   }
 
@@ -453,58 +444,34 @@ BluetoothHfpManager::Get()
 }
 
 void
-BluetoothHfpManager::DispatchConnectionStatusChanged(const nsAString& aType)
-{
-  MOZ_ASSERT(NS_IsMainThread());
-
-  bool status = false;
-  if (aType.EqualsLiteral(HFP_STATUS_CHANGED_ID)) {
-    status = IsConnected();
-  } else if (aType.EqualsLiteral(SCO_STATUS_CHANGED_ID)) {
-    status = IsScoConnected();
-  } else {
-    BT_WARNING("Wrong type for DispatchConnectionStatusChanged");
-    return;
-  }
-
-  DispatchStatusChangedEvent(aType, mDeviceAddress, status);
-}
-
-void
 BluetoothHfpManager::NotifyConnectionStatusChanged(const nsAString& aType)
 {
   MOZ_ASSERT(NS_IsMainThread());
 
-  BluetoothValue v;
-  InfallibleTArray<BluetoothNamedValue> parameters;
-  nsString name = NS_LITERAL_STRING("connected");
-  if (aType.EqualsLiteral(BLUETOOTH_HFP_STATUS_CHANGED_ID)) {
-    v = IsConnected();
-  } else if (aType.EqualsLiteral(BLUETOOTH_SCO_STATUS_CHANGED_ID)) {
-    v = IsScoConnected();
-  } else {
-    BT_WARNING("Wrong type for NotifyConnectionStatusChanged");
-    return;
-  }
-  parameters.AppendElement(BluetoothNamedValue(name, v));
-
-  name.AssignLiteral("address");
-  v = mDeviceAddress;
-  parameters.AppendElement(BluetoothNamedValue(name, v));
-
-  if (!BroadcastSystemMessage(aType, parameters)) {
-    NS_WARNING("Failed to broadcast system message to settings");
-  }
-
   // Notify Gecko observers
-  nsCOMPtr<nsIObserverService> obs =
-    do_GetService("@mozilla.org/observer-service;1");
+  nsCOMPtr<nsIObserverService> obs = services::GetObserverService();
   NS_ENSURE_TRUE_VOID(obs);
 
   if (NS_FAILED(obs->NotifyObservers(this, NS_ConvertUTF16toUTF8(aType).get(),
                                      mDeviceAddress.get()))) {
-    NS_WARNING("Failed to notify observsers!");
+    BT_WARNING("Failed to notify observsers!");
   }
+
+  // Dispatch an event of status change
+  bool status;
+  nsAutoString eventName;
+  if (aType.EqualsLiteral(BLUETOOTH_HFP_STATUS_CHANGED_ID)) {
+    status = IsConnected();
+    eventName.AssignLiteral(HFP_STATUS_CHANGED_ID);
+  } else if (aType.EqualsLiteral(BLUETOOTH_SCO_STATUS_CHANGED_ID)) {
+    status = IsScoConnected();
+    eventName.AssignLiteral(SCO_STATUS_CHANGED_ID);
+  } else {
+    MOZ_ASSERT(false);
+    return;
+  }
+
+  DispatchStatusChangedEvent(eventName, mDeviceAddress, status);
 }
 
 void
@@ -520,7 +487,7 @@ BluetoothHfpManager::NotifyDialer(const nsAString& aCommand)
   parameters.AppendElement(BluetoothNamedValue(name, v));
 
   if (!BroadcastSystemMessage(type, parameters)) {
-    NS_WARNING("Failed to broadcast system message to dialer");
+    BT_WARNING("Failed to broadcast system message to dialer");
   }
 }
 
@@ -599,7 +566,7 @@ BluetoothHfpManager::HandleVoiceConnectionChanged()
   JS::Value value;
   voiceInfo->GetRelSignalStrength(&value);
   if (!value.isNumber()) {
-    NS_WARNING("Failed to get relSignalStrength in BluetoothHfpManager");
+    BT_WARNING("Failed to get relSignalStrength in BluetoothHfpManager");
     return;
   }
   signal = ceil(value.toNumber() / 20.0);
@@ -633,7 +600,7 @@ BluetoothHfpManager::HandleVoiceConnectionChanged()
   //
   // Please see Bug 871366 for more information.
   if (mOperatorName.Length() > 16) {
-    NS_WARNING("The operator name was longer than 16 characters. We cut it.");
+    BT_WARNING("The operator name was longer than 16 characters. We cut it.");
     mOperatorName.Left(mOperatorName, 16);
   }
 }
@@ -703,14 +670,14 @@ BluetoothHfpManager::ReceiveSocketData(BluetoothSocket* aSocket,
     ParseAtCommand(msg, 8, atCommandValues);
 
     if (atCommandValues.Length() < 4) {
-      NS_WARNING("Could't get the value of command [AT+CMER=]");
+      BT_WARNING("Could't get the value of command [AT+CMER=]");
       goto respond_with_ok;
     }
 
     if (!atCommandValues[0].EqualsLiteral("3") ||
         !atCommandValues[1].EqualsLiteral("0") ||
         !atCommandValues[2].EqualsLiteral("0")) {
-      NS_WARNING("Wrong value of CMER");
+      BT_WARNING("Wrong value of CMER");
       goto respond_with_ok;
     }
 
@@ -719,7 +686,7 @@ BluetoothHfpManager::ReceiveSocketData(BluetoothSocket* aSocket,
     ParseAtCommand(msg, 8, atCommandValues);
 
     if (atCommandValues.IsEmpty()) {
-      NS_WARNING("Could't get the value of command [AT+CMEE=]");
+      BT_WARNING("Could't get the value of command [AT+CMEE=]");
       goto respond_with_ok;
     }
 
@@ -731,7 +698,7 @@ BluetoothHfpManager::ReceiveSocketData(BluetoothSocket* aSocket,
     ParseAtCommand(msg, 8, atCommandValues);
 
     if (atCommandValues.Length() != 2) {
-      NS_WARNING("Could't get the value of command [AT+COPS=]");
+      BT_WARNING("Could't get the value of command [AT+COPS=]");
       goto respond_with_ok;
     }
 
@@ -756,7 +723,7 @@ BluetoothHfpManager::ReceiveSocketData(BluetoothSocket* aSocket,
     ParseAtCommand(msg, 7, atCommandValues);
 
     if (atCommandValues.Length() != 1) {
-      NS_WARNING("Couldn't get the value of command [AT+VTS=]");
+      BT_WARNING("Couldn't get the value of command [AT+VTS=]");
       goto respond_with_ok;
     }
 
@@ -769,14 +736,14 @@ BluetoothHfpManager::ReceiveSocketData(BluetoothSocket* aSocket,
     ParseAtCommand(msg, 7, atCommandValues);
 
     if (atCommandValues.IsEmpty()) {
-      NS_WARNING("Couldn't get the value of command [AT+VGM]");
+      BT_WARNING("Couldn't get the value of command [AT+VGM]");
       goto respond_with_ok;
     }
 
     nsresult rv;
     int vgm = atCommandValues[0].ToInteger(&rv);
     if (NS_FAILED(rv)) {
-      NS_WARNING("Failed to extract microphone volume from bluetooth headset!");
+      BT_WARNING("Failed to extract microphone volume from bluetooth headset!");
       goto respond_with_ok;
     }
 
@@ -788,7 +755,7 @@ BluetoothHfpManager::ReceiveSocketData(BluetoothSocket* aSocket,
     ParseAtCommand(msg, 8, atCommandValues);
 
     if (atCommandValues.IsEmpty()) {
-      NS_WARNING("Could't get the value of command [AT+CHLD=]");
+      BT_WARNING("Could't get the value of command [AT+CHLD=]");
       goto respond_with_ok;
     }
 
@@ -809,10 +776,10 @@ BluetoothHfpManager::ReceiveSocketData(BluetoothSocket* aSocket,
     char chld = atCommandValues[0][0];
     bool valid = true;
     if (atCommandValues[0].Length() > 1) {
-      NS_WARNING("No index should be included in command [AT+CHLD]");
+      BT_WARNING("No index should be included in command [AT+CHLD]");
       valid = false;
     } else if (chld == '3' || chld == '4') {
-      NS_WARNING("The value of command [AT+CHLD] is not supported");
+      BT_WARNING("The value of command [AT+CHLD] is not supported");
       valid = false;
     } else if (chld == '0') {
       // We need to rename these dialer commands for better readability
@@ -824,7 +791,7 @@ BluetoothHfpManager::ReceiveSocketData(BluetoothSocket* aSocket,
     } else if (chld == '2') {
       NotifyDialer(NS_LITERAL_STRING("CHLD=2"));
     } else {
-      NS_WARNING("Wrong value of command [AT+CHLD]");
+      BT_WARNING("Wrong value of command [AT+CHLD]");
       valid = false;
     }
 
@@ -838,14 +805,14 @@ BluetoothHfpManager::ReceiveSocketData(BluetoothSocket* aSocket,
     ParseAtCommand(msg, 7, atCommandValues);
 
     if (atCommandValues.IsEmpty()) {
-      NS_WARNING("Could't get the value of command [AT+VGS=]");
+      BT_WARNING("Could't get the value of command [AT+VGS=]");
       goto respond_with_ok;
     }
 
     nsresult rv;
     int newVgs = atCommandValues[0].ToInteger(&rv);
     if (NS_FAILED(rv)) {
-      NS_WARNING("Failed to extract volume value from bluetooth headset!");
+      BT_WARNING("Failed to extract volume value from bluetooth headset!");
       goto respond_with_ok;
     }
 
@@ -888,7 +855,7 @@ BluetoothHfpManager::ReceiveSocketData(BluetoothSocket* aSocket,
     nsAutoCString message(msg), newMsg;
     int end = message.FindChar(';');
     if (end < 0) {
-      NS_WARNING("Could't get the value of command [ATD]");
+      BT_WARNING("Could't get the value of command [ATD]");
       goto respond_with_ok;
     }
 
@@ -898,7 +865,7 @@ BluetoothHfpManager::ReceiveSocketData(BluetoothSocket* aSocket,
     ParseAtCommand(msg, 8, atCommandValues);
 
     if (atCommandValues.IsEmpty()) {
-      NS_WARNING("Could't get the value of command [AT+CLIP=]");
+      BT_WARNING("Could't get the value of command [AT+CLIP=]");
       goto respond_with_ok;
     }
 
@@ -907,7 +874,7 @@ BluetoothHfpManager::ReceiveSocketData(BluetoothSocket* aSocket,
     ParseAtCommand(msg, 8, atCommandValues);
 
     if (atCommandValues.IsEmpty()) {
-      NS_WARNING("Could't get the value of command [AT+CCWA=]");
+      BT_WARNING("Could't get the value of command [AT+CCWA=]");
       goto respond_with_ok;
     }
 
@@ -940,7 +907,7 @@ BluetoothHfpManager::ReceiveSocketData(BluetoothSocket* aSocket,
         // (2) A SCO link exists
         // (3) This is the very first AT+CKPD=200 of this session
         // It is the case of Figure 4.3, Bluetooth HSP spec. Do nothing.
-        NS_WARNING("AT+CKPD=200: Do nothing");
+        BT_WARNING("AT+CKPD=200: Do nothing");
       }
     }
 
@@ -989,7 +956,7 @@ BluetoothHfpManager::ReceiveSocketData(BluetoothSocket* aSocket,
     warningMsg.Append(NS_LITERAL_CSTRING("Unsupported AT command: "));
     warningMsg.Append(msg);
     warningMsg.Append(NS_LITERAL_CSTRING(", reply with ERROR"));
-    NS_WARNING(warningMsg.get());
+    BT_WARNING(warningMsg.get());
 
     SendLine("ERROR");
     return;
@@ -1059,12 +1026,12 @@ BluetoothHfpManager::Listen()
   MOZ_ASSERT(NS_IsMainThread());
 
   if (sInShutdown) {
-    NS_WARNING("Listen called while in shutdown!");
+    BT_WARNING("Listen called while in shutdown!");
     return false;
   }
 
   if (mSocket) {
-    NS_WARNING("mSocket exists. Failed to listen.");
+    BT_WARNING("mSocket exists. Failed to listen.");
     return false;
   }
 
@@ -1074,7 +1041,7 @@ BluetoothHfpManager::Listen()
 
     if (!mHandsfreeSocket->Listen(
           BluetoothReservedChannels::CHANNEL_HANDSFREE_AG)) {
-      NS_WARNING("[HFP] Can't listen on RFCOMM socket!");
+      BT_WARNING("[HFP] Can't listen on RFCOMM socket!");
       mHandsfreeSocket = nullptr;
       return false;
     }
@@ -1086,7 +1053,7 @@ BluetoothHfpManager::Listen()
 
     if (!mHeadsetSocket->Listen(
           BluetoothReservedChannels::CHANNEL_HEADSET_AG)) {
-      NS_WARNING("[HSP] Can't listen on RFCOMM socket!");
+      BT_WARNING("[HSP] Can't listen on RFCOMM socket!");
       mHandsfreeSocket->Disconnect();
       mHandsfreeSocket = nullptr;
       mHeadsetSocket = nullptr;
@@ -1134,7 +1101,7 @@ bool
 BluetoothHfpManager::SendCommand(const char* aCommand, uint32_t aValue)
 {
   if (!IsConnected()) {
-    NS_WARNING("Trying to SendCommand() without a SLC");
+    BT_WARNING("Trying to SendCommand() without a SLC");
     return false;
   }
 
@@ -1148,7 +1115,7 @@ BluetoothHfpManager::SendCommand(const char* aCommand, uint32_t aValue)
     }
 
     if ((aValue < 1) || (aValue > ArrayLength(sCINDItems) - 1)) {
-      NS_WARNING("unexpected CINDType for CIEV command");
+      BT_WARNING("unexpected CINDType for CIEV command");
       return false;
     }
 
@@ -1216,7 +1183,7 @@ BluetoothHfpManager::SendCommand(const char* aCommand, uint32_t aValue)
           }
           break;
         default:
-          NS_WARNING("Not handling call status for CLCC");
+          BT_WARNING("Not handling call status for CLCC");
           break;
       }
       message.AppendLiteral(",0,0,\"");
@@ -1376,7 +1343,7 @@ BluetoothHfpManager::HandleCallStateChanged(uint32_t aCallIndex,
           UpdateCIND(CINDType::CALLSETUP, CallSetupState::NO_CALLSETUP, aSend);
           break;
         default:
-          NS_WARNING("Not handling state changed");
+          BT_WARNING("Not handling state changed");
       }
 
       // = Handle callheld separately =
@@ -1415,7 +1382,7 @@ BluetoothHfpManager::HandleCallStateChanged(uint32_t aCallIndex,
           }
           break;
         default:
-          NS_WARNING("Not handling state changed");
+          BT_WARNING("Not handling state changed");
       }
 
       // Handle held calls separately
@@ -1445,7 +1412,7 @@ BluetoothHfpManager::HandleCallStateChanged(uint32_t aCallIndex,
       }
       break;
     default:
-      NS_WARNING("Not handling state changed");
+      BT_WARNING("Not handling state changed");
       break;
   }
 }
@@ -1454,6 +1421,7 @@ void
 BluetoothHfpManager::OnSocketConnectSuccess(BluetoothSocket* aSocket)
 {
   MOZ_ASSERT(aSocket);
+  MOZ_ASSERT(mListener);
 
   // Success to create a SCO socket
   if (aSocket == mScoSocket) {
@@ -1482,18 +1450,16 @@ BluetoothHfpManager::OnSocketConnectSuccess(BluetoothSocket* aSocket)
     mHandsfreeSocket = nullptr;
   }
 
-  nsCOMPtr<nsITelephonyProvider> provider =
-    do_GetService(TELEPHONY_PROVIDER_CONTRACTID);
-  NS_ENSURE_TRUE_VOID(provider);
-  provider->EnumerateCalls(mListener->GetListener());
+  // Enumerate current calls
+  mListener->EnumerateCalls();
 
   mFirstCKPD = true;
 
   // Cache device path for NotifySettings() since we can't get socket address
   // when a headset disconnect with us
   mSocket->GetAddress(mDeviceAddress);
-  NotifyConnectionStatusChanged(NS_LITERAL_STRING(BLUETOOTH_HFP_STATUS_CHANGED_ID));
-  DispatchConnectionStatusChanged(NS_LITERAL_STRING(HFP_STATUS_CHANGED_ID));
+  NotifyConnectionStatusChanged(
+    NS_LITERAL_STRING(BLUETOOTH_HFP_STATUS_CHANGED_ID));
 
   ListenSco();
 
@@ -1533,8 +1499,8 @@ BluetoothHfpManager::OnSocketDisconnect(BluetoothSocket* aSocket)
 
   DisconnectSco();
 
-  NotifyConnectionStatusChanged(NS_LITERAL_STRING(BLUETOOTH_HFP_STATUS_CHANGED_ID));
-  DispatchConnectionStatusChanged(NS_LITERAL_STRING(HFP_STATUS_CHANGED_ID));
+  NotifyConnectionStatusChanged(
+    NS_LITERAL_STRING(BLUETOOTH_HFP_STATUS_CHANGED_ID));
   OnDisconnect(EmptyString());
 
   Reset();
@@ -1603,8 +1569,8 @@ BluetoothHfpManager::OnScoConnectSuccess()
     mScoRunnable = nullptr;
   }
 
-  NotifyConnectionStatusChanged(NS_LITERAL_STRING(BLUETOOTH_SCO_STATUS_CHANGED_ID));
-  DispatchConnectionStatusChanged(NS_LITERAL_STRING(SCO_STATUS_CHANGED_ID));
+  NotifyConnectionStatusChanged(
+    NS_LITERAL_STRING(BLUETOOTH_SCO_STATUS_CHANGED_ID));
 
   mScoSocketStatus = mScoSocket->GetConnectionStatus();
 }
@@ -1627,8 +1593,8 @@ BluetoothHfpManager::OnScoDisconnect()
 {
   if (mScoSocketStatus == SocketConnectionStatus::SOCKET_CONNECTED) {
     ListenSco();
-    NotifyConnectionStatusChanged(NS_LITERAL_STRING(BLUETOOTH_SCO_STATUS_CHANGED_ID));
-    DispatchConnectionStatusChanged(NS_LITERAL_STRING(SCO_STATUS_CHANGED_ID));
+    NotifyConnectionStatusChanged(
+      NS_LITERAL_STRING(BLUETOOTH_SCO_STATUS_CHANGED_ID));
   }
 }
 
@@ -1655,12 +1621,12 @@ BluetoothHfpManager::ConnectSco(BluetoothReplyRunnable* aRunnable)
   MOZ_ASSERT(NS_IsMainThread());
 
   if (sInShutdown) {
-    NS_WARNING("ConnecteSco called while in shutdown!");
+    BT_WARNING("ConnecteSco called while in shutdown!");
     return false;
   }
 
   if (!IsConnected()) {
-    NS_WARNING("BluetoothHfpManager is not connected");
+    BT_WARNING("BluetoothHfpManager is not connected");
     return false;
   }
 
@@ -1668,7 +1634,7 @@ BluetoothHfpManager::ConnectSco(BluetoothReplyRunnable* aRunnable)
   if (status == SocketConnectionStatus::SOCKET_CONNECTED ||
       status == SocketConnectionStatus::SOCKET_CONNECTING ||
       (mScoRunnable && (mScoRunnable != aRunnable))) {
-    NS_WARNING("SCO connection exists or is being established");
+    BT_WARNING("SCO connection exists or is being established");
     return false;
   }
 
@@ -1688,13 +1654,13 @@ bool
 BluetoothHfpManager::DisconnectSco()
 {
   if (!IsConnected()) {
-    NS_WARNING("BluetoothHfpManager is not connected");
+    BT_WARNING("BluetoothHfpManager is not connected");
     return false;
   }
 
   SocketConnectionStatus status = mScoSocket->GetConnectionStatus();
   if (status != SOCKET_CONNECTED && status != SOCKET_CONNECTING) {
-    NS_WARNING("No SCO exists");
+    BT_WARNING("No SCO exists");
     return false;
   }
 
@@ -1708,20 +1674,20 @@ BluetoothHfpManager::ListenSco()
   MOZ_ASSERT(NS_IsMainThread());
 
   if (sInShutdown) {
-    NS_WARNING("ListenSco called while in shutdown!");
+    BT_WARNING("ListenSco called while in shutdown!");
     return false;
   }
 
   if (mScoSocket->GetConnectionStatus() ==
       SocketConnectionStatus::SOCKET_LISTENING) {
-    NS_WARNING("SCO socket has been already listening");
+    BT_WARNING("SCO socket has been already listening");
     return false;
   }
 
   mScoSocket->Disconnect();
 
   if (!mScoSocket->Listen(-1)) {
-    NS_WARNING("Can't listen on SCO socket!");
+    BT_WARNING("Can't listen on SCO socket!");
     return false;
   }
 

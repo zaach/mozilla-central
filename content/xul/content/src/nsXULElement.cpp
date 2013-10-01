@@ -73,7 +73,8 @@
 #include "nsIListBoxObject.h"
 #include "nsContentUtils.h"
 #include "nsContentList.h"
-#include "nsMutationEvent.h"
+#include "mozilla/MouseEvents.h"
+#include "mozilla/MutationEvent.h"
 #include "nsAsyncDOMEvent.h"
 #include "nsIDOMMutationEvent.h"
 #include "nsPIDOMWindow.h"
@@ -89,6 +90,7 @@
 #include "nsAttrValueOrString.h"
 #include "nsAttrValueInlines.h"
 #include "mozilla/Attributes.h"
+#include "nsIController.h"
 #include <algorithm>
 
 // The XUL doc interface
@@ -108,12 +110,6 @@
 
 using namespace mozilla;
 using namespace mozilla::dom;
-
-//----------------------------------------------------------------------
-
-static NS_DEFINE_CID(kXULPopupListenerCID,        NS_XULPOPUPLISTENER_CID);
-
-//----------------------------------------------------------------------
 
 #ifdef XUL_PROTOTYPE_ATTRIBUTE_METERING
 uint32_t             nsXULPrototypeAttribute::gNumElements;
@@ -2579,10 +2575,11 @@ NotifyOffThreadScriptCompletedRunnable::Run()
     nsCOMPtr<nsIJSRuntimeService> svc = do_GetService("@mozilla.org/js/xpc/RuntimeService;1");
     NS_ENSURE_TRUE(svc, NS_ERROR_FAILURE);
 
-    JSRuntime *rt;
-    svc->GetRuntime(&rt);
-    NS_ENSURE_TRUE(svc, NS_ERROR_FAILURE);
-    JSScript *script = JS::FinishOffThreadScript(NULL, rt, mToken);
+    JSScript *script;
+    {
+        AutoSafeJSContext cx;
+        script = JS::FinishOffThreadScript(cx, JS_GetRuntime(cx), mToken);
+    }
 
     return mReceiver->OnScriptCompileComplete(script, script ? NS_OK : NS_ERROR_FAILURE);
 }

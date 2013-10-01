@@ -39,7 +39,7 @@ enum BlockCommonSlots {
     // The type descriptor with which this block is associated.
     SLOT_DATATYPE = 0,
 
-    // If this value is NULL, then the block instance owns the
+    // If this value is nullptr, then the block instance owns the
     // uint8_t* in its priate data. Otherwise, this field contains the
     // owner, and thus keeps the owner alive.
     SLOT_BLOCKREFOWNER,
@@ -47,22 +47,22 @@ enum BlockCommonSlots {
     BLOCK_RESERVED_SLOTS
 };
 
-extern Class DataClass;
+extern const Class DataClass;
 
-extern Class TypeClass;
+extern const Class TypeClass;
 
 template <ScalarTypeRepresentation::Type type, typename T>
 class NumericType
 {
   private:
-    static Class * typeToClass();
+    static const Class * typeToClass();
   public:
     static bool convert(JSContext *cx, HandleValue val, T* converted);
     static bool reify(JSContext *cx, void *mem, MutableHandleValue vp);
     static bool call(JSContext *cx, unsigned argc, Value *vp);
 };
 
-extern Class NumericTypeClasses[ScalarTypeRepresentation::TYPE_MAX];
+extern const Class NumericTypeClasses[ScalarTypeRepresentation::TYPE_MAX];
 
 /*
  * Type descriptor created by `new ArrayType(...)`
@@ -71,7 +71,7 @@ class ArrayType : public JSObject
 {
   private:
   public:
-    static Class class_;
+    static const Class class_;
 
     static JSObject *create(JSContext *cx, HandleObject arrayTypeGlobal,
                             HandleObject elementType, size_t length);
@@ -99,7 +99,7 @@ class StructType : public JSObject
                        HandleObject fields);
 
   public:
-    static Class class_;
+    static const Class class_;
 
     static bool toSource(JSContext *cx, unsigned int argc, jsval *vp);
 
@@ -115,7 +115,7 @@ class BinaryBlock
 {
   private:
     // Creates a binary data object of the given type and class, but with
-    // a NULL memory pointer. Caller must use setPrivate() to set the
+    // a nullptr memory pointer. Caller must use setPrivate() to set the
     // memory pointer properly.
     static JSObject *createNull(JSContext *cx, HandleObject type,
                                 HandleValue owner);
@@ -195,7 +195,11 @@ class BinaryBlock
                                 MutableHandleValue statep, MutableHandleId idp);
 
   public:
-    static Class class_;
+    static const Class class_;
+
+    // Returns the offset in bytes within the object where the `void*`
+    // pointer can be found.
+    static size_t dataOffset();
 
     static bool isBlock(HandleObject val);
     static uint8_t *mem(HandleObject val);

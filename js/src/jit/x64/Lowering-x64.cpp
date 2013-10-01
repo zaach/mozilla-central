@@ -37,6 +37,18 @@ LIRGeneratorX64::useBoxFixed(LInstruction *lir, size_t n, MDefinition *mir, Regi
     return true;
 }
 
+LAllocation
+LIRGeneratorX64::useByteOpRegister(MDefinition *mir)
+{
+    return useRegister(mir);
+}
+
+LAllocation
+LIRGeneratorX64::useByteOpRegisterOrNonDoubleConstant(MDefinition *mir)
+{
+    return useRegisterOrNonDoubleConstant(mir);
+}
+
 LDefinition
 LIRGeneratorX64::tempToUnbox()
 {
@@ -64,10 +76,10 @@ LIRGeneratorX64::visitUnbox(MUnbox *unbox)
 {
     MDefinition *box = unbox->getOperand(0);
     LUnboxBase *lir;
-    if (unbox->type() == MIRType_Double)
-        lir = new LUnboxDouble(useRegister(box));
+    if (IsFloatingPointType(unbox->type()))
+        lir = new LUnboxFloatingPoint(useRegisterAtStart(box), unbox->type());
     else
-        lir = new LUnbox(useRegister(box));
+        lir = new LUnbox(useRegisterAtStart(box));
 
     if (unbox->fallible() && !assignSnapshot(lir, unbox->bailoutKind()))
         return false;
@@ -99,46 +111,10 @@ LIRGeneratorX64::lowerUntypedPhiInput(MPhi *phi, uint32_t inputPosition, LBlock 
 }
 
 bool
-LIRGeneratorX64::visitStoreTypedArrayElement(MStoreTypedArrayElement *ins)
-{
-    JS_ASSERT(ins->elements()->type() == MIRType_Elements);
-    JS_ASSERT(ins->index()->type() == MIRType_Int32);
-
-    if (ins->isFloatArray())
-        JS_ASSERT(ins->value()->type() == MIRType_Double);
-    else
-        JS_ASSERT(ins->value()->type() == MIRType_Int32);
-
-    LUse elements = useRegister(ins->elements());
-    LAllocation index = useRegisterOrConstant(ins->index());
-    LAllocation value = useRegisterOrNonDoubleConstant(ins->value());
-    return add(new LStoreTypedArrayElement(elements, index, value), ins);
-}
-
-bool
-LIRGeneratorX64::visitStoreTypedArrayElementHole(MStoreTypedArrayElementHole *ins)
-{
-    JS_ASSERT(ins->elements()->type() == MIRType_Elements);
-    JS_ASSERT(ins->index()->type() == MIRType_Int32);
-    JS_ASSERT(ins->length()->type() == MIRType_Int32);
-
-    if (ins->isFloatArray())
-        JS_ASSERT(ins->value()->type() == MIRType_Double);
-    else
-        JS_ASSERT(ins->value()->type() == MIRType_Int32);
-
-    LUse elements = useRegister(ins->elements());
-    LAllocation length = useAnyOrConstant(ins->length());
-    LAllocation index = useRegisterOrConstant(ins->index());
-    LAllocation value = useRegisterOrNonDoubleConstant(ins->value());
-    return add(new LStoreTypedArrayElementHole(elements, length, index, value), ins);
-}
-
-bool
 LIRGeneratorX64::visitAsmJSUnsignedToDouble(MAsmJSUnsignedToDouble *ins)
 {
     JS_ASSERT(ins->input()->type() == MIRType_Int32);
-    LUInt32ToDouble *lir = new LUInt32ToDouble(useRegisterAtStart(ins->input()));
+    LAsmJSUInt32ToDouble *lir = new LAsmJSUInt32ToDouble(useRegisterAtStart(ins->input()));
     return define(lir, ins);
 }
 

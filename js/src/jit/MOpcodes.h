@@ -24,6 +24,7 @@ namespace jit {
     _(Beta)                                                                 \
     _(OsrValue)                                                             \
     _(OsrScopeChain)                                                        \
+    _(OsrArgumentsObject)                                                   \
     _(ReturnFromCtor)                                                       \
     _(CheckOverRecursed)                                                    \
     _(DefVar)                                                               \
@@ -34,11 +35,13 @@ namespace jit {
     _(CreateArgumentsObject)                                                \
     _(GetArgumentsObjectArg)                                                \
     _(SetArgumentsObjectArg)                                                \
+    _(ComputeThis)                                                          \
     _(PrepareCall)                                                          \
     _(PassArg)                                                              \
     _(Call)                                                                 \
     _(ApplyArgs)                                                            \
     _(Bail)                                                                 \
+    _(AssertFloat32)                                                        \
     _(GetDynamicName)                                                       \
     _(FilterArguments)                                                      \
     _(CallDirectEval)                                                       \
@@ -76,6 +79,7 @@ namespace jit {
     _(GuardString)                                                          \
     _(AssertRange)                                                          \
     _(ToDouble)                                                             \
+    _(ToFloat32)                                                            \
     _(ToInt32)                                                              \
     _(TruncateToInt32)                                                      \
     _(ToString)                                                             \
@@ -120,6 +124,7 @@ namespace jit {
     _(ArrayLength)                                                          \
     _(TypedArrayLength)                                                     \
     _(TypedArrayElements)                                                   \
+    _(TypedObjectElements)                                                  \
     _(InitializedLength)                                                    \
     _(SetInitializedLength)                                                 \
     _(Not)                                                                  \
@@ -160,7 +165,8 @@ namespace jit {
     _(IteratorEnd)                                                          \
     _(StringLength)                                                         \
     _(ArgumentsLength)                                                      \
-    _(GetArgument)                                                          \
+    _(GetFrameArgument)                                                     \
+    _(SetFrameArgument)                                                     \
     _(RunOncePrologue)                                                      \
     _(Rest)                                                                 \
     _(Floor)                                                                \
@@ -194,6 +200,7 @@ namespace jit {
     _(NewCallObjectPar)                                                     \
     _(NewPar)                                                               \
     _(NewDenseArrayPar)                                                     \
+    _(NewDerivedTypedObject)                                                \
     _(AbortPar)                                                             \
     _(LambdaPar)                                                            \
     _(RestPar)                                                              \

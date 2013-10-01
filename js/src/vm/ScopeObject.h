@@ -112,7 +112,7 @@ ScopeCoordinateToStaticScopeShape(JSContext *cx, JSScript *script, jsbytecode *p
 extern PropertyName *
 ScopeCoordinateName(JSContext *cx, JSScript *script, jsbytecode *pc);
 
-/* Return the function script accessed by the given ALIASEDVAR op, or NULL. */
+/* Return the function script accessed by the given ALIASEDVAR op, or nullptr. */
 extern JSScript *
 ScopeCoordinateFunctionScript(JSContext *cx, JSScript *script, jsbytecode *pc);
 
@@ -201,7 +201,7 @@ class CallObject : public ScopeObject
     create(JSContext *cx, HandleScript script, HandleObject enclosing, HandleFunction callee);
 
   public:
-    static Class class_;
+    static const Class class_;
 
     /* These functions are internal and are exposed only for JITs. */
     static CallObject *
@@ -259,7 +259,7 @@ class DeclEnvObject : public ScopeObject
     static const uint32_t RESERVED_SLOTS = 2;
     static const gc::AllocKind FINALIZE_KIND = gc::FINALIZE_OBJECT2_BACKGROUND;
 
-    static Class class_;
+    static const Class class_;
 
     static DeclEnvObject *
     createTemplateObject(JSContext *cx, HandleFunction fun, gc::InitialHeap heap);
@@ -294,7 +294,7 @@ class WithObject : public NestedScopeObject
     static const unsigned RESERVED_SLOTS = 3;
     static const gc::AllocKind FINALIZE_KIND = gc::FINALIZE_OBJECT4_BACKGROUND;
 
-    static Class class_;
+    static const Class class_;
 
     static WithObject *
     create(JSContext *cx, HandleObject proto, HandleObject enclosing, uint32_t depth);
@@ -316,7 +316,7 @@ class BlockObject : public NestedScopeObject
     static const unsigned RESERVED_SLOTS = 2;
     static const gc::AllocKind FINALIZE_KIND = gc::FINALIZE_OBJECT4_BACKGROUND;
 
-    static Class class_;
+    static const Class class_;
 
     /* Return the number of variables associated with this block. */
     uint32_t slotCount() const {
@@ -359,7 +359,7 @@ class StaticBlockObject : public BlockObject
     }
 
     /*
-     * A refinement of enclosingStaticScope that returns NULL if the enclosing
+     * A refinement of enclosingStaticScope that returns nullptr if the enclosing
      * static scope is a JSFunction.
      */
     inline StaticBlockObject *enclosingBlock() const;
@@ -421,7 +421,8 @@ class StaticBlockObject : public BlockObject
 
     frontend::Definition *maybeDefinitionParseNode(unsigned i) {
         Value v = slotValue(i);
-        return v.isUndefined() ? NULL : reinterpret_cast<frontend::Definition *>(v.toPrivate());
+        return v.isUndefined() ? nullptr
+                               : reinterpret_cast<frontend::Definition *>(v.toPrivate());
     }
 
     /*
@@ -470,7 +471,7 @@ class ClonedBlockObject : public BlockObject
 
 template<XDRMode mode>
 bool
-XDRStaticBlockObject(XDRState<mode> *xdr, HandleObject enclosingScope, HandleScript script,
+XDRStaticBlockObject(XDRState<mode> *xdr, HandleObject enclosingScope,
                      StaticBlockObject **objp);
 
 extern JSObject *
@@ -571,7 +572,7 @@ class ScopeIterKey
     ScopeIter::Type type_;
 
   public:
-    ScopeIterKey() : frame_(NullFramePtr()), cur_(NULL), block_(NULL), type_() {}
+    ScopeIterKey() : frame_(NullFramePtr()), cur_(nullptr), block_(nullptr), type_() {}
     ScopeIterKey(const ScopeIter &si)
       : frame_(si.frame_), cur_(si.cur_), block_(si.block_), type_(si.type_)
     {}
@@ -775,7 +776,7 @@ inline StaticBlockObject *
 StaticBlockObject::enclosingBlock() const
 {
     JSObject *obj = getReservedSlot(SCOPE_CHAIN_SLOT).toObjectOrNull();
-    return obj && obj->is<StaticBlockObject>() ? &obj->as<StaticBlockObject>() : NULL;
+    return obj && obj->is<StaticBlockObject>() ? &obj->as<StaticBlockObject>() : nullptr;
 }
 
 #ifdef DEBUG

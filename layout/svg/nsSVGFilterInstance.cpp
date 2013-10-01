@@ -69,7 +69,7 @@ nsSVGFilterInstance::CreateImage()
 {
   nsRefPtr<gfxImageSurface> surface =
     new gfxImageSurface(gfxIntSize(mSurfaceRect.width, mSurfaceRect.height),
-                        gfxASurface::ImageFormatARGB32);
+                        gfxImageFormatARGB32);
 
   if (!surface || surface->CairoStatus())
     return nullptr;
@@ -329,7 +329,7 @@ nsSVGFilterInstance::BuildSourcePaint(PrimitiveInfo *aPrimitive)
   nsRefPtr<gfxASurface> offscreen =
     gfxPlatform::GetPlatform()->CreateOffscreenSurface(
             gfxIntSize(mSurfaceRect.width, mSurfaceRect.height),
-            gfxASurface::CONTENT_COLOR_ALPHA);
+            GFX_CONTENT_COLOR_ALPHA);
   if (!offscreen || offscreen->CairoStatus())
     return NS_ERROR_OUT_OF_MEMORY;
   offscreen->SetDeviceOffset(gfxPoint(-mSurfaceRect.x, -mSurfaceRect.y));
@@ -349,7 +349,8 @@ nsSVGFilterInstance::BuildSourcePaint(PrimitiveInfo *aPrimitive)
   gfx->Save();
 
   gfxMatrix matrix =
-    nsSVGUtils::GetCanvasTM(mTargetFrame, nsISVGChildFrame::FOR_PAINTING);
+    nsSVGUtils::GetCanvasTM(mTargetFrame, nsISVGChildFrame::FOR_PAINTING,
+                            mTransformRoot);
   if (!matrix.IsSingular()) {
     gfx->Multiply(matrix);
     gfx->Rectangle(r);
@@ -409,7 +410,7 @@ nsSVGFilterInstance::BuildSourceImages()
     nsRefPtr<gfxASurface> offscreen =
       gfxPlatform::GetPlatform()->CreateOffscreenSurface(
               gfxIntSize(mSurfaceRect.width, mSurfaceRect.height),
-              gfxASurface::CONTENT_COLOR_ALPHA);
+              GFX_CONTENT_COLOR_ALPHA);
     if (!offscreen || offscreen->CairoStatus())
       return NS_ERROR_OUT_OF_MEMORY;
     offscreen->SetDeviceOffset(gfxPoint(-mSurfaceRect.x, -mSurfaceRect.y));
@@ -439,7 +440,7 @@ nsSVGFilterInstance::BuildSourceImages()
     // subtle bugs, and in practice it probably makes no real difference.)
     gfxMatrix deviceToFilterSpace = GetFilterSpaceToDeviceSpaceTransform().Invert();
     tmpCtx.ThebesContext()->Multiply(deviceToFilterSpace);
-    mPaintCallback->Paint(&tmpCtx, mTargetFrame, &dirty);
+    mPaintCallback->Paint(&tmpCtx, mTargetFrame, &dirty, mTransformRoot);
 
     gfxContext copyContext(sourceColorAlpha);
     copyContext.SetSource(offscreen);

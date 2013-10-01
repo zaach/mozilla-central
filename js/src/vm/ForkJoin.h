@@ -10,6 +10,7 @@
 #include "jscntxt.h"
 
 #include "jit/Ion.h"
+#include "jit/MIR.h"
 
 ///////////////////////////////////////////////////////////////////////////
 // Read Me First
@@ -207,17 +208,15 @@ bool ForkJoin(JSContext *cx, CallArgs &args);
 // executed.
 uint32_t ForkJoinSlices(JSContext *cx);
 
-#ifdef DEBUG
 struct IonLIRTraceData {
-    uint32_t bblock;
-    uint32_t lir;
+    uint32_t blockIndex;
+    uint32_t lirIndex;
     uint32_t execModeInt;
     const char *lirOpName;
     const char *mirOpName;
     JSScript *script;
     jsbytecode *pc;
 };
-#endif
 
 ///////////////////////////////////////////////////////////////////////////
 // Bailout tracking
@@ -383,7 +382,7 @@ class LockedJSContext
       : slice_(slice),
         cx_(slice->acquireContext())
 #else
-      : cx_(NULL)
+      : cx_(nullptr)
 #endif
     { }
 
@@ -402,7 +401,7 @@ InParallelSection()
 {
 #ifdef JS_THREADSAFE
     ForkJoinSlice *current = ForkJoinSlice::Current();
-    return current != NULL;
+    return current != nullptr;
 #else
     return false;
 #endif
@@ -449,8 +448,7 @@ ExecutionStatus SpewEndOp(ExecutionStatus status);
 void SpewBeginCompile(HandleScript script);
 jit::MethodStatus SpewEndCompile(jit::MethodStatus status);
 void SpewMIR(jit::MDefinition *mir, const char *fmt, ...);
-void SpewBailoutIR(uint32_t bblockId, uint32_t lirId,
-                   const char *lir, const char *mir, JSScript *script, jsbytecode *pc);
+void SpewBailoutIR(IonLIRTraceData *data);
 
 #else
 
@@ -465,9 +463,7 @@ static inline void SpewBeginCompile(HandleScript script) { }
 static inline jit::MethodStatus SpewEndCompile(jit::MethodStatus status) { return status; }
 static inline void SpewMIR(jit::MDefinition *mir, const char *fmt, ...) { }
 #endif
-static inline void SpewBailoutIR(uint32_t bblockId, uint32_t lirId,
-                                 const char *lir, const char *mir,
-                                 JSScript *script, jsbytecode *pc) { }
+static inline void SpewBailoutIR(IonLIRTraceData *data) { }
 
 #endif // DEBUG && JS_THREADSAFE && JS_ION
 
@@ -480,7 +476,7 @@ js::ForkJoinSlice::Current()
 #if defined(JS_THREADSAFE) && defined(JS_ION)
     return (ForkJoinSlice*) PR_GetThreadPrivate(ThreadPrivateIndex);
 #else
-    return NULL;
+    return nullptr;
 #endif
 }
 

@@ -8,7 +8,6 @@
 
 #include "TabParent.h"
 
-#include "Blob.h"
 #include "IDBFactory.h"
 #include "IndexedDBParent.h"
 #include "mozIApplication.h"
@@ -19,44 +18,43 @@
 #include "mozilla/ipc/DocumentRendererParent.h"
 #include "mozilla/layers/CompositorParent.h"
 #include "mozilla/layout/RenderFrameParent.h"
+#include "mozilla/MouseEvents.h"
 #include "mozilla/Preferences.h"
+#include "mozilla/TextEvents.h"
+#include "mozilla/TouchEvents.h"
 #include "mozilla/unused.h"
 #include "nsCOMPtr.h"
 #include "nsContentPermissionHelper.h"
 #include "nsContentUtils.h"
 #include "nsDebug.h"
-#include "nsEventDispatcher.h"
 #include "nsEventStateManager.h"
 #include "nsFocusManager.h"
 #include "nsFrameLoader.h"
 #include "nsIContent.h"
 #include "nsIDocShell.h"
-#include "nsIDOMApplicationRegistry.h"
+#include "nsIDocShellTreeOwner.h"
 #include "nsIDOMElement.h"
 #include "nsIDOMEvent.h"
-#include "nsIDOMHTMLFrameElement.h"
 #include "nsIDOMWindow.h"
 #include "nsIDialogCreator.h"
+#include "nsIInterfaceRequestorUtils.h"
 #include "nsIPromptFactory.h"
 #include "nsIURI.h"
-#include "nsIMozBrowserFrame.h"
-#include "nsIScriptSecurityManager.h"
 #include "nsIWebBrowserChrome.h"
 #include "nsIXULBrowserWindow.h"
 #include "nsIXULWindow.h"
 #include "nsViewManager.h"
 #include "nsIWidget.h"
 #include "nsIWindowWatcher.h"
-#include "nsNetUtil.h"
 #include "nsPIDOMWindow.h"
 #include "nsPrintfCString.h"
-#include "nsSerializationHelper.h"
 #include "nsServiceManagerUtils.h"
 #include "nsThreadUtils.h"
 #include "private/pprio.h"
 #include "StructuredCloneUtils.h"
 #include "JavaScriptParent.h"
 #include "TabChild.h"
+#include "nsNetCID.h"
 #include <algorithm>
 
 using namespace mozilla::dom;
@@ -623,7 +621,7 @@ TabParent::MapEventCoordinatesForChildProcess(
     aEvent->refPoint = aOffset;
   } else {
     aEvent->refPoint = LayoutDeviceIntPoint();
-    nsTouchEvent* touchEvent = static_cast<nsTouchEvent*>(aEvent);
+    WidgetTouchEvent* touchEvent = static_cast<WidgetTouchEvent*>(aEvent);
     // Then offset all the touch points by that distance, to put them
     // in the space where top-left is 0,0.
     const nsTArray< nsRefPtr<Touch> >& touches = touchEvent->touches;
@@ -675,7 +673,7 @@ bool TabParent::SendRealKeyEvent(nsKeyEvent& event)
   return PBrowserParent::SendRealKeyEvent(e);
 }
 
-bool TabParent::SendRealTouchEvent(nsTouchEvent& event)
+bool TabParent::SendRealTouchEvent(WidgetTouchEvent& event)
 {
   if (mIsDestroyed) {
     return false;
@@ -701,7 +699,7 @@ bool TabParent::SendRealTouchEvent(nsTouchEvent& event)
     ++mEventCaptureDepth;
   }
 
-  nsTouchEvent e(event);
+  WidgetTouchEvent e(event);
   // PresShell::HandleEventInternal adds touches on touch end/cancel.
   // This confuses remote content into thinking that the added touches
   // are part of the touchend/cancel, when actually they're not.
@@ -738,7 +736,7 @@ TabParent::TryCapture(const nsGUIEvent& aEvent)
     return false;
   }
 
-  nsTouchEvent event(static_cast<const nsTouchEvent&>(aEvent));
+  WidgetTouchEvent event(static_cast<const WidgetTouchEvent&>(aEvent));
 
   bool isTouchPointUp = (event.message == NS_TOUCH_END ||
                          event.message == NS_TOUCH_CANCEL);
@@ -894,6 +892,28 @@ TabParent::RecvNotifyIMETextHint(const nsString& aText)
 {
   // Replace our cache with new text
   mIMECacheText = aText;
+  return true;
+}
+
+bool
+TabParent::RecvRequestFocus(const bool& aCanRaise)
+{
+  nsCOMPtr<nsIFocusManager> fm = nsFocusManager::GetFocusManager();
+  if (!fm) {
+    return true;
+  }
+
+  nsCOMPtr<nsIContent> content = do_QueryInterface(mFrameElement);
+  if (!content || !content->OwnerDoc()) {
+    return true;
+  }
+
+  uint32_t flags = nsIFocusManager::FLAG_NOSCROLL;
+  if (aCanRaise)
+    flags |= nsIFocusManager::FLAG_RAISE;
+
+  nsCOMPtr<nsIDOMElement> node = do_QueryInterface(mFrameElement);
+  fm->SetFocus(node, flags);
   return true;
 }
 
@@ -1146,9 +1166,9 @@ TabParent::RecvGetDefaultScale(double* aValue)
 {
   TryCacheDPIAndScale();
 
-  NS_ABORT_IF_FALSE(mDefaultScale > 0,
+  NS_ABORT_IF_FALSE(mDefaultScale.scale > 0,
                     "Must not ask for scale before OwnerElement is received!");
-  *aValue = mDefaultScale;
+  *aValue = mDefaultScale.scale;
   return true;
 }
 
@@ -1195,7 +1215,9 @@ TabParent::ReceiveMessage(const nsString& aMessage,
 }
 
 PIndexedDBParent*
-TabParent::AllocPIndexedDBParent(const nsCString& aASCIIOrigin, bool* /* aAllowed */)
+TabParent::AllocPIndexedDBParent(
+                            const nsCString& aGroup,
+                            const nsCString& aASCIIOrigin, bool* /* aAllowed */)
 {
   return new IndexedDBParent(this);
 }
@@ -1209,6 +1231,7 @@ TabParent::DeallocPIndexedDBParent(PIndexedDBParent* aActor)
 
 bool
 TabParent::RecvPIndexedDBConstructor(PIndexedDBParent* aActor,
+                                     const nsCString& aGroup,
                                      const nsCString& aASCIIOrigin,
                                      bool* aAllowed)
 {
@@ -1263,7 +1286,7 @@ TabParent::RecvPIndexedDBConstructor(PIndexedDBParent* aActor,
   NS_ASSERTION(contentParent, "Null manager?!");
 
   nsRefPtr<IDBFactory> factory;
-  rv = IDBFactory::Create(window, aASCIIOrigin, contentParent,
+  rv = IDBFactory::Create(window, aGroup, aASCIIOrigin, contentParent,
                           getter_AddRefs(factory));
   NS_ENSURE_SUCCESS(rv, false);
 
@@ -1524,9 +1547,10 @@ TabParent::RecvBrowserFrameOpenWindow(PBrowserParent* aOpener,
                                       const nsString& aFeatures,
                                       bool* aOutWindowOpened)
 {
-  *aOutWindowOpened =
+  BrowserElementParent::OpenWindowResult opened =
     BrowserElementParent::OpenWindowOOP(static_cast<TabParent*>(aOpener),
                                         this, aURL, aName, aFeatures);
+  *aOutWindowOpened = (opened != BrowserElementParent::OPEN_WINDOW_CANCELLED);
   return true;
 }
 
