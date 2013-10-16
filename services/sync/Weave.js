@@ -94,30 +94,24 @@ WeaveService.prototype = {
           // FxAccounts imports lots of stuff, so only do this as we need it
           Cu.import("resource://gre/modules/FxAccounts.jsm");
 
+          // This isn't quite sufficient here to handle all the cases. Cases
+          // we need to handle:
+          //  - User is signed in to FxAccounts, btu hasn't set up sync.
           fxAccounts.getSignedInUser().then(
             (accountData) => {
               if (accountData) {
-                Weave.Service.identity.initForUser(accountData);
-                Weave.Service.clusterURL = Weave.Service.identity.clusterURL;
-                Weave.Service.login();
-
-                // Weave.Svc.Prefs.set("firstSync", "newAccount");
-
-                // let prefs = ["engine.bookmarks", "engine.passwords", "engine.history",
-                //              "engine.tabs", "engine.prefs", "engine.addons"];
-                // for (let i = 0;i < prefs.length;i++) {
-                //   Weave.Svc.Prefs.set(prefs[i], true);
-                // }
-
-                // Weave.Svc.Obs.notify("weave:service:setup-complete");
-
-                Weave.Utils.nextTick(Weave.Service.sync, Weave.Service);
-                dump("sync setup complete");
-
-                dump("checkSetup "+Weave.Status.checkSetup());
-                if (Weave.Status.checkSetup() != Weave.CLIENT_NOT_CONFIGURED) {
-                  this.ensureLoaded();
-                }
+                // init the identity module with any account data from
+                // firefox accounts
+                Weave.Service.identity.initWithLoggedInUser().then(function () {
+                  // Set the cluster data that we got from the token
+                  Weave.Service.clusterURL = Weave.Service.identity.clusterURL;
+                  // checkSetup() will check the auth state of the identity module
+                  // and records that status in Weave.Status
+                  if (Weave.Status.checkSetup() != Weave.CLIENT_NOT_CONFIGURED) {
+                    // This makes sure that Weave.Service is loaded
+                    this.ensureLoaded();
+                  }
+                }.bind(this));
               } else {
                 dump("No logged in user\n");
               }
