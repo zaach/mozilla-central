@@ -8,9 +8,11 @@ const {classes: Cc, interfaces: Ci, utils: Cu} = Components;
 
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/FxAccounts.jsm");
+Cu.import("resource://services-sync/main.js");
+Cu.import("resource://services-sync/util.js");
 
 function log(msg) {
-  //dump("FXA: " + msg + "\n");
+  dump("FXA: " + msg + "\n");
 };
 
 function error(msg) {
@@ -54,7 +56,29 @@ let wrapper = {
     log("Received: 'login'. Data:" + JSON.stringify(accountData));
 
     fxAccounts.setSignedInUser(accountData).then(
-      () => this.injectData("message", { status: "login" }),
+      () => {
+        Weave.Service.identity.initForUser(accountData);
+        Weave.Service.clusterURL = Weave.Service.identity.clusterURL;
+        Weave.Service.persistLogin();
+        Weave.Service.login();
+
+        log("sync login called");
+
+        // Weave.Svc.Prefs.set("firstSync", "newAccount");
+
+        // let prefs = ["engine.bookmarks", "engine.passwords", "engine.history",
+        //              "engine.tabs", "engine.prefs", "engine.addons"];
+        // for (let i = 0;i < prefs.length;i++) {
+        //   Weave.Svc.Prefs.set(prefs[i], true);
+        // }
+
+        // Weave.Svc.Obs.notify("weave:service:setup-complete");
+
+        Weave.Utils.nextTick(Weave.Service.sync, Weave.Service);
+        log("sync setup complete");
+
+        this.injectData("message", { status: "login" });
+      },
       (err) => this.injectData("message", { status: "error", error: err })
     );
   },
