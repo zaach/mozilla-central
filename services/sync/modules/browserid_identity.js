@@ -27,7 +27,11 @@ Cu.import("resource://gre/modules/Promise.jsm");
 this.BrowserIDManager = function BrowserIDManager(fxaService, tokenServerClient) {
   this._fxaService = fxaService;
   this._tokenServerClient = tokenServerClient;
+<<<<<<< HEAD
   this._log = Log.repository.getLogger("Sync.Identity");
+=======
+  this._log = Log.repository.getLogger("Sync.BrowserIDManager");
+>>>>>>> use Log.jsm
   this._log.Level = Log.Level[Svc.Prefs.get("log.logger.identity")];
 
 };
