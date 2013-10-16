@@ -78,11 +78,11 @@ WeaveService.prototype = {
       this.timer.initWithCallback({
         notify: function() {
           // We only load more if it looks like Sync is configured.
-          let prefs = Services.prefs.getBranch(SYNC_PREFS_BRANCH);
-
-          if (!prefs.prefHasUserValue("username")) {
-            return;
-          }
+          // let prefs = Services.prefs.getBranch(SYNC_PREFS_BRANCH);
+          // dump("app-startup: "+prefs.prefHasUserValue("username")+"\n");
+          // if (!prefs.prefHasUserValue("username")) {
+          //   return;
+          // }
 
           // We have a username. So, do a more thorough check. This will
           // import a number of modules and thus increase memory
@@ -90,11 +90,42 @@ WeaveService.prototype = {
           // this check into this file if our above code is yielding too
           // many false positives.
           Components.utils.import("resource://services-sync/main.js");
-          if (Weave.Status.checkSetup() != Weave.CLIENT_NOT_CONFIGURED) {
-            this.ensureLoaded();
-          }
+          dump("getting signed in user\n");
+          // FxAccounts imports lots of stuff, so only do this as we need it
+          Cu.import("resource://gre/modules/FxAccounts.jsm");
+
+          fxAccounts.getSignedInUser().then(
+            (accountData) => {
+              if (accountData) {
+                Weave.Service.identity.initForUser(accountData);
+                Weave.Service.clusterURL = Weave.Service.identity.clusterURL;
+                Weave.Service.login();
+
+                // Weave.Svc.Prefs.set("firstSync", "newAccount");
+
+                // let prefs = ["engine.bookmarks", "engine.passwords", "engine.history",
+                //              "engine.tabs", "engine.prefs", "engine.addons"];
+                // for (let i = 0;i < prefs.length;i++) {
+                //   Weave.Svc.Prefs.set(prefs[i], true);
+                // }
+
+                // Weave.Svc.Obs.notify("weave:service:setup-complete");
+
+                Weave.Utils.nextTick(Weave.Service.sync, Weave.Service);
+                dump("sync setup complete");
+
+                dump("checkSetup "+Weave.Status.checkSetup());
+                if (Weave.Status.checkSetup() != Weave.CLIENT_NOT_CONFIGURED) {
+                  this.ensureLoaded();
+                }
+              } else {
+                dump("No logged in user\n");
+              }
+            },
+            (err) => {dump("err in getting logged in account "+err.message)}
+          ).then(null, (err) => {dump("err in processing logged in account "+err.message)})
         }.bind(this)
-      }, 10000, Ci.nsITimer.TYPE_ONE_SHOT);
+      }, 1000, Ci.nsITimer.TYPE_ONE_SHOT);
       break;
     }
   }
