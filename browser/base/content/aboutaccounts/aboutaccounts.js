@@ -57,6 +57,8 @@ let wrapper = {
 
     fxAccounts.setSignedInUser(accountData).then(
       () => {
+        accountData = JSON.parse(JSON.stringify(accountData));
+
         Weave.Service.identity.initForUser(accountData);
         Weave.Service.clusterURL = Weave.Service.identity.clusterURL;
         Weave.Service.persistLogin();
