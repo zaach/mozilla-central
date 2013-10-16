@@ -12,11 +12,14 @@ const Cu = Components.utils;
 Cu.import("resource://services-sync/constants.js");
 Cu.import("resource://gre/modules/Log.jsm");
 Cu.import("resource://services-sync/identity.js");
+Cu.import("resource://services-sync/browserid_identity.js");
 Cu.import("resource://gre/modules/Services.jsm");
+Cu.import("resource://gre/modules/FxAccounts.jsm");
+Cu.import("resource://services-common/tokenserverclient.js");
 
 this.Status = {
-  _log: Log.repository.getLogger("Sync.Status"),
-  _authManager: new IdentityManager(),
+  _log: Log4Moz.repository.getLogger("Sync.Status"),
+  _authManager: new BrowserIDManager(fxAccounts, new TokenServerClient()),
   ready: false,
 
   get service() {
@@ -90,6 +93,7 @@ this.Status = {
 
   checkSetup: function checkSetup() {
     let result = this._authManager.currentAuthState;
+    dump("Auth state: "+result+"\n");
     if (result == STATUS_OK) {
       Status.service = result;
       return result;

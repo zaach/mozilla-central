@@ -60,7 +60,7 @@ add_test(function test_initial_state() {
 
 add_test(function test_getResourceAuthenticator() {
     _("BrowserIDManager supplies a Resource Authenticator callback which returns a Hawk header.");
-    let authenticator = browseridManager.getResourceAuthenticator();
+    let authenticator = browseridManager.getRESTResourceAuthenticator();
     do_check_true(!!authenticator);
     let req = {uri: CommonUtils.makeURI(
       "https://example.net/somewhere/over/the/rainbow"),
@@ -76,11 +76,11 @@ add_test(function test_getResourceAuthenticator() {
   }
 );
 
-add_test(function test_getRequestAuthenticator() {
-    _("BrowserIDManager supplies a Request Authenticator callback which sets a Hawk header on a request object.");
+add_test(function test_getRESTRequestAuthenticator() {
+    _("BrowserIDManager supplies a REST Request Authenticator callback which sets a Hawk header on a request object.");
     let request = new SyncStorageRequest(
       "https://example.net/somewhere/over/the/rainbow");
-    let authenticator = browseridManager.getRequestAuthenticator();
+    let authenticator = browseridManager.getRESTRequestAuthenticator();
     do_check_true(!!authenticator);
     let output = authenticator(request, 'GET');
     do_check_eq(request.uri, output.uri);
@@ -123,7 +123,7 @@ add_test(function test_userChangeAndLogOut() {
     let bidUser = new BrowserIDManager(mockFXA2, mockTSC);
     let request = new SyncStorageRequest(
       "https://example.net/somewhere/over/the/rainbow");
-    let authenticator = bidUser.getRequestAuthenticator();
+    let authenticator = bidUser.getRESTRequestAuthenticator();
     do_check_true(!!authenticator);
     let output = authenticator(request, 'GET');
     do_check_true(!!output);
