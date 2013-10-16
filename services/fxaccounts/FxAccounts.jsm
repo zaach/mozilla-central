@@ -11,12 +11,9 @@ Cu.import("resource://gre/modules/Promise.jsm");
 Cu.import("resource://gre/modules/osfile.jsm")
 Cu.import("resource://services-common/utils.js");
 Cu.import("resource://gre/modules/Services.jsm");
+Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 
-const defaultBaseDir = OS.Path.join(OS.Constants.Path.profileDir);
-const defaultStorageOptions = {
-  filename: 'signedInUser.json',
-  baseDir: defaultBaseDir,
-};
+const defaultStorageFilename = "signedInUser.json";
 
 /**
  * FxAccounts constructor
@@ -25,7 +22,15 @@ const defaultStorageOptions = {
  *                            the signedInUser. Uses JSONStorage by default.
  * @return instance
  */
-function FxAccounts(signedInUserStorage = new JSONStorage(defaultStorageOptions)) {
+function FxAccounts(signedInUserStorage = undefined) {
+  // We don't reference |profileDir| in the top-level module scope as we may
+  // be imported before we know where it is.
+  if (!signedInUserStorage) {
+    signedInUserStorage = new JSONStorage({
+      filename: defaultStorageFilename,
+      baseDir: OS.Constants.Path.profileDir,
+    });
+  }
   this._signedInUserStorage = signedInUserStorage;
 }
 
@@ -148,7 +153,7 @@ JSONStorage.prototype = Object.freeze({
   },
 });
 
-
-// create an instance to export
-this.fxAccounts = new FxAccounts();
-
+// A getter for the instance to export
+XPCOMUtils.defineLazyGetter(this, "fxAccounts", function() {
+  return new FxAccounts();
+});
