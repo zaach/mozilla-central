@@ -16,6 +16,7 @@ Cu.import("resource://services-sync/identity.js");
 Cu.import("resource://services-sync/util.js");
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://services-sync/constants.js");
+Cu.import("resource://gre/modules/Promise.jsm");
 
 /**
  * Fetch a token for the sync storage server by passing a BrowserID assertion
@@ -38,26 +39,90 @@ this.BrowserIDManager.prototype = {
   _tokenServerClient: null,
   // https://docs.services.mozilla.com/token/apis.html
   _token: null,
-
-  _userData: {},
-  _username: null,
-
-  _clearUserState: function() {
-    this._token = null;
-  },
-
-  /**
-   * Unify string munging in account setter and testers (e.g. hasValidToken).
-   */
-  _normalizeAccountValue: function(value) {
-    return value.toLowerCase();
-  },
+  _account: null,
 
   /**
    * Provide override point for testing token expiration.
    */
   _now: function() {
     return Date.now();
+  },
+
+  clusterURL: null,
+
+  get account() {
+    return this._account;
+  },
+
+  /**
+   * Sets the active account name.
+   *
+   * This should almost always be called in favor of setting username, as
+   * username is derived from account.
+   *
+   * Changing the account name has the side-effect of wiping out stored
+   * credentials. Keep in mind that persistCredentials() will need to be called
+   * to flush the changes to disk.
+   *
+   * Set this value to null to clear out identity information.
+   */
+  set account(value) {
+    throw "account setter should be not used in BrowserIDManager";
+  },
+
+  /**
+   * Obtains the HTTP Basic auth password.
+   *
+   * Returns a string if set or null if it is not set.
+   */
+  get basicPassword() {
+    throw "basicPassword getter should be not used in BrowserIDManager";
+  },
+
+  /**
+   * Set the HTTP basic password to use.
+   *
+   * Changes will not persist unless persistSyncCredentials() is called.
+   */
+  set basicPassword(value) {
+    throw "basicPassword setter should be not used in BrowserIDManager";
+  },
+
+  /**
+   * Obtain the Sync Key.
+   *
+   * This returns a 26 character "friendly" Base32 encoded string on success or
+   * null if no Sync Key could be found.
+   *
+   * If the Sync Key hasn't been set in this session, this will look in the
+   * password manager for the sync key.
+   */
+  get syncKey() {
+    return this._syncKey;
+  },
+
+  /**
+   * The current state of the auth credentials.
+   *
+   * This essentially validates that enough credentials are available to use
+   * Sync.
+   */
+  get currentAuthState() {
+    if (!this.username) {
+      return LOGIN_FAILED_NO_USERNAME;
+    }
+
+    if (!this.syncKey) {
+      return LOGIN_FAILED_NO_PASSPHRASE;
+    }
+
+    // If we have a Sync Key but no bundle, bundle creation failed, which
+    // implies a bad Sync Key.
+    if (!this.syncKeyBundle) {
+      return LOGIN_FAILED_INVALID_PASSPHRASE;
+    }
+
+    return STATUS_OK;
   },
 
   clusterURL: null,
@@ -160,9 +225,6 @@ this.BrowserIDManager.prototype = {
   /**
    * Do we have a non-null, not yet expired token whose email field
    * matches (when normalized) our account field?
-   *
-   * If the calling function receives false from hasValidToken, it is
-   * responsible for calling _clearUserData().
    */
   hasValidToken: function() {
     if (!this._token) {
@@ -176,7 +238,7 @@ this.BrowserIDManager.prototype = {
       return false;
     }
     // Does the signed in user match the user we retrieved the token for?
-    if (this._normalizeAccountValue(signedInUser.email) !== this.account) {
+    if (signedInUser.email !== this.account) {
       return false;
     }
     return true;
@@ -188,7 +250,7 @@ this.BrowserIDManager.prototype = {
    * @return credentials per wrapped.
    */
   _getSignedInUser: function() {
-    let userBlob;
+    let userData;
     let cb = Async.makeSpinningCallback();
 
     this._fxaService.getSignedInUser().then(function (result) {
@@ -199,53 +261,112 @@ this.BrowserIDManager.prototype = {
     });
 
     try {
-      userBlob = cb.wait();
+      userData = cb.wait();
     } catch (err) {
       this._log.error("FxAccounts.getSignedInUser() failed with: " + err);
       return null;
     }
-    return userBlob;
+    return userData;
   },
 
-  initForUser: function(userData) {
-    this._userData = userData;
-    this._token = this._fetchTokenForUser(userData);
-    dump("user id: " + this._token.uid + "\n");
-    this.username = this._token.uid.toString();
+  // initWithLoggedInUser will fetch the logged in user from firefox accounts,
+  // and if such a logged in user exists, will use that user to initialize
+  // the identity module. Returns a Promise.
+  initWithLoggedInUser: function() {
+    // Get the signed in user from FxAccounts.
+    return this._fxaService.getSignedInUser().then(function (userData) {
+      if (!userData) {
+        this._log.warn("initWithLoggedInUser found no logged in user");
+        return;
+      }
+      // Make a note of the last logged in user.
+      this._account = userData.email;
+      // Fetch a sync token for the logged in user from the token server.
+      return this._refreshTokenForLoggedInUser().then(function (token) {
+        this._token = token;
+        // Set the username to be the uid returned by the token server.
+        // TODO: check here to see if the uid is different that the current
+        // this.username. If so, we may need to reinit sync, detect if the new
+        // user has sync set up, etc
+        this.username = this._token.uid.toString();
 
-    // TODO kB should be decoded from hex first
-    let encodedKey = Utils.encodeKeyBase32(userData.kB);
-    this._syncKey = encodedKey;
-    // TODO: figure out what we need to change to allow us to not have one of these
-    //this.basicPassword = "foo";
+        // TODO: kB should be decoded from hex first and we should
+        // really be deriving a value from kB here. We also need to figure out
+        // how to handle things if the sync key changes from last time.
+        let encodedKey = Utils.encodeKeyBase32(userData.kB);
+        this._syncKey = encodedKey;
 
-    let clusterURI = Services.io.newURI(this._token.endpoint, null, null);
-    clusterURI.path = "/";
-    this.clusterURL = clusterURI.spec;
-    this._log.debug("initForUser has username " + this.username + ", endpoint is " + this.clusterURL);
+        // Set the clusterURI for this user based on the endpoint in the token.
+        // This is a bit of a hack, and we should figure out a better way of
+        // distributing it to components that need it.
+        let clusterURI = Services.io.newURI(this._token.endpoint, null, null);
+        clusterURI.path = "/";
+        this.clusterURL = clusterURI.spec;
+        this._log.info("initWithLoggedUser has username " + this.username + ", endpoint is " + this.clusterURL);
+      }.bind(this));
+    }.bind(this));
   },
 
- _fetchTokenForUser: function(user) {
-    let token;
+  // Refresh the sync token for the currently logged in Firefox Accounts user.
+  // This method requires that this module has been intialized for a user.
+  _refreshTokenForLoggedInUser: function() {
+    return this._fxaService.getSignedInUser().then(function (userData) {
+      if (!userData || userData.email !== this.account) {
+        // This means the logged in user changed or the identity module
+        // wasn't properly initialized. TODO: figure out what needs to
+        // happen here.
+        this._log.error("Currently logged in FxA user differs from what was locally noted. TODO: do proper error handling.");
+        return null;
+      }
+      return this._fetchTokenForUser(userData);
+    }.bind(this));
+  },
+
+  _refreshTokenForLoggedInUserSync: function() {
     let cb = Async.makeSpinningCallback();
-    let tokenServerURI = Svc.Prefs.get("tokenServerURI");
 
-    this._log.info("TokenServerClient tokenServerURI is: " + tokenServerURI);
+    this._refreshTokenForLoggedInUser().then(function (token) {
+      cb(null, token);
+    },
+    function (err) {
+      cb(err);
+    });
+
+    try {
+      token = cb.wait();
+    } catch (err) {
+      this._log.info("refreshTokenForLoggedInUserSync: " + err.message);
+      return null;
+    }
+  },
+
+  // This is a helper to fetch a sync token for the given user data.
+  _fetchTokenForUser: function(userData) {
+    let tokenServerURI = Svc.Prefs.get("tokenServerURI");
+    let deferred = Promise.defer();
+    this._log.info("Fetching Sync token from: " + tokenServerURI);
+
+    let cb = function (err, token) {
+      if (err) {
+        return deferred.reject(err);
+      }
+      else {
+        token.expiration = this._now() + (token.duration * 1000);
+        return deferred.resolve(token);
+      }
+    }.bind(this);
 
     try {
       this._tokenServerClient.getTokenFromBrowserIDAssertion(
-        tokenServerURI, user.assertion, cb);
-      token = cb.wait();
+        tokenServerURI, userData.assertion, cb);
     } catch (err) {
-      this._log.error("TokenServerClient.getTokenFromBrowserIDAssertion() failed with: " + err.message);
-      return null;
+      this._log.info("TokenServerClient.getTokenFromBrowserIDAssertion() failed with: " + err.message);
+      deferred.reject(err);
     }
-
-    token.expiration = this._now() + (token.duration * 1000);
-    return token;
+    return deferred.promise;
   },
 
-  getResourceAuthenticator: function() {
+  getResourceAuthenticator: function () {
     return this._getAuthenticationHeader.bind(this);
   },
 
@@ -262,12 +383,8 @@ this.BrowserIDManager.prototype = {
    */
   _getAuthenticationHeader: function(httpObject, method) {
     if (!this.hasValidToken()) {
-      this._clearUserState();
-      let user = this._getSignedInUser();
-      if (!user) {
-        return null;
-      }
-      this._token = this._fetchTokenForUser(user);
+      // Refresh token for the currently logged in FxA user
+      this._token = this._refreshTokenForLoggedInUserSync();
       if (!this._token) {
         return null;
       }
