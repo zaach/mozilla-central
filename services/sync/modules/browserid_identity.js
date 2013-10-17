@@ -129,8 +129,6 @@ this.BrowserIDManager.prototype = {
     return STATUS_OK;
   },
 
-  clusterURL: null,
-
   get account() {
     return this._userData ? this._userData.email : null;
   },
