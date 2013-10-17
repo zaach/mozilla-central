@@ -73,6 +73,8 @@ let wrapper = {
           Weave.Utils.nextTick(Weave.Service.sync, Weave.Service);
           log("sync setup complete");
 
+          window.location = "about:sync-progress";
+
           this.injectData("message", { status: "login" });
         }).then(null, Cu.reportError);
       },
