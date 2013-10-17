@@ -67,7 +67,7 @@ let wrapper = {
           // otherwise, this is what "resetClient" does.
           Weave.Svc.Prefs.set("firstSync", "resetClient");
 
-          Weave.Service.login();
+          Weave.Svc.Obs.notify("weave:service:setup-complete");
 
           // and off we go...
           Weave.Utils.nextTick(Weave.Service.sync, Weave.Service);
