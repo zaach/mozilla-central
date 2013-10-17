@@ -95,7 +95,7 @@ FxAccounts.prototype = Object.freeze({
 
     return this._signedInUserStorage.get()
       .then((user) => {
-          if (user.version === this.version) {
+          if (user && user.version === this.version) {
             this._signedInUser = user;
             return user.accountData;
           }
