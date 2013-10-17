@@ -9,6 +9,7 @@ const Cu = Components.utils;
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/FileUtils.jsm");
+Cu.import("resource://services-sync/util.js");
 
 const SYNC_PREFS_BRANCH = "services.sync.";
 
@@ -109,6 +110,7 @@ WeaveService.prototype = {
                   // and records that status in Weave.Status
                   if (Weave.Status.checkSetup() != Weave.CLIENT_NOT_CONFIGURED) {
                     // This makes sure that Weave.Service is loaded
+                    Svc.Obs.notify("weave:service:setup-complete");
                     this.ensureLoaded();
                   }
                 }.bind(this));
