@@ -59,27 +59,22 @@ let wrapper = {
       () => {
         accountData = JSON.parse(JSON.stringify(accountData));
 
-        Weave.Service.identity.initForUser(accountData);
-        Weave.Service.clusterURL = Weave.Service.identity.clusterURL;
-        Weave.Service.persistLogin();
-        Weave.Service.login();
+        Weave.Service.identity.initWithLoggedInUser().then(() => {
+          // Set the cluster data that we got from the token
+          Weave.Service.clusterURL = Weave.Service.identity.clusterURL;
+          // Tell sync that if this is a first sync, it should try and sync the
+          // server data with what is on the client - despite the name implying
+          // otherwise, this is what "resetClient" does.
+          Weave.Svc.Prefs.set("firstSync", "resetClient");
 
-        log("sync login called");
+          Weave.Service.login();
 
-        // Weave.Svc.Prefs.set("firstSync", "newAccount");
+          // and off we go...
+          Weave.Utils.nextTick(Weave.Service.sync, Weave.Service);
+          log("sync setup complete");
 
-        // let prefs = ["engine.bookmarks", "engine.passwords", "engine.history",
-        //              "engine.tabs", "engine.prefs", "engine.addons"];
-        // for (let i = 0;i < prefs.length;i++) {
-        //   Weave.Svc.Prefs.set(prefs[i], true);
-        // }
-
-        // Weave.Svc.Obs.notify("weave:service:setup-complete");
-
-        Weave.Utils.nextTick(Weave.Service.sync, Weave.Service);
-        log("sync setup complete");
-
-        this.injectData("message", { status: "login" });
+          this.injectData("message", { status: "login" });
+        }).then(null, Cu.reportError);
       },
       (err) => this.injectData("message", { status: "error", error: err })
     );
