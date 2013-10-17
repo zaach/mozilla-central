@@ -18,7 +18,7 @@ Cu.import("resource://gre/modules/FxAccounts.jsm");
 Cu.import("resource://services-common/tokenserverclient.js");
 
 this.Status = {
-  _log: Log4Moz.repository.getLogger("Sync.Status"),
+  _log: Log.repository.getLogger("Sync.Status"),
   _authManager: new BrowserIDManager(fxAccounts, new TokenServerClient()),
   ready: false,
 
