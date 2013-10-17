@@ -110,6 +110,22 @@ this.CryptoUtils = {
   },
 
   /**
+   * HMAC-based Key Derivation (RFC 5869).
+   */
+  hkdf: function hkdf(skm, xts, info, len) {
+    const BLOCKSIZE = 256 / 8;
+    if (typeof xts === undefined)
+      xts = String.fromCharCode(0, 0, 0, 0,  0, 0, 0, 0,
+                                0, 0, 0, 0,  0, 0, 0, 0,
+                                0, 0, 0, 0,  0, 0, 0, 0,
+                                0, 0, 0, 0,  0, 0, 0, 0);
+    let h = CryptoUtils.makeHMACHasher(Ci.nsICryptoHMAC.SHA256,
+                                       CryptoUtils.makeHMACKey(xts));
+    let prk = CryptoUtils.digestBytes(skm, h);
+    return CryptoUtils.hkdfExpand(prk, info, len);
+  },
+
+  /**
    * HMAC-based Key Derivation Step 2 according to RFC 5869.
    */
   hkdfExpand: function hkdfExpand(prk, info, len) {
@@ -119,6 +135,7 @@ this.CryptoUtils = {
     let T = "";
     let Tn = "";
     let iterations = Math.ceil(len/BLOCKSIZE);
+    //assert iterations <= 255;
     for (let i = 0; i < iterations; i++) {
       Tn = CryptoUtils.digestBytes(Tn + info + String.fromCharCode(i + 1), h);
       T += Tn;

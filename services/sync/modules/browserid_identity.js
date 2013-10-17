@@ -18,6 +18,28 @@ Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://services-sync/constants.js");
 Cu.import("resource://gre/modules/Promise.jsm");
 
+// Lazy import to prevent unnecessary load on startup.
+for (let symbol of ["BulkKeyBundle"]) {
+  XPCOMUtils.defineLazyModuleGetter(this, symbol,
+                                    "resource://services-sync/keys.js",
+                                    symbol);
+}
+
+function deriveKeyBundle(kB_hex) {
+  let kB_bytes = [];
+  for (let i=0; i <  kB_hex.length-1; i += 2) {
+    kB_bytes.push(parseInt(kB_hex.substr(i, 2), 16));
+  }
+  let kB = String.fromCharCode.apply(String, kB_bytes);
+  let out = CryptoUtils.hkdf(kB, undefined,
+                             "identity.mozilla.com/picl/v1/oldsync", 2*32);
+  let bundle = new BulkKeyBundle();
+  // [encryptionKey, hmacKey]
+  bundle.keyPair = [out.slice(0, 32), out.slice(32, 64)];
+  return bundle;
+}
+
+
 /**
  * Fetch a token for the sync storage server by passing a BrowserID assertion
  * from FxAccounts() to TokenServerClient, then wrap the token in in a Hawk
@@ -98,7 +120,11 @@ this.BrowserIDManager.prototype = {
    * password manager for the sync key.
    */
   get syncKey() {
-    return this._syncKey;
+    return "SORRY";
+  },
+
+  get syncKeyBundle() {
+    return this._syncKeyBundle;
   },
 
   /**
@@ -193,11 +219,7 @@ this.BrowserIDManager.prototype = {
         // user has sync set up, etc
         this.username = this._token.uid.toString();
 
-        // TODO: kB should be decoded from hex first and we should
-        // really be deriving a value from kB here. We also need to figure out
-        // how to handle things if the sync key changes from last time.
-        let encodedKey = Utils.encodeKeyBase32(userData.kB);
-        this._syncKey = encodedKey;
+        this._syncKeyBundle = deriveKeyBundle(userData.kB);
 
         // Set the clusterURI for this user based on the endpoint in the token.
         // This is a bit of a hack, and we should figure out a better way of
