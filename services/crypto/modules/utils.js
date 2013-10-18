@@ -11,6 +11,20 @@ Cu.import("resource://services-common/utils.js");
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 
 this.CryptoUtils = {
+  xor: function xor(a, b) {
+    let bytes = [];
+
+    if (a.length != b.length) {
+      throw new Error("can't xor unequal length strings");
+    }
+
+    for (let i = 0; i < a.length; i++) {
+      bytes[i] = a.charCodeAt(i) ^ b.charCodeAt(i);
+    }
+
+    return String.fromCharCode.apply(String, bytes);
+  },
+
   /**
    * Generate a string of random bytes.
    */

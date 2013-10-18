@@ -11,8 +11,11 @@ Cu.import("resource://gre/modules/Promise.jsm");
 Cu.import("resource://gre/modules/osfile.jsm")
 Cu.import("resource://services-common/utils.js");
 Cu.import("resource://services-crypto/utils.js");
+Cu.import("resource://gre/modules/HAWK.jsm");
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
+Cu.import("resource://gre/modules/Timer.jsm");
+Cu.import("resource://gre/modules/Task.jsm");
 
 const defaultStorageFilename = "signedInUser.json";
 
@@ -64,7 +67,15 @@ FxAccounts.prototype = Object.freeze({
     this._signedInUser = JSON.parse(JSON.stringify(record));
 
     return this._signedInUserStorage.set(record).then(() => {
-      Services.obs.notifyObservers(null, "fxaccounts:onlogin", null);
+      this._notifyLoginObservers();
+
+      /*this._isUserVerified().then(isVerified => {
+        if (isVerified) {
+          this._notifyLoginObservers();
+        } else {
+          this._startPolling();
+        }
+      });*/
     });
   },
 
@@ -88,22 +99,47 @@ FxAccounts.prototype = Object.freeze({
    *
    */
   getSignedInUser: function getSignedInUser() {
+    return this._getUserAccountData().then(data => {
+      if (!data) {
+        return undefined;
+      }
+
+      return this._isUserVerified().then(isVerified => {
+        /*if (!isVerified) {
+          this._startPolling();
+          return undefined;
+        }*/
+
+        return data;
+      });
+    });
+  },
+
+  _getUserAccountData: function () {
     // skip disk if user is cached
-    if (typeof this._signedInUser !== 'undefined') {
-      let deferred = Promise.defer();
-      let result = this._signedInUser ? this._signedInUser.accountData : undefined;
-      deferred.resolve(result);
-      return deferred.promise;
+    if (this._signedInUser) {
+      return Promise.resolve(this._signedInUser.accountData);
     }
 
-    return this._signedInUserStorage.get()
-      .then((user) => {
-          if (user && user.version === this.version) {
-            this._signedInUser = user;
-            return user.accountData;
-          }
-        },
-        (err) => undefined);
+    let deferred = Promise.defer();
+
+    this._signedInUserStorage.get().then(user => {
+      if (user && user.version == this.version) {
+        this._signedInUser = user;
+      }
+
+      deferred.resolve(user ? user.accountData : undefined);
+    }, err => deferred.resolve(undefined));
+
+    return deferred.promise;
+  },
+
+  _setUserAccountData: function (accountData) {
+    return this._signedInUserStorage.get().then(record => {
+      record.accountData = accountData;
+      this._signedInUser = record;
+      return this._signedInUserStorage.set(record);
+    });
   },
 
   /**
@@ -113,7 +149,7 @@ FxAccounts.prototype = Object.freeze({
    *         The promise is rejected if a storage error occurs
    */
   signOut: function signOut() {
-    this._signedInUser = {};
+    this._signedInUser = null;
     return this._signedInUserStorage.set(null).then(() => {
       Services.obs.notifyObservers(null, "fxaccounts:onlogout", null);
     });
@@ -139,8 +175,60 @@ FxAccounts.prototype = Object.freeze({
       id: CommonUtils.bytesAsHex(out.slice(0, 32)),
       key: CommonUtils.bytesAsHex(out.slice(32, 64))
     };
-  }
+  },
 
+  _isUserVerified: function () {
+    return this._getUserAccountData()
+      .then(data => data && data.isVerified);
+  },
+
+  _startPolling: function () {
+    this._isEmailAddressVerified().then(isVerified => {
+      if (isVerified) {
+        this._retrieveKeys();
+      } else {
+        setTimeout(() => this._startPolling(), 1000);
+      }
+    });
+  },
+
+  _isEmailAddressVerified: function () {
+    return this._getUserAccountData().then(data => {
+      return HAWK.recoveryEmailStatus(data.sessionToken)
+        .then(response => response && response.verified, err => false);
+    });
+  },
+
+  _retrieveKeys: function () {
+    return Task.spawn(function task() {
+      let data = yield this._getUserAccountData();
+
+      // Sign out if we don't have a key fetch token.
+      if (!data.keyFetchToken) {
+        yield this.signOut();
+        return;
+      }
+
+      let {keyFetchToken} = data;
+      delete data.keyFetchToken;
+
+      // Clear the token before we request keys...
+      yield this._setUserAccountData(data);
+
+      let {kA, wrapKB} = yield HAWK.accountKeys(keyFetchToken);
+
+      data.kA = kA;
+      data.kB = CryptoUtils.xor(CommonUtils.hexToBytes(data.unwrapBKey), wrapKB);
+      data.isVerified = true;
+
+      yield this._setUserAccountData(data);
+      this._notifyLoginObservers();
+    }.bind(this));
+  },
+
+  _notifyLoginObservers: function () {
+    Services.obs.notifyObservers(null, "fxaccounts:onlogin", null);
+  }
 });
 
 
