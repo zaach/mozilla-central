@@ -79,11 +79,10 @@ WeaveService.prototype = {
       this.timer.initWithCallback({
         notify: function() {
           // We only load more if it looks like Sync is configured.
-          // let prefs = Services.prefs.getBranch(SYNC_PREFS_BRANCH);
-          // dump("app-startup: "+prefs.prefHasUserValue("username")+"\n");
-          // if (!prefs.prefHasUserValue("username")) {
-          //   return;
-          // }
+          let prefs = Services.prefs.getBranch(SYNC_PREFS_BRANCH);
+          if (!prefs.prefHasUserValue("username")) {
+            return;
+          }
 
           // We have a username. So, do a more thorough check. This will
           // import a number of modules and thus increase memory

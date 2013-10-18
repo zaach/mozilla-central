@@ -93,7 +93,7 @@ this.Status = {
 
   checkSetup: function checkSetup() {
     let result = this._authManager.currentAuthState;
-    dump("Auth state: "+result+"\n");
+    this._log.info("Auth state: "+result);
     if (result == STATUS_OK) {
       Status.service = result;
       return result;
