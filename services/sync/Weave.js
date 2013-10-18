@@ -100,6 +100,9 @@ WeaveService.prototype = {
           fxAccounts.getSignedInUser().then(
             (accountData) => {
               if (accountData) {
+                Cu.import("resource://services-sync/browserid_identity.js");
+                Cu.import("resource://services-common/tokenserverclient.js");
+                Weave.Status._authManager = new BrowserIDManager(fxAccounts, new TokenServerClient()),
                 // init the identity module with any account data from
                 // firefox accounts
                 Weave.Service.identity.initWithLoggedInUser().then(function () {
@@ -113,8 +116,9 @@ WeaveService.prototype = {
                     this.ensureLoaded();
                   }
                 }.bind(this));
-              } else {
-                dump("No logged in user\n");
+              } else if (Weave.Status.checkSetup() != Weave.CLIENT_NOT_CONFIGURED) {
+                // This makes sure that Weave.Service is loaded
+                this.ensureLoaded();
               }
             },
             (err) => {dump("err in getting logged in account "+err.message)}

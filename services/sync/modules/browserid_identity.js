@@ -271,7 +271,7 @@ this.BrowserIDManager.prototype = {
     });
 
     try {
-      token = cb.wait();
+      return cb.wait();
     } catch (err) {
       this._log.info("refreshTokenForLoggedInUserSync: " + err.message);
       return null;

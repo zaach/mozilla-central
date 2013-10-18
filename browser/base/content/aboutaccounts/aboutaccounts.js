@@ -10,6 +10,9 @@ Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/FxAccounts.jsm");
 Cu.import("resource://services-sync/main.js");
 Cu.import("resource://services-sync/util.js");
+Cu.import("resource://services-sync/browserid_identity.js");
+Cu.import("resource://services-common/tokenserverclient.js");
+
 
 function log(msg) {
   dump("FXA: " + msg + "\n");
@@ -58,7 +61,7 @@ let wrapper = {
     fxAccounts.setSignedInUser(accountData).then(
       () => {
         accountData = JSON.parse(JSON.stringify(accountData));
-
+        Weave.Status._authManager = new BrowserIDManager(fxAccounts, new TokenServerClient()),
         Weave.Service.identity.initWithLoggedInUser().then(() => {
           // Set the cluster data that we got from the token
           Weave.Service.clusterURL = Weave.Service.identity.clusterURL;
