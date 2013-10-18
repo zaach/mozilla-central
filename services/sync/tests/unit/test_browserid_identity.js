@@ -42,6 +42,9 @@ let mockTSC = { // TokenServerClient
 };
 
 let browseridManager = new BrowserIDManager(mockFXA, mockTSC);
+// Set the "account" of the browserId manager to be the "email" of the
+// logged in user of the mockFXA service.
+browseridManager._account = mockUser.email;
 
 function run_test() {
   initTestLogging("Trace");
@@ -53,14 +56,13 @@ add_test(function test_initial_state() {
     _("Verify initial state");
     do_check_false(!!browseridManager._token);
     do_check_false(browseridManager.hasValidToken());
-    do_check_false(!!browseridManager.account);
     run_next_test();
   }
 );
 
 add_test(function test_getResourceAuthenticator() {
     _("BrowserIDManager supplies a Resource Authenticator callback which returns a Hawk header.");
-    let authenticator = browseridManager.getRESTResourceAuthenticator();
+    let authenticator = browseridManager.getResourceAuthenticator();
     do_check_true(!!authenticator);
     let req = {uri: CommonUtils.makeURI(
       "https://example.net/somewhere/over/the/rainbow"),
@@ -71,7 +73,7 @@ add_test(function test_getResourceAuthenticator() {
     do_check_true(output.headers.authorization.startsWith('Hawk'));
     _("Expected internal state after successful call.");
     do_check_eq(browseridManager._token.uid, mockToken.uid);
-    do_check_eq(browseridManager.account, browseridManager._normalizeAccountValue(mockUser.email));
+    do_check_eq(browseridManager.account, mockUser.email);
     run_next_test();
   }
 );
@@ -94,6 +96,7 @@ add_test(function test_getRESTRequestAuthenticator() {
 add_test(function test_tokenExpiration() {
     _("BrowserIDManager notices token expiration:");
     let bimExp = new BrowserIDManager(mockFXA, mockTSC);
+    bimExp._account = mockUser.email;
 
     let authenticator = bimExp.getResourceAuthenticator();
     do_check_true(!!authenticator);
@@ -121,6 +124,7 @@ add_test(function test_userChangeAndLogOut() {
     _("BrowserIDManager notices when the FxAccounts.getSignedInUser().email changes.");
     let mockFXA2 = new _MockFXA(mockUser);
     let bidUser = new BrowserIDManager(mockFXA2, mockTSC);
+    bidUser._account = mockUser.email;
     let request = new SyncStorageRequest(
       "https://example.net/somewhere/over/the/rainbow");
     let authenticator = bidUser.getRESTRequestAuthenticator();
