@@ -12,14 +12,11 @@ const Cu = Components.utils;
 Cu.import("resource://services-sync/constants.js");
 Cu.import("resource://gre/modules/Log.jsm");
 Cu.import("resource://services-sync/identity.js");
-Cu.import("resource://services-sync/browserid_identity.js");
 Cu.import("resource://gre/modules/Services.jsm");
-Cu.import("resource://gre/modules/FxAccounts.jsm");
-Cu.import("resource://services-common/tokenserverclient.js");
 
 this.Status = {
   _log: Log.repository.getLogger("Sync.Status"),
-  _authManager: new BrowserIDManager(fxAccounts, new TokenServerClient()),
+  _authManager: new IdentityManager(),
   ready: false,
 
   get service() {
