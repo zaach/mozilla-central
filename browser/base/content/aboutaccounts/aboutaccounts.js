@@ -15,7 +15,7 @@ Cu.import("resource://services-common/tokenserverclient.js");
 
 
 function log(msg) {
-  dump("FXA: " + msg + "\n");
+  //dump("FXA: " + msg + "\n");
 };
 
 function error(msg) {
@@ -81,22 +81,6 @@ let wrapper = {
           this.injectData("message", { status: "login" });
         }).then(null, Cu.reportError);
       },
-      (err) => this.injectData("message", { status: "error", error: err })
-    );
-  },
-
-  /**
-   * onVerified handler receives user credentials from the jelly after
-   * sucessful account creation and email verification
-   * and stores it in the fxaccounts service
-   *
-   * @param accountData the user's account data and credentials
-   */
-  onVerified: function (accountData) {
-    log("Received: 'verified'. Data:" + JSON.stringify(accountData));
-
-    fxAccounts.setSignedInUser(accountData).then(
-      () => this.injectData("message", { status: "verified" }),
       (err) => this.injectData("message", { status: "error", error: err })
     );
   },
