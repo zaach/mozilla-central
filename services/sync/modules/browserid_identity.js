@@ -120,7 +120,18 @@ this.BrowserIDManager.prototype = {
    * password manager for the sync key.
    */
   get syncKey() {
-    return "SORRY";
+    if (this.syncKeyBundle) {
+      // TODO: This is probably fine because the code shouldn't be
+      // using the sync key directly (it should use the sync key
+      // bundle), but I don't like it. We should probably refactor
+      // code that is inspecting this to not do validation on this
+      // field directly and instead call a isSyncKeyValid() function
+      // that we can override.
+      return "99999999999999999999999999";
+    }
+    else {
+      return null;
+    }
   },
 
   get syncKeyBundle() {
@@ -134,6 +145,9 @@ this.BrowserIDManager.prototype = {
    * Sync.
    */
   get currentAuthState() {
+    // TODO: need to revisit this. Currently this isn't ready to go until
+    // both the username and syncKeyBundle are both configured and having no
+    // username seems to make things fail fast so that's good.
     if (!this.username) {
       return LOGIN_FAILED_NO_USERNAME;
     }
@@ -142,8 +156,7 @@ this.BrowserIDManager.prototype = {
       return LOGIN_FAILED_NO_PASSPHRASE;
     }
 
-    // If we have a Sync Key but no bundle, bundle creation failed, which
-    // implies a bad Sync Key.
+    // If we have a Sync Key but no bundle, or bundle creation failed.
     if (!this.syncKeyBundle) {
       return LOGIN_FAILED_INVALID_PASSPHRASE;
     }
