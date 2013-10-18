@@ -10,6 +10,7 @@ const {classes: Cc, interfaces: Ci, utils: Cu} = Components;
 Cu.import("resource://gre/modules/Promise.jsm");
 Cu.import("resource://gre/modules/osfile.jsm")
 Cu.import("resource://services-common/utils.js");
+Cu.import("resource://services-crypto/utils.js");
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 
@@ -121,6 +122,20 @@ FxAccounts.prototype = Object.freeze({
     }
     return url;
   },
+
+  _deriveHawkCredentials: function (sessionToken) {
+    let bytes = [];
+    for (let i=0; i <  sessionToken.length-1; i += 2) {
+      bytes.push(parseInt(sessionToken.substr(i, 2), 16));
+    }
+    let key = String.fromCharCode.apply(String, bytes);
+    let out = CryptoUtils.hkdf(key, undefined, "identity.mozilla.com/picl/v1/session", 2*32);
+    return {
+      algorithm: "sha256",
+      id: CommonUtils.bytesAsHex(out.slice(0, 32)),
+      key: CommonUtils.bytesAsHex(out.slice(32, 64))
+    };
+  }
 
 });
 
