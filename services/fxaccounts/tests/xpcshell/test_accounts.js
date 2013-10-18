@@ -66,3 +66,12 @@ add_task(function test_get_signed_in_user_initially_unset() {
   run_next_test();
 });
 
+add_test(function test_hawk_credentials() {
+  let sessionToken = "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf";
+  let result = fxAccounts._deriveHawkCredentials(sessionToken);
+
+  do_check_eq(result.id, "639503a218ffbb62983e9628be5cd64a0438d0ae81b2b9dadeb900a83470bc6b");
+  do_check_eq(result.key, "3a0188943837ab228fe74e759566d0e4837cbcc7494157aac4da82025b2811b2");
+
+  run_next_test();
+});
