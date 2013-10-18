@@ -25,12 +25,7 @@ for (let symbol of ["BulkKeyBundle"]) {
                                     symbol);
 }
 
-function deriveKeyBundle(kB_hex) {
-  let kB_bytes = [];
-  for (let i=0; i <  kB_hex.length-1; i += 2) {
-    kB_bytes.push(parseInt(kB_hex.substr(i, 2), 16));
-  }
-  let kB = String.fromCharCode.apply(String, kB_bytes);
+function deriveKeyBundle(kB) {
   let out = CryptoUtils.hkdf(kB, undefined,
                              "identity.mozilla.com/picl/v1/oldsync", 2*32);
   let bundle = new BulkKeyBundle();
@@ -232,7 +227,9 @@ this.BrowserIDManager.prototype = {
         // user has sync set up, etc
         this.username = this._token.uid.toString();
 
-        this._syncKeyBundle = deriveKeyBundle(userData.kB);
+        // XXX Jelly sends us kB as hex.
+        let kB = CommonUtils.hexToBytes(userData.kB)
+        this._syncKeyBundle = deriveKeyBundle(kB);
 
         // Set the clusterURI for this user based on the endpoint in the token.
         // This is a bit of a hack, and we should figure out a better way of
