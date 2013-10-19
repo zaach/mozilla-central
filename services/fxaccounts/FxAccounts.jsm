@@ -63,7 +63,9 @@ FxAccounts.prototype = Object.freeze({
     // cache a clone of the credentials object
     this._signedInUser = JSON.parse(JSON.stringify(record));
 
-    return this._signedInUserStorage.set(record);
+    return this._signedInUserStorage.set(record).then(() => {
+      Services.obs.notifyObservers(null, "fxaccounts:onlogin", null);
+    });
   },
 
   /**
@@ -112,7 +114,9 @@ FxAccounts.prototype = Object.freeze({
    */
   signOut: function signOut() {
     this._signedInUser = {};
-    return this._signedInUserStorage.set(null);
+    return this._signedInUserStorage.set(null).then(() => {
+      Services.obs.notifyObservers(null, "fxaccounts:onlogout", null);
+    });
   },
 
   getAccountsURI: function () {

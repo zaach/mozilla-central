@@ -65,12 +65,51 @@ WeaveService.prototype = {
     Weave.Service;
   },
 
+  maybeInitWithFxAccountsAndEnsureLoaded: function() {
+    Components.utils.import("resource://services-sync/main.js");
+    dump("getting signed in user\n");
+    // FxAccounts imports lots of stuff, so only do this as we need it
+    Cu.import("resource://gre/modules/FxAccounts.jsm");
+
+    // This isn't quite sufficient here to handle all the cases. Cases
+    // we need to handle:
+    //  - User is signed in to FxAccounts, btu hasn't set up sync.
+    return fxAccounts.getSignedInUser().then(
+      (accountData) => {
+        if (accountData) {
+          Cu.import("resource://services-sync/browserid_identity.js");
+          Cu.import("resource://services-common/tokenserverclient.js");
+          Weave.Status._authManager = new BrowserIDManager(fxAccounts, new TokenServerClient()),
+          // init the identity module with any account data from
+          // firefox accounts
+          Weave.Service.identity.initWithLoggedInUser().then(function () {
+            // Set the cluster data that we got from the token
+            Weave.Service.clusterURL = Weave.Service.identity.clusterURL;
+            // checkSetup() will check the auth state of the identity module
+            // and records that status in Weave.Status
+            if (Weave.Status.checkSetup() != Weave.CLIENT_NOT_CONFIGURED) {
+              // This makes sure that Weave.Service is loaded
+              Svc.Obs.notify("weave:service:setup-complete");
+              this.ensureLoaded();
+            }
+          }.bind(this));
+        } else if (Weave.Status.checkSetup() != Weave.CLIENT_NOT_CONFIGURED) {
+          // This makes sure that Weave.Service is loaded
+          this.ensureLoaded();
+        }
+      },
+      (err) => {dump("err in getting logged in account "+err.message)}
+    ).then(null, (err) => {dump("err in processing logged in account "+err.message)});
+  },
+
   observe: function (subject, topic, data) {
     switch (topic) {
     case "app-startup":
       let os = Cc["@mozilla.org/observer-service;1"].
                getService(Ci.nsIObserverService);
       os.addObserver(this, "final-ui-startup", true);
+      os.addObserver(this, "fxaccounts:onlogin", true);
+      os.addObserver(this, "fxaccounts:onlogout", true);
       break;
 
     case "final-ui-startup":
@@ -89,42 +128,27 @@ WeaveService.prototype = {
           // accordingly. We could potentially copy code performed by
           // this check into this file if our above code is yielding too
           // many false positives.
-          Components.utils.import("resource://services-sync/main.js");
-          dump("getting signed in user\n");
-          // FxAccounts imports lots of stuff, so only do this as we need it
-          Cu.import("resource://gre/modules/FxAccounts.jsm");
-
-          // This isn't quite sufficient here to handle all the cases. Cases
-          // we need to handle:
-          //  - User is signed in to FxAccounts, btu hasn't set up sync.
-          fxAccounts.getSignedInUser().then(
-            (accountData) => {
-              if (accountData) {
-                Cu.import("resource://services-sync/browserid_identity.js");
-                Cu.import("resource://services-common/tokenserverclient.js");
-                Weave.Status._authManager = new BrowserIDManager(fxAccounts, new TokenServerClient()),
-                // init the identity module with any account data from
-                // firefox accounts
-                Weave.Service.identity.initWithLoggedInUser().then(function () {
-                  // Set the cluster data that we got from the token
-                  Weave.Service.clusterURL = Weave.Service.identity.clusterURL;
-                  // checkSetup() will check the auth state of the identity module
-                  // and records that status in Weave.Status
-                  if (Weave.Status.checkSetup() != Weave.CLIENT_NOT_CONFIGURED) {
-                    // This makes sure that Weave.Service is loaded
-                    Svc.Obs.notify("weave:service:setup-complete");
-                    this.ensureLoaded();
-                  }
-                }.bind(this));
-              } else if (Weave.Status.checkSetup() != Weave.CLIENT_NOT_CONFIGURED) {
-                // This makes sure that Weave.Service is loaded
-                this.ensureLoaded();
-              }
-            },
-            (err) => {dump("err in getting logged in account "+err.message)}
-          ).then(null, (err) => {dump("err in processing logged in account "+err.message)})
+          this.maybeInitWithFxAccountsAndEnsureLoaded();
         }.bind(this)
       }, 1000, Ci.nsITimer.TYPE_ONE_SHOT);
+      break;
+
+    case 'fxaccounts:onlogin':
+        // Tell sync that if this is a first sync, it should try and sync the
+        // server data with what is on the client - despite the name implying
+        // otherwise, this is what "resetClient" does.
+        Components.utils.import("resource://services-sync/main.js"); // ensure 'Weave' exists
+        Weave.Svc.Prefs.set("firstSync", "resetClient");
+        this.maybeInitWithFxAccountsAndEnsureLoaded().then(() => {
+          // and off we go...
+          Weave.Utils.nextTick(Weave.Service.sync, Weave.Service);
+        });
+      break;
+    case 'fxaccounts:onlogout':
+      Components.utils.import("resource://services-sync/main.js"); // ensure 'Weave' exists
+      // startOver is throwing some errors and we can't re-log in in this
+      // session - so for now, we don't do this!
+      //Weave.Service.startOver();
       break;
     }
   }
