@@ -60,26 +60,8 @@ let wrapper = {
 
     fxAccounts.setSignedInUser(accountData).then(
       () => {
-        accountData = JSON.parse(JSON.stringify(accountData));
-        Weave.Status._authManager = new BrowserIDManager(fxAccounts, new TokenServerClient()),
-        Weave.Service.identity.initWithLoggedInUser().then(() => {
-          // Set the cluster data that we got from the token
-          Weave.Service.clusterURL = Weave.Service.identity.clusterURL;
-          // Tell sync that if this is a first sync, it should try and sync the
-          // server data with what is on the client - despite the name implying
-          // otherwise, this is what "resetClient" does.
-          Weave.Svc.Prefs.set("firstSync", "resetClient");
-
-          Weave.Svc.Obs.notify("weave:service:setup-complete");
-
-          // and off we go...
-          Weave.Utils.nextTick(Weave.Service.sync, Weave.Service);
-          log("sync setup complete");
-
-          window.location = "about:sync-progress";
-
-          this.injectData("message", { status: "login" });
-        }).then(null, Cu.reportError);
+        window.location = "about:sync-progress";
+        this.injectData("message", { status: "login" });
       },
       (err) => this.injectData("message", { status: "error", error: err })
     );
