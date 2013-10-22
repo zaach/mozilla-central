@@ -67,7 +67,6 @@ WeaveService.prototype = {
 
   maybeInitWithFxAccountsAndEnsureLoaded: function() {
     Components.utils.import("resource://services-sync/main.js");
-    dump("getting signed in user\n");
     // FxAccounts imports lots of stuff, so only do this as we need it
     Cu.import("resource://gre/modules/FxAccounts.jsm");
 
@@ -90,6 +89,9 @@ WeaveService.prototype = {
             if (Weave.Status.checkSetup() != Weave.CLIENT_NOT_CONFIGURED) {
               // This makes sure that Weave.Service is loaded
               Svc.Obs.notify("weave:service:setup-complete");
+              // TODO: this shouldn't be here. It should be at the end
+              // of the promise chain of the 'fxaccounts:onlogin' handler.
+              Weave.Utils.nextTick(Weave.Service.sync, Weave.Service);
               this.ensureLoaded();
             }
           }.bind(this));
@@ -141,7 +143,10 @@ WeaveService.prototype = {
         Weave.Svc.Prefs.set("firstSync", "resetClient");
         this.maybeInitWithFxAccountsAndEnsureLoaded().then(() => {
           // and off we go...
-          Weave.Utils.nextTick(Weave.Service.sync, Weave.Service);
+          // TODO: I have this being done in maybeInitWithFxAccountsAndEnsureLoaded
+          // because I had a bug in the promise chains that was triggering this
+          // too early. This should be fixed.
+          //Weave.Utils.nextTick(Weave.Service.sync, Weave.Service);
         });
       break;
     case 'fxaccounts:onlogout':
