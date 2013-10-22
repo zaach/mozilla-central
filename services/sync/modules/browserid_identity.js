@@ -93,7 +93,8 @@ this.BrowserIDManager.prototype = {
    * Returns a string if set or null if it is not set.
    */
   get basicPassword() {
-    throw "basicPassword getter should be not used in BrowserIDManager";
+    this._log.error("basicPassword getter should be not used in BrowserIDManager");
+    return null;
   },
 
   /**
@@ -102,7 +103,10 @@ this.BrowserIDManager.prototype = {
    * Changes will not persist unless persistSyncCredentials() is called.
    */
   set basicPassword(value) {
-    throw "basicPassword setter should be not used in BrowserIDManager";
+    if (!value) {
+      return;
+    }
+    throw "basicPassword setter should be not used with non-null value in BrowserIDManager";
   },
 
   /**
@@ -126,6 +130,16 @@ this.BrowserIDManager.prototype = {
     }
     else {
       return null;
+    }
+  },
+
+  set syncKey(value) {
+    if (!value) {
+      this._log.info("Sync Key has no value. Deleting.");
+      this._syncKey = null;
+      this._syncKeyBundle = null;
+      this._syncKeyUpdated = true;
+      return;
     }
   },
 
@@ -168,7 +182,7 @@ this.BrowserIDManager.prototype = {
       return false;
     }
     if (this._token.expiration < this._now()) {
-      return false;
+     return false;
     }
     let signedInUser = this._getSignedInUser();
     if (!signedInUser) {
@@ -228,7 +242,7 @@ this.BrowserIDManager.prototype = {
         this.username = this._token.uid.toString();
 
         // XXX Jelly sends us kB as hex.
-        let kB = CommonUtils.hexToBytes(userData.kB)
+        let kB = Utils.hexToBytes(userData.kB)
         this._syncKeyBundle = deriveKeyBundle(kB);
 
         // Set the clusterURI for this user based on the endpoint in the token.
