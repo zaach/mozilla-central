@@ -10,15 +10,20 @@ this.EXPORTED_SYMBOLS = [
   "setBasicCredentials",
   "getDefaultIdentityConfig",
   "configureFxAccountIdentity",
+  "configureIdentity",
   "SyncTestingInfrastructure",
   "waitForZeroTimer",
+  "add_identity_test",
 ];
 
 const {utils: Cu} = Components;
 
+Cu.import("resource://services-sync/status.js");
+Cu.import("resource://services-sync/identity.js");
 Cu.import("resource://services-common/utils.js");
 Cu.import("resource://services-crypto/utils.js");
 Cu.import("resource://services-sync/util.js");
+Cu.import("resource://services-sync/browserid_identity.js");
 Cu.import("resource://testing-common/services-common/logging.js");
 Cu.import("resource://testing-common/services/sync/fakeservices.js");
 Cu.import("resource://gre/modules/FxAccounts.jsm");
@@ -76,8 +81,12 @@ this.getDefaultIdentityConfig = function() {
         key: "key",
         // uid will be set to the username.
       }
+    },
+    sync: {
+      // username will come from the top-level username
+      password: "whatever",
+      syncKey: "abcdeabcdeabcdeabcdeabcdea",
     }
-    // XXX - todo - basic identity provider config
   };
 }
 
@@ -109,6 +118,25 @@ this.configureFxAccountIdentity = function(authService,
   // Set the "account" of the browserId manager to be the "email" of the
   // logged in user of the mockFXA service.
   authService._account = config.fxaccount.user.email;
+}
+
+this.configureIdentity = function(config = getDefaultIdentityConfig()) {
+  let ns = {};
+  Cu.import("resource://services-sync/service.js", ns);
+
+  if (ns.Service.identity instanceof BrowserIDManager) {
+    // do the FxAccounts thang...
+    configureFxAccountIdentity(ns.Service.identity, config);
+    return ns.Service.identity.initWithLoggedInUser();
+  }
+  // old style identity provider.
+  let deferred = Promise.defer();
+  let auth = ns.Service.identity;
+  auth.username = config.username;
+  auth.basicPassword = config.sync.password;
+  auth.syncKey = config.sync.syncKey;
+  deferred.resolve();
+  return deferred.promise;
 }
 
 this.SyncTestingInfrastructure = function (server, username, password, syncKey) {
@@ -148,3 +176,40 @@ this.encryptPayload = function encryptPayload(cleartext) {
   };
 }
 
+// This helper can be used instead of 'add_test' or 'add_task' to run the
+// specified test function twice - once with the old-style sync identity
+// manager and once with the new-style BrowserID identity manager, to ensure
+// it works in both cases.
+//
+// * The test itself should be passed as 'test' - ie, test code will generally
+//   pass |this|.
+// * The test function is a regular test function - although note that it must
+//   be a generator - async operations should yield them, and run_next_test
+//   mustn't be called.
+// * identityConfig is optional - if not specified, the default test
+//   credentials will be used.
+this.add_identity_test = function(test, testFunction, identityConfig) {
+  function note(what) {
+    let msg = "running test " + testFunction.name + " with " + what + " identity manager";
+    test._log("test_info",
+              {_message: "TEST-INFO | | " + msg + "\n"});
+  }
+  // one task for the "old" identity manager.
+  test.add_task(function() {
+    note("sync");
+    let oldIdentity = Status._authManager;
+    Status._authManager = new IdentityManager();
+    yield configureIdentity(identityConfig);
+    yield testFunction();
+    Status._authManager = oldIdentity;
+  });
+  // another task for the FxAccounts identity manager.
+  test.add_task(function() {
+    note("FxAccounts");
+    let oldIdentity = Status._authManager;
+    Status._authManager = new BrowserIDManager();
+    yield configureIdentity(identityConfig);
+    yield testFunction();
+    Status._authManager = oldIdentity;
+  });
+}
