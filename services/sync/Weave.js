@@ -77,8 +77,7 @@ WeaveService.prototype = {
       (accountData) => {
         if (accountData) {
           Cu.import("resource://services-sync/browserid_identity.js");
-          Cu.import("resource://services-common/tokenserverclient.js");
-          Weave.Status._authManager = new BrowserIDManager(fxAccounts, new TokenServerClient()),
+          Weave.Status._authManager = new BrowserIDManager(),
           // init the identity module with any account data from
           // firefox accounts
           Weave.Service.identity.initWithLoggedInUser().then(function () {

@@ -14,6 +14,7 @@ Cu.import("resource://services-common/tokenserverclient.js");
 Cu.import("resource://services-crypto/utils.js");
 Cu.import("resource://services-sync/identity.js");
 Cu.import("resource://services-sync/util.js");
+Cu.import("resource://services-common/tokenserverclient.js");
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://services-sync/constants.js");
 Cu.import("resource://gre/modules/Promise.jsm");
@@ -41,9 +42,11 @@ function deriveKeyBundle(kB) {
  * header so that SyncStorageRequest can connect.
  */
 
-this.BrowserIDManager = function BrowserIDManager(fxaService, tokenServerClient) {
-  this._fxaService = fxaService;
-  this._tokenServerClient = tokenServerClient;
+this.BrowserIDManager = function BrowserIDManager() {
+  // FxAccounts imports lots of stuff, so only do this as we need it
+  Cu.import("resource://gre/modules/FxAccounts.jsm");
+  this._fxaService = fxAccounts;
+  this._tokenServerClient = new TokenServerClient();
   this._log = Log.repository.getLogger("Sync.BrowserIDManager");
   this._log.Level = Log.Level[Svc.Prefs.get("log.logger.identity")];
 
