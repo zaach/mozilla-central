@@ -67,15 +67,13 @@ FxAccounts.prototype = Object.freeze({
     this._signedInUser = JSON.parse(JSON.stringify(record));
 
     return this._signedInUserStorage.set(record).then(() => {
-      this._notifyLoginObservers();
-
-      /*this._isUserVerified().then(isVerified => {
+      this._isUserVerified().then(isVerified => {
         if (isVerified) {
           this._notifyLoginObservers();
         } else {
           this._startPolling();
         }
-      });*/
+      });
     });
   },
 
@@ -105,10 +103,10 @@ FxAccounts.prototype = Object.freeze({
       }
 
       return this._isUserVerified().then(isVerified => {
-        /*if (!isVerified) {
+        if (!isVerified) {
           this._startPolling();
           return undefined;
-        }*/
+        }
 
         return data;
       });
@@ -217,9 +215,12 @@ FxAccounts.prototype = Object.freeze({
 
       let {kA, wrapKB} = yield HAWK.accountKeys(keyFetchToken);
 
-      data.kA = kA;
-      data.kB = CryptoUtils.xor(CommonUtils.hexToBytes(data.unwrapBKey), wrapKB);
+      // store kA/kB as hex
+      let kB_hex = CryptoUtils.xor(CommonUtils.hexToBytes(data.unwrapBKey), wrapKB);
+      data.kA = CommonUtils.bytesAsHex(kA);
+      data.kB = CommonUtils.bytesAsHex(kB_hex);
       data.isVerified = true;
+      dump("Keys Obtained: kA="+data.kA+", kB="+data.kB+"\n");
 
       yield this._setUserAccountData(data);
       this._notifyLoginObservers();

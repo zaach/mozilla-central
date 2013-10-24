@@ -14,7 +14,7 @@ Cu.import("resource://gre/modules/Promise.jsm");
 const XMLHttpRequest =
   Components.Constructor("@mozilla.org/xmlextras/xmlhttprequest;1");
 
-const HOST = "https://idp.dev.lcip.org";
+const HOST = "https://idp.dev.lcip.org/v1";
 const PREFIX_NAME = "identity.mozilla.com/picl/v1/";
 
 function deriveCredentials(tokenHex, name) {
@@ -30,7 +30,7 @@ function deriveCredentials(tokenHex, name) {
 }
 
 function doRequest(path, method, credentials) {
-  dump(" ++ sending hawk request\n");
+  dump(" ++ sending hawk request: "+path+"\n");
   let deferred = Promise.defer();
   let xhr = new XMLHttpRequest({mozSystem: true});
 
