@@ -232,7 +232,7 @@ this.BrowserIDManager.prototype = {
     return this._fxaService.getSignedInUser().then(function (userData) {
       if (!userData) {
         this._log.warn("initWithLoggedInUser found no logged in user");
-        return;
+        return undefined;
       }
       // Make a note of the last logged in user.
       this._account = userData.email;
@@ -245,8 +245,8 @@ this.BrowserIDManager.prototype = {
         // user has sync set up, etc
         this.username = this._token.uid.toString();
 
-        // XXX Jelly sends us kB as hex.
-        let kB = Utils.hexToBytes(userData.kB)
+        // both Jelly and FxAccounts give us kA/kB as hex.
+        let kB = Utils.hexToBytes(userData.kB);
         this._syncKeyBundle = deriveKeyBundle(kB);
 
         // Set the clusterURI for this user based on the endpoint in the token.
