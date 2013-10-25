@@ -7,6 +7,7 @@ modules := \
   stringbundle.js \
   tokenserverclient.js \
   utils.js \
+  hawkClient.js \
   $(NULL)
 
 pp_modules := \

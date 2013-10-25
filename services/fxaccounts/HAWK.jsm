@@ -6,16 +6,19 @@ this.EXPORTED_SYMBOLS = ["HAWK"];
 
 const {classes: Cc, interfaces: Ci, utils: Cu} = Components;
 
-Cu.import("resource://services-common/utils.js");
+Cu.import("resource://services-common/hawkClient.js");
 Cu.import("resource://services-crypto/utils.js");
 
 const HOST = "https://idp.dev.lcip.org";
 const PREFIX_NAME = "identity.mozilla.com/picl/v1/";
 
 function doRequest(path, method, credentials) {
-  return CommonUtils.hawkRequest(HOST + path, {
+  return HawkClient.request(HOST + path, {
     method: method,
     credentials: credentials
+  })
+  .then(function (result) {
+    return result.json;
   });
 }
 
