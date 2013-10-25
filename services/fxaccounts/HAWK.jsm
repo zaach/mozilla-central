@@ -8,55 +8,25 @@ const {classes: Cc, interfaces: Ci, utils: Cu} = Components;
 
 Cu.import("resource://services-common/utils.js");
 Cu.import("resource://services-crypto/utils.js");
-Cu.import("resource://gre/modules/Services.jsm");
-Cu.import("resource://gre/modules/Promise.jsm");
-
-const XMLHttpRequest =
-  Components.Constructor("@mozilla.org/xmlextras/xmlhttprequest;1");
 
 const HOST = "https://idp.dev.lcip.org";
 const PREFIX_NAME = "identity.mozilla.com/picl/v1/";
 
-function deriveCredentials(tokenHex, name) {
-  let token = CommonUtils.hexToBytes(tokenHex);
-  let out = CryptoUtils.hkdf(token, undefined, PREFIX_NAME + name, 5 * 32);
-
-  return {
-    algorithm: "sha256",
-    key: out.slice(32, 64),
-    extra: out.slice(64),
-    id: CommonUtils.bytesAsHex(out.slice(0, 32))
-  };
-}
-
 function doRequest(path, method, credentials) {
-  dump(" ++ sending hawk request\n");
-  let deferred = Promise.defer();
-  let xhr = new XMLHttpRequest({mozSystem: true});
-
-  xhr.open(method, HOST + path);
-  xhr.onerror = deferred.reject;
-  xhr.onload = function onload() {
-    dump(" ++ hawk response " + xhr.responseText + "\n");
-    deferred.resolve(JSON.parse(xhr.responseText));
-  };
-
-  let uri = Services.io.newURI(HOST + path, null, null);
-  let header = CryptoUtils.computeHAWK(uri, method, {credentials: credentials});
-  xhr.setRequestHeader("authorization", header.field);
-  xhr.send();
-
-  return deferred.promise;
+  return CommonUtils.hawkRequest(HOST + path, {
+    method: method,
+    credentials: credentials
+  });
 }
 
 this.HAWK = Object.freeze({
   recoveryEmailStatus: function (sessionTokenHex) {
     return doRequest("/recovery_email/status", "GET",
-      deriveCredentials(sessionTokenHex, "session"));
+      CryptoUtils.deriveHawkCredentials(sessionTokenHex, PREFIX_NAME + "session", 2 * 32));
   },
 
   accountKeys: function (keyFetchTokenHex) {
-    let creds = deriveCredentials(keyFetchTokenHex, "account/keys");
+    let creds = CryptoUtils.deriveCredentials(keyFetchTokenHex, PREFIX_NAME + "account/keys", 5 * 32);
 
     return doRequest("/account/keys", "GET", creds).then(resp => {
       if (!resp.bundle) {

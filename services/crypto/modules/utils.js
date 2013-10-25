@@ -260,6 +260,18 @@ this.CryptoUtils = {
     }
   },
 
+  deriveHawkCredentials: function (tokenHex, context, size) {
+    let token = CommonUtils.hexToBytes(tokenHex);
+    let out = CryptoUtils.hkdf(token, undefined, context, size || 2 * 32);
+
+    return {
+      algorithm: "sha256",
+      key: out.slice(32, 64),
+      extra: out.slice(64),
+      id: CommonUtils.bytesAsHex(out.slice(0, 32))
+    };
+  },
+
   /**
    * Compute the HTTP MAC SHA-1 for an HTTP request.
    *
