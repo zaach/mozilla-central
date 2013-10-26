@@ -1341,4 +1341,5 @@ pref("network.disable.ipc.security", true);
 
 // The URL where remote content that composes the UI for Firefox Accounts should
 // be fetched. Must use HTTPS.
-pref("firefox.accounts.remoteUrl", "https://accounts.dev.lcip.org/flow");
+//pref("firefox.accounts.remoteUrl", "https://accounts.dev.lcip.org/flow");
+pref("firefox.accounts.remoteUrl", "http://localhost:3030/flow?moar_native=true");
