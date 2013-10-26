@@ -31,7 +31,7 @@ function deriveCredentials(tokenHex, name) {
 }
 
 function doRequest(path, method, credentials) {
-  dump(" ++ sending hawk request: "+path+"\n");
+  dump(" ++ sending hawk request: "+HOST+path+"\n");
   let deferred = Promise.defer();
   let xhr = new XMLHttpRequest({mozSystem: true});
 
