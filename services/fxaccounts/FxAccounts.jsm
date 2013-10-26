@@ -8,7 +8,7 @@ this.EXPORTED_SYMBOLS = ["fxAccounts", "FxAccounts"];
 const {classes: Cc, interfaces: Ci, utils: Cu} = Components;
 
 Cu.import("resource://gre/modules/Promise.jsm");
-Cu.import("resource://gre/modules/osfile.jsm")
+Cu.import("resource://gre/modules/osfile.jsm");
 Cu.import("resource://services-common/utils.js");
 Cu.import("resource://services-crypto/utils.js");
 Cu.import("resource://gre/modules/HAWK.jsm");
@@ -36,6 +36,7 @@ function FxAccounts(signedInUserStorage = undefined) {
     });
   }
   this._signedInUserStorage = signedInUserStorage;
+  this._whenVerifiedPromises = [];
 }
 
 FxAccounts.prototype = Object.freeze({
@@ -53,9 +54,7 @@ FxAccounts.prototype = Object.freeze({
    *          email: The users email address
    *          uid: The user's unique id
    *          sessionToken: Session for the FxA server
-   *          assertion: A Persona assertion used to enable Sync
-   *          kA: An encryption key from the FxA server
-   *          kB: An encryption key derived from the user's FxA password
+   *          keyFetchToken: an unused keyFetchToken
    *        }
    *
    * @return Promise
@@ -66,15 +65,70 @@ FxAccounts.prototype = Object.freeze({
     // cache a clone of the credentials object
     this._signedInUser = JSON.parse(JSON.stringify(record));
 
-    return this._signedInUserStorage.set(record).then(() => {
-      this._isUserVerified().then(isVerified => {
-        if (isVerified) {
-          this._notifyLoginObservers();
+    return this._signedInUserStorage.set(record)
+      .then(() => this._whenReady() )
+      .then(() => this._notifyLoginObservers() )
+    ;
+  },
+
+  _isReady: function _isReady(data) {
+    if (data.isVerified && data.kA && data.kB)
+      return true;
+    return false;
+  },
+
+  _whenReady: function _whenReady() {
+    // fires when email is verified and keys fetched
+    return this._whenVerified()
+      .then( data => data.keyFetchToken ?
+             this._fetchAndUnwrapKeys(data.keyFetchToken) : undefined );
+  },
+
+  _whenVerified: function _whenVerified() {
+    // fires when email is verified
+    let deferred = Promise.defer();
+    this._whenVerifiedPromises.push(deferred);
+    this._pollEmailStatus();
+    dump("== _whenVerified returning promise\n");
+    return deferred.promise;
+  },
+
+  _pollEmailStatus: function _pollEmailStatus() {
+    this._getUserAccountData()
+      .then(data => {
+        if (!data) {
+          dump("Huh? _pollEmailStatus got empty _getUserAccountData\n");
+        } else if (data.isVerified) {
+          this._notifyVerified(data);
         } else {
-          this._startPolling();
+          this._checkEmailStatus(data.sessionToken)
+            .then(response => {
+              dump(" - response: "+JSON.stringify(response)+"\n");
+              if (response && response.verified) {
+                this._getUserAccountData()
+                  .then(data => {
+                    data.isVerified = true;
+                    return this._setUserAccountData(data);
+                  })
+                  .then(() => this._notifyVerified(data));
+              } else {
+                setTimeout(() => this._pollEmailStatus(), 1000);
+              }
+            });
         }
       });
-    });
+    },
+
+  _checkEmailStatus: function _checkEmailStatus(sessionToken) {
+    return HAWK.recoveryEmailStatus(sessionToken);
+  },
+
+  _notifyVerified: function _notifyVerified(data) {
+    dump("== _notifyVerified "+this._whenVerifiedPromises.length+"\n");
+    while (this._whenVerifiedPromises.length) {
+      let d = this._whenVerifiedPromises.shift();
+      d.resolve(data);
+    }
   },
 
   /**
@@ -87,30 +141,34 @@ FxAccounts.prototype = Object.freeze({
    *          email: The user's email address
    *          uid: The user's unique id
    *          sessionToken: Session for the FxA server
-   *          assertion: A Persona assertion used to enable Sync
    *          kA: An encryption key from the FxA server
    *          kB: An encryption key derived from the user's FxA password
    *        }
    *
-   *        or null if no user is signed in or the user data is an
-   *        unrecognized version.
+   *        or null if the signed in user does not yet have the necessary
+   *        keys, the user data is an unrecognized version, or no user is
+   *        signed in.
    *
    */
   getSignedInUser: function getSignedInUser() {
-    return this._getUserAccountData().then(data => {
-      if (!data) {
-        return undefined;
-      }
-
-      return this._isUserVerified().then(isVerified => {
-        if (!isVerified) {
-          this._startPolling();
-          return undefined;
+    return this._getUserAccountData()
+      .then(data => {
+        if (!this._isReady(data)) {
+          this._whenReady() // kick off the process, it will finish eventually
+            .then( () => this._notifyLoginObservers() );
+          // but our caller doesn't wait for that
+          return null;
         }
-
         return data;
       });
-    });
+  },
+
+  getAssertion: function getAssertion(audience, validityPeriod) {
+    // returns a Persona assertion used to enable Sync
+    return this._getUserAccountData()
+      .then(data => this._getKeyAndCertificate(data, validityPeriod))
+      .then(keycert => this._getAssertionFromCert(keycert, audience,
+                                                  validityPeriod));
   },
 
   _getUserAccountData: function () {
@@ -136,7 +194,7 @@ FxAccounts.prototype = Object.freeze({
     return this._signedInUserStorage.get().then(record => {
       record.accountData = accountData;
       this._signedInUser = record;
-      return this._signedInUserStorage.set(record);
+      return this._signedInUserStorage.set(record).then(() => accountData);
     });
   },
 
@@ -175,56 +233,30 @@ FxAccounts.prototype = Object.freeze({
     };
   },
 
-  _isUserVerified: function () {
-    return this._getUserAccountData()
-      .then(data => data && data.isVerified);
-  },
-
-  _startPolling: function () {
-    this._isEmailAddressVerified().then(isVerified => {
-      if (isVerified) {
-        this._retrieveKeys();
-      } else {
-        setTimeout(() => this._startPolling(), 1000);
-      }
-    });
-  },
-
-  _isEmailAddressVerified: function () {
-    return this._getUserAccountData().then(data => {
-      return HAWK.recoveryEmailStatus(data.sessionToken)
-        .then(response => response && response.verified, err => false);
-    });
-  },
-
-  _retrieveKeys: function () {
+  _fetchAndUnwrapKeys: function (keyFetchToken) {
+    dump("== _fetchAndUnwrapKeys\n");
     return Task.spawn(function task() {
-      let data = yield this._getUserAccountData();
-
       // Sign out if we don't have a key fetch token.
-      if (!data.keyFetchToken) {
+      if (!keyFetchToken) {
         yield this.signOut();
         return;
       }
 
-      let {keyFetchToken} = data;
-      delete data.keyFetchToken;
+      let {kA, wrapKB} = yield this._fetchKeys(keyFetchToken);
 
-      // Clear the token before we request keys...
-      yield this._setUserAccountData(data);
-
-      let {kA, wrapKB} = yield HAWK.accountKeys(keyFetchToken);
-
-      // store kA/kB as hex
-      let kB_hex = CryptoUtils.xor(CommonUtils.hexToBytes(data.unwrapBKey), wrapKB);
-      data.kA = CommonUtils.bytesAsHex(kA);
+      let data = yield this._getUserAccountData();
+      let kB_hex = CryptoUtils.xor(CommonUtils.hexToBytes(data.unwrapBKey),
+                                   wrapKB);
+      data.kA = CommonUtils.bytesAsHex(kA); // store kA/kB as hex
       data.kB = CommonUtils.bytesAsHex(kB_hex);
-      data.isVerified = true;
-      dump("Keys Obtained: kA="+data.kA+", kB="+data.kB+"\n");
-
+      delete data.keyFetchToken;
       yield this._setUserAccountData(data);
-      this._notifyLoginObservers();
+      dump("Keys Obtained: kA="+data.kA+", kB="+data.kB+"\n");
     }.bind(this));
+  },
+
+  _fetchKeys: function _fetchKeys(keyFetchToken) {
+    return HAWK.accountKeys(keyFetchToken);
   },
 
   _notifyLoginObservers: function () {
