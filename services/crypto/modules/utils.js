@@ -15,7 +15,7 @@ this.CryptoUtils = {
     let bytes = [];
 
     if (a.length != b.length) {
-      throw new Error("can't xor unequal length strings");
+      throw new Error("can't xor unequal length strings: "+a.length+" vs "+b.length);
     }
 
     for (let i = 0; i < a.length; i++) {
