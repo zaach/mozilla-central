@@ -8,11 +8,6 @@ const {classes: Cc, interfaces: Ci, utils: Cu} = Components;
 
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/FxAccounts.jsm");
-Cu.import("resource://services-sync/main.js");
-Cu.import("resource://services-sync/util.js");
-Cu.import("resource://services-sync/browserid_identity.js");
-Cu.import("resource://services-common/tokenserverclient.js");
-
 
 function log(msg) {
   //dump("FXA: " + msg + "\n");
