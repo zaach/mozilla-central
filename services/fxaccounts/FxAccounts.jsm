@@ -17,6 +17,9 @@ Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource://gre/modules/Timer.jsm");
 Cu.import("resource://gre/modules/Task.jsm");
 
+XPCOMUtils.defineLazyModuleGetter(this, "jwcrypto",
+                                  "resource://gre/modules/identity/jwcrypto.jsm");
+
 const defaultStorageFilename = "signedInUser.json";
 
 /**
@@ -173,9 +176,70 @@ FxAccounts.prototype = Object.freeze({
   getAssertion: function getAssertion(audience, validityPeriod) {
     // returns a Persona assertion used to enable Sync
     return this._getUserAccountData()
-      .then(data => this._getKeyAndCertificate(data, validityPeriod))
-      .then(keycert => this._getAssertionFromCert(keycert, audience,
-                                                  validityPeriod));
+      .then(data => {
+        return this._getKeyPair(data, validityPeriod)
+          .then(keyPair => {
+            return this._getCertificate(data, keyPair, validityPeriod)
+              .then(cert => this._getAssertionFromCert(data, keyPair, cert,
+                                                       audience,
+                                                       validityPeriod));
+          });
+      });
+  },
+
+  _willBeValidIn: function _willBeValidIn(time, validityPeriod) {
+    return (time < now() + validityPeriod);
+  },
+
+  _getKeyPair: function _getKeyPair(data, validityPeriod) {
+    if (this._keyPair && this._willBeValidIn(this._keyPair.validUntil,
+                                             validityPeriod)) {
+      return Promise.resolve(this._keyPair.keyPair);
+    }
+    // else create a keypair, set validity limit to 12 hours
+    let d = Promise.defer();
+    jwcrypto.generateKeyPair("DS160", function(err, kp) {
+      if (err) {
+        d.reject(err);
+      } else {
+        this._keyPair = { keyPair: kp,
+                          validUntil: this._now() + 12*3600 };
+        d.resolve(this._keyPair.keyPair);
+      }
+    });
+    return d.promise;
+  },
+
+  _getCertificate: function _getCertificate(data, keyPair, validityPeriod) {
+    if (this._cert && this._willBeValidIn(this._cert.validUntil,
+                                          validityPeriod)) {
+      return Promise.resolve(this._cert.cert);
+    }
+    // else get our cert signed
+    return this._getCertificateSigned(data.sessionToken,
+                                      keyPair.serializedPublicKey);
+  },
+
+  _getCertificateSigned: function _getCertificateSigned(sessionToken,
+                                                        serializedPublicKey) {
+    return HAWK.signCertificate(sessionToken, serializedPublicKey);
+  },
+
+  _getAssertionFromCert: function _getAssertionFromCert(data, keyPair, cert,
+                                                        audience,
+                                                        validityPeriod) {
+    let payload = {};
+    let d = Promise.defer();
+    // "audience" should be like "http://123done.org"
+    // the generated assertion will expire in two minutes
+    jwcrypto.generateAssertion(cert, keyPair, audience, function(err, signed) {
+      if (err) {
+        d.reject(err);
+      } else {
+        d.resolve(signed);
+      }
+    });
+    return d.promise;
   },
 
   _getUserAccountData: function () {

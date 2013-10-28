@@ -150,3 +150,25 @@ add_task(function test_verification_poll() {
   dump("----- DONE ----\n");
   run_next_test();
 });
+
+add_task(function test_getAssertion() {
+  dump("----- START ----\n");
+  let a = new _MockFXA();
+  let creds = {
+    sessionToken: "sessionToken",
+    kA: expandHex("11"),
+    kB: expandHex("66"),
+    isVerified: true,
+  };
+  let record = { version: a.version, accountData: creds };
+  // skip ahead to the "we're ready" stage: just set a._signedInUser instead
+  // of calling a.setSignedInUser() and waiting for it to poll
+  a._signedInUser = record;
+
+  yield a._whenReady();
+  dump("== now ready in throery\n");
+  let assertion = yield a.getAssertion("audience.example.com", 5*60);
+  dump("ASSERTION: "+assertion+"\n");
+  dump("----- DONE ----\n");
+  run_next_test();
+});

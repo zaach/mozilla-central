@@ -30,7 +30,7 @@ function deriveCredentials(tokenHex, name) {
   };
 }
 
-function doRequest(path, method, credentials) {
+function doRequest(path, method, credentials, body) {
   dump(" ++ sending hawk request: "+HOST+path+"\n");
   let deferred = Promise.defer();
   let xhr = new XMLHttpRequest({mozSystem: true});
@@ -45,6 +45,8 @@ function doRequest(path, method, credentials) {
   let uri = Services.io.newURI(HOST + path, null, null);
   let header = CryptoUtils.computeHAWK(uri, method, {credentials: credentials});
   xhr.setRequestHeader("authorization", header.field);
+  if (body)
+    xhr.setSOMETHINGBODY(body);
   xhr.send();
 
   return deferred.promise;
@@ -83,7 +85,15 @@ this.HAWK = Object.freeze({
       return {
         kA: keyAWrapB.slice(0, 32),
         wrapKB: keyAWrapB.slice(32)
-      }
+      };
     });
-  }
+  },
+
+  signCertificate: function (sessionTokenHex, serializedPublicKey) {
+    let creds = deriveCredentials(sessionTokenHex, "session");
+
+    let body = {SOMETHING: serializedPublicKey};
+    return doRequest("/certificate/sign", "POST", creds, body)
+      .then(resp => resp.cert);
+  },
 });
