@@ -36,6 +36,7 @@ function FxAccounts(signedInUserStorage = undefined) {
     });
   }
   this._signedInUserStorage = signedInUserStorage;
+  this._isPollingEmailStatus = false;
   this._whenVerifiedPromises = [];
 }
 
@@ -88,7 +89,10 @@ FxAccounts.prototype = Object.freeze({
     // fires when email is verified
     let deferred = Promise.defer();
     this._whenVerifiedPromises.push(deferred);
-    this._pollEmailStatus();
+    if (!this._isPollingEmailStatus) {
+      this._isPollingEmailStatus = true;
+      this._pollEmailStatus();
+    }
     dump("== _whenVerified returning promise\n");
     return deferred.promise;
   },
@@ -110,7 +114,10 @@ FxAccounts.prototype = Object.freeze({
                     data.isVerified = true;
                     return this._setUserAccountData(data);
                   })
-                  .then(() => this._notifyVerified(data));
+                  .then(() => {
+                    this._isPollingEmailStatus = false;
+                    this._notifyVerified(data);
+                  });
               } else {
                 setTimeout(() => this._pollEmailStatus(), 1000);
               }
