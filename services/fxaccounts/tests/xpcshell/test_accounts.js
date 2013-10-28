@@ -80,15 +80,30 @@ add_test(function test_hawk_credentials() {
   run_next_test();
 });
 
+function expandHex(two_hex) {
+  // return a 64-character hex string, encoding 32 identical bytes
+  let eight_hex = two_hex + two_hex + two_hex + two_hex;
+  let thirtytwo_hex = eight_hex + eight_hex + eight_hex + eight_hex;
+  return thirtytwo_hex + thirtytwo_hex;
+};
+
+function expandBytes(two_hex) {
+  return CommonUtils.hexToBytes(expandHex(two_hex));
+};
+
 let _MockFXA = function() {
   FxAccounts.apply(this, arguments);
+  this._check_count = 0;
   this._d_fetchKeys = Promise.defer();
 };
 _MockFXA.prototype = {
   __proto__: FxAccounts.prototype,
   _checkEmailStatus: function(sessionToken) {
     dump("== _checkEmailStatus\n");
-    return Promise.resolve({verified: true});
+    this._check_count += 1;
+    if (this._check_count > 2)
+      return Promise.resolve({verified: true});
+    return Promise.resolve({verified: false});
   },
   _fetchKeys: function(keyFetchToken) {
     dump("== _fetchKeys\n");
@@ -100,8 +115,9 @@ add_task(function test_verification_poll() {
   dump("----- START ----\n");
   let a = new _MockFXA();
   let creds = {
-    sessionToken: "sessionToken", keyFetchToken: "keyFetchToken",
-    unwrapBKey: "4444444444444444444444444444444444444444444444444444444444444444",
+    sessionToken: "sessionToken",
+    keyFetchToken: "keyFetchToken",
+    unwrapBKey: expandHex("44"),
   };
   a.setSignedInUser(creds);
   let data = yield a._getUserAccountData();
@@ -114,21 +130,21 @@ add_task(function test_verification_poll() {
   do_check_eq(data.isVerified, true);
 
   a._d_fetchKeys.resolve({
-    kA: CommonUtils.hexToBytes("1111111111111111111111111111111111111111111111111111111111111111"),
-    wrapKB: CommonUtils.hexToBytes("2222222222222222222222222222222222222222222222222222222222222222"),
+    kA: expandBytes("11"),
+    wrapKB: expandBytes("22"),
   });
 
   yield a._whenReady();
   dump("== now ready in throery\n");
   data = yield a._getUserAccountData();
   do_check_eq(a._isReady(data), true);
-  do_check_eq(data.kA, "1111111111111111111111111111111111111111111111111111111111111111");
-  do_check_eq(data.kB, "6666666666666666666666666666666666666666666666666666666666666666");
+  do_check_eq(data.kA, expandHex("11"));
+  do_check_eq(data.kB, expandHex("66"));
   do_check_eq(data.keyFetchToken, undefined);
 
   data = yield a.getSignedInUser();
-  do_check_eq(data.kA, "1111111111111111111111111111111111111111111111111111111111111111");
-  do_check_eq(data.kB, "6666666666666666666666666666666666666666666666666666666666666666");
+  do_check_eq(data.kA, expandHex("11"));
+  do_check_eq(data.kB, expandHex("66"));
   do_check_eq(data.keyFetchToken, undefined);
 
   dump("----- DONE ----\n");
