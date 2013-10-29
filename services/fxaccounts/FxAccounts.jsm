@@ -322,8 +322,8 @@ FxAccounts.prototype = Object.freeze({
       data.kA = CommonUtils.bytesAsHex(kA); // store kA/kB as hex
       data.kB = CommonUtils.bytesAsHex(kB_hex);
       delete data.keyFetchToken;
-      yield this._setUserAccountData(data);
       dump("Keys Obtained: kA="+data.kA+", kB="+data.kB+"\n");
+      yield this._setUserAccountData(data);
     }.bind(this));
   },
 
