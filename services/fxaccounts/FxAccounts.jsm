@@ -100,7 +100,8 @@ FxAccounts.prototype = Object.freeze({
     return deferred.promise;
   },
 
-  _pollEmailStatus: function _pollEmailStatus() {
+  _pollEmailStatus: function _pollEmailStatus(why) {
+    dump(" entering _pollEmailStatus ("+(why||"")+")\n");
     this._getUserAccountData()
       .then(data => {
         if (!data) {
@@ -122,7 +123,8 @@ FxAccounts.prototype = Object.freeze({
                     this._notifyVerified(data);
                   });
               } else {
-                setTimeout(() => this._pollEmailStatus(), 1000);
+                dump("-=*=- starting setTimeout()\n");
+                setTimeout(() => this._pollEmailStatus("timer"), 1000);
               }
             });
         }
