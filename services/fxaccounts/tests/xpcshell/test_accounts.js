@@ -112,7 +112,6 @@ _MockFXA.prototype = {
 };
 
 add_task(function test_verification_poll() {
-  dump("----- START ----\n");
   let a = new _MockFXA();
   let creds = {
     sessionToken: "sessionToken",
@@ -135,7 +134,6 @@ add_task(function test_verification_poll() {
   });
 
   yield a._whenReady();
-  dump("== now ready in throery\n");
   data = yield a._getUserAccountData();
   do_check_eq(a._isReady(data), true);
   do_check_eq(data.kA, expandHex("11"));
@@ -147,7 +145,8 @@ add_task(function test_verification_poll() {
   do_check_eq(data.kB, expandHex("66"));
   do_check_eq(data.keyFetchToken, undefined);
 
-  dump("----- DONE ----\n");
+  // now wait until the polling timer started by setSignedInUser() retires
+  dump("----- DONE1 ---\n");
   run_next_test();
 });
 
@@ -166,8 +165,9 @@ add_task(function test_getAssertion() {
   a._signedInUser = record;
 
   yield a._whenReady();
-  dump("== now ready in throery\n");
+  dump("== ready to go\n");
   let assertion = yield a.getAssertion("audience.example.com", 5*60);
+  do_check_neq(assertion, null);
   dump("ASSERTION: "+assertion+"\n");
   dump("----- DONE ----\n");
   run_next_test();
