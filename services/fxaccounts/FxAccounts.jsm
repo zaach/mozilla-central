@@ -173,22 +173,26 @@ FxAccounts.prototype = Object.freeze({
       });
   },
 
-  getAssertion: function getAssertion(audience, validityPeriod) {
+  getAssertion: function getAssertion(audience, validityPeriod_ms) {
     // returns a Persona assertion used to enable Sync
     return this._getUserAccountData()
       .then(data => {
-        return this._getKeyPair(data, validityPeriod)
+        return this._getKeyPair(data, validityPeriod_ms)
           .then(keyPair => {
-            return this._getCertificate(data, keyPair, validityPeriod)
+            return this._getCertificate(data, keyPair, validityPeriod_ms)
               .then(cert => this._getAssertionFromCert(data, keyPair, cert,
                                                        audience,
-                                                       validityPeriod));
+                                                       validityPeriod_ms));
           });
       });
   },
 
   _willBeValidIn: function _willBeValidIn(time, validityPeriod) {
-    return (time < now() + validityPeriod);
+    return (time < this._now() + validityPeriod);
+  },
+
+  _now: function() {
+    return Date.now();
   },
 
   _getKeyPair: function _getKeyPair(data, validityPeriod) {
@@ -197,13 +201,14 @@ FxAccounts.prototype = Object.freeze({
       return Promise.resolve(this._keyPair.keyPair);
     }
     // else create a keypair, set validity limit to 12 hours
+    let now = this._now();
     let d = Promise.defer();
     jwcrypto.generateKeyPair("DS160", function(err, kp) {
       if (err) {
         d.reject(err);
       } else {
         this._keyPair = { keyPair: kp,
-                          validUntil: this._now() + 12*3600 };
+                          validUntil: now + 12*3600*1000 };
         d.resolve(this._keyPair.keyPair);
       }
     });
