@@ -94,7 +94,7 @@ this.HAWK = Object.freeze({
   signCertificate: function (sessionTokenHex, serializedPublicKey) {
     let creds = deriveCredentials(sessionTokenHex, "session");
 
-    let body = {SOMETHING: serializedPublicKey};
+    let body = serializedPublicKey;
     return doRequest("/certificate/sign", "POST", creds, body)
       .then(resp => resp.cert);
   },
