@@ -23,7 +23,7 @@ let credentials = {
   kB: "cafe"
 };
 
-add_test(function test_non_https_remote_server_uri() {
+/*add_test(function test_non_https_remote_server_uri() {
 
   Services.prefs.setCharPref("firefox.accounts.remoteUrl",
                              "http://example.com/browser/browser/base/content/test/general/accounts_testRemoteCommands.html");
@@ -34,7 +34,7 @@ add_test(function test_non_https_remote_server_uri() {
   Services.prefs.clearUserPref("firefox.accounts.remoteUrl");
 
   run_next_test();
-});
+});*/
 
 /*
 add_task(function test_get_signed_in_user_initially_unset() {
