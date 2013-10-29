@@ -43,11 +43,13 @@ function doRequest(path, method, credentials, body) {
   };
 
   let uri = Services.io.newURI(HOST + path, null, null);
-  let header = CryptoUtils.computeHAWK(uri, method, {credentials: credentials});
+  let options = {credentials: credentials};
+  if (body) {
+    options.payload = body;
+  }
+  let header = CryptoUtils.computeHAWK(uri, method, options);
   xhr.setRequestHeader("authorization", header.field);
-  if (body)
-    xhr.setSOMETHINGBODY(body);
-  xhr.send();
+  xhr.send(body);
 
   return deferred.promise;
 }
