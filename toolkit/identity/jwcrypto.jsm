@@ -31,11 +31,13 @@ function log(...aMessageArgs) {
 
 function generateKeyPair(aAlgorithmName, aCallback) {
   log("Generate key pair; alg =", aAlgorithmName);
+  dump("generateKeyPair using "+aAlgorithmName+"\n");
 
   IdentityCryptoService.generateKeyPair(aAlgorithmName, function(rv, aKeyPair) {
     if (!Components.isSuccessCode(rv)) {
       return aCallback("key generation failed");
     }
+    dump("generateKeyPair got "+JSON.stringify(aKeyPair)+"\n");
 
     var publicKey;
 
