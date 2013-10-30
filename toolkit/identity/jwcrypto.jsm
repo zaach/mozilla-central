@@ -37,7 +37,6 @@ function generateKeyPair(aAlgorithmName, aCallback) {
     if (!Components.isSuccessCode(rv)) {
       return aCallback("key generation failed");
     }
-    dump("generateKeyPair got "+JSON.stringify(aKeyPair)+"\n");
 
     var publicKey;
 
