@@ -187,6 +187,9 @@ FxAccounts.prototype = Object.freeze({
     let mustBeValidUntil = this._now() + this.assertionLifetime;
     return this._getUserAccountData()
       .then(data => {
+        if (!this._isReady(data)) {
+          return null;
+        }
         return this._getKeyPair(mustBeValidUntil)
           .then(keyPair => {
             return this._getCertificate(data, keyPair, mustBeValidUntil)
