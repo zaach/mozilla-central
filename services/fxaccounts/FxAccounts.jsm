@@ -175,66 +175,97 @@ FxAccounts.prototype = Object.freeze({
       });
   },
 
-  getAssertion: function getAssertion(audience, validityPeriod_ms) {
-    // returns a Persona assertion used to enable Sync
+  keyLifetime: 12*3600*1000, // 12 hours
+  certLifetime: 6*3600*1000, // 6 hours
+  assertionLifetime: 5*1000, // 5 minutes
+
+  getAssertion: function getAssertion(audience) {
+    dump("--- getAssertion() starts\n");
+    // returns a Persona assertion used to enable Sync. All three components
+    // (the key, the cert which signs it, and the assertion) must be valid
+    // for at least the next 5 minutes.
+    let mustBeValidUntil = this._now() + this.assertionLifetime;
     return this._getUserAccountData()
       .then(data => {
-        return this._getKeyPair(data, validityPeriod_ms)
+        return this._getKeyPair(mustBeValidUntil)
           .then(keyPair => {
-            return this._getCertificate(data, keyPair, validityPeriod_ms)
+            return this._getCertificate(data, keyPair, mustBeValidUntil)
               .then(cert => this._getAssertionFromCert(data, keyPair, cert,
-                                                       audience,
-                                                       validityPeriod_ms));
+                                                       audience));
           });
       });
   },
 
   _willBeValidIn: function _willBeValidIn(time, validityPeriod) {
-    return (time < this._now() + validityPeriod);
+    dump([" _willBeValidIn", this._now() +validityPeriod, time, validityPeriod].join(" ")+"\n");
+    return (this._now() + validityPeriod < time);
   },
 
   _now: function() {
     return Date.now();
   },
 
-  _getKeyPair: function _getKeyPair(data, validityPeriod) {
-    if (this._keyPair && this._willBeValidIn(this._keyPair.validUntil,
-                                             validityPeriod)) {
+  _test: function() {
+    let d = Promise.defer();
+    jwcrypto.generateKeyPair("DS160", (err, kp) => {
+      d.resolve("yay");
+    });
+    return d.promise;
+  },
+
+  _getKeyPair: function _getKeyPair(mustBeValidUntil) {
+    dump("_getKeyPair\n");
+    if (this._keyPair) {
+      dump(" "+this._keyPair.validUntil+" "+mustBeValidUntil+"\n");
+    }
+    if (this._keyPair && this._keyPair.validUntil > mustBeValidUntil) {
+      dump(" _getKeyPair already had one\n");
       return Promise.resolve(this._keyPair.keyPair);
     }
     // else create a keypair, set validity limit to 12 hours
-    let now = this._now();
+    let willBeValidUntil = this._now() + this.keyLifetime;
     let d = Promise.defer();
-    jwcrypto.generateKeyPair("DS160", function(err, kp) {
+    jwcrypto.generateKeyPair("DS160", (err, kp) => {
       if (err) {
         d.reject(err);
       } else {
+        dump(" _getKeyPair got keypair\n");
         this._keyPair = { keyPair: kp,
-                          validUntil: now + 12*3600*1000 };
+                          validUntil: willBeValidUntil };
+        delete this._cert;
         d.resolve(this._keyPair.keyPair);
       }
     });
     return d.promise;
   },
 
-  _getCertificate: function _getCertificate(data, keyPair, validityPeriod) {
-    if (this._cert && this._willBeValidIn(this._cert.validUntil,
-                                          validityPeriod)) {
+  _getCertificate: function _getCertificate(data, keyPair, mustBeValidUntil) {
+    dump("_getCertificate\n");
+    // TODO: get the lifetime from the cert's .exp field
+    if (this._cert && this._cert.validUntil > mustBeValidUntil) {
+      dump(" _getCertificate already had one\n");
       return Promise.resolve(this._cert.cert);
     }
     // else get our cert signed
+    let willBeValidUntil = this._now() + this.certLifetime;
     return this._getCertificateSigned(data.sessionToken,
-                                      keyPair.serializedPublicKey);
+                                      keyPair.serializedPublicKey)
+      .then((cert) => {
+        this._cert = { cert: cert,
+                       validUntil: willBeValidUntil };
+        return cert;
+      });
   },
 
   _getCertificateSigned: function _getCertificateSigned(sessionToken,
                                                         serializedPublicKey) {
+    dump(" _getCertificateSigned\n");
     return HAWK.signCertificate(sessionToken, serializedPublicKey);
   },
 
   _getAssertionFromCert: function _getAssertionFromCert(data, keyPair, cert,
-                                                        audience,
-                                                        validityPeriod) {
+                                                        audience) {
+    dump("_getAssertionFromCert\n");
     let payload = {};
     let d = Promise.defer();
     // "audience" should be like "http://123done.org"
