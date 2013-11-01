@@ -65,8 +65,6 @@ add_task(function test_get_signed_in_user_initially_unset() {
   // user should be undefined after sign out
   let result = yield fxAccounts.getSignedInUser();
   do_check_eq(result, undefined);
-
-  run_next_test();
 });
 */
 
@@ -95,6 +93,9 @@ let _MockFXA = function() {
   FxAccounts.apply(this, arguments);
   this._check_count = 0;
   this._d_fetchKeys = Promise.defer();
+  this._getCertificateSigned_calls = [];
+  this._d_signCertificate = Promise.defer();
+  this._now_is = new Date();
 };
 _MockFXA.prototype = {
   __proto__: FxAccounts.prototype,
@@ -105,9 +106,17 @@ _MockFXA.prototype = {
       return Promise.resolve({verified: true});
     return Promise.resolve({verified: false});
   },
+  _now: function() {
+    return this._now_is;
+  },
   _fetchKeys: function(keyFetchToken) {
     dump("== _fetchKeys\n");
     return this._d_fetchKeys.promise;
+  },
+  _getCertificateSigned: function(sessionToken, serializedPublicKey) {
+    dump("== _signCertificate\n");
+    this._getCertificateSigned_calls.push([sessionToken, serializedPublicKey]);
+    return this._d_signCertificate.promise;
   },
 };
 
@@ -147,12 +156,31 @@ add_task(function test_verification_poll() {
 
   // now wait until the polling timer started by setSignedInUser() retires
   dump("----- DONE1 ---\n");
-  run_next_test();
 });
+
+Cu.import("resource://gre/modules/Timer.jsm");
+function stall() {
+  let d = Promise.defer();
+  setTimeout(() => {dump(" hhhsser\n"); d.resolve(23);}, 1000);
+  dump(" did setTimeout()\n");
+  //d.resolve(true);
+  //dump(" p "+JSON.stringify(d.promise)+"\n");
+  return d.promise;
+}
 
 add_task(function test_getAssertion() {
   dump("----- START ----\n");
+  //let a = new FxAccounts();
   let a = new _MockFXA();
+
+  //do_check_eq(1, 1);
+  //dump("calling stall\n");
+  //yield stall();
+  //dump("calling _test\n");
+  //yield a._test();
+  //dump("called _test\n");
+  //do_check_eq(2, 2);
+
   let creds = {
     sessionToken: "sessionToken",
     kA: expandHex("11"),
@@ -166,9 +194,68 @@ add_task(function test_getAssertion() {
 
   yield a._whenReady();
   dump("== ready to go\n");
-  let assertion = yield a.getAssertion("audience.example.com", 5*60);
+  let now = 138000000*1000;
+  let start = Date.now();
+  a._now_is = now;
+  let d = a.getAssertion("audience.example.com");
+  // at this point, a thread has been spawned to generate the keys
+  dump("-- back from a.getAssertion\n");
+  a._d_signCertificate.resolve("cert1");
+  let assertion = yield d;
+  let finish = Date.now();
+  do_check_eq(a._getCertificateSigned_calls.length, 1);
+  do_check_eq(a._getCertificateSigned_calls[0][0], "sessionToken");
   do_check_neq(assertion, null);
   dump("ASSERTION: "+assertion+"\n");
+  let pieces = assertion.split("~");
+  do_check_eq(pieces[0], "cert1");
+  do_check_neq(a._keyPair, undefined);
+  dump(a._keyPair.validUntil+"\n");
+  let p2 = pieces[1].split(".");
+  let header = JSON.parse(atob(p2[0]));
+  dump("HEADER: "+JSON.stringify(header)+"\n");
+  do_check_eq(header.alg, "DS128");
+  let payload = JSON.parse(atob(p2[1]));
+  dump("PAYLOAD: "+JSON.stringify(payload)+"\n");
+  do_check_eq(payload.aud, "audience.example.com");
+  do_check_eq(a._keyPair.validUntil, now + a.keyLifetime);
+  do_check_eq(a._cert.validUntil, now + a.certLifetime);
+  dump("delta: "+(new Date(payload.exp) - now)+"\n");
+  let exp = Number(payload.exp);
+  // jwcrypto.jsm uses an unmocked Date.now()+2min to decide on the
+  // expiration time, so we test that it's inside a specific timebox
+  do_check_true(start + 2*60*1000 <= exp);
+  do_check_true(exp <= finish + 2*60*1000);
+
+  // reset for next call
+  a._d_signCertificate = Promise.defer();
+
+  // getting a new assertion "soon" (i.e. without incrementing "now"), even
+  // for a new audience, should not provoke key generation or a signing
+  // request
+  assertion = yield a.getAssertion("other.example.com");
+  do_check_eq(a._getCertificateSigned_calls.length, 1);
+
+  // but "waiting" (i.e. incrementing "now") will need a new key+signature
+  a._now_is = now + 24*3600*1000;
+  start = Date.now();
+  d = a.getAssertion("third.example.com");
+  a._d_signCertificate.resolve("cert2");
+  assertion = yield d;
+  finish = Date.now();
+  do_check_eq(a._getCertificateSigned_calls.length, 2);
+  do_check_eq(a._getCertificateSigned_calls[1][0], "sessionToken");
+  pieces = assertion.split("~");
+  do_check_eq(pieces[0], "cert2");
+  p2 = pieces[1].split(".");
+  header = JSON.parse(atob(p2[0]));
+  payload = JSON.parse(atob(p2[1]));
+  do_check_eq(payload.aud, "third.example.com");
+  do_check_eq(a._keyPair.validUntil, now + 24*3600*1000 + a.keyLifetime);
+  do_check_eq(a._cert.validUntil, now + 24*3600*1000 + a.certLifetime);
+  exp = Number(payload.exp);
+  do_check_true(start + 2*60*1000 <= exp);
+  do_check_true(exp <= finish + 2*60*1000);
+
   dump("----- DONE ----\n");
-  run_next_test();
 });
