@@ -91,11 +91,15 @@ this.HAWK = Object.freeze({
     });
   },
 
-  signCertificate: function (sessionTokenHex, serializedPublicKey) {
+  signCertificate: function (sessionTokenHex, serializedPublicKey, lifetime) {
     let creds = deriveCredentials(sessionTokenHex, "session");
 
-    let body = serializedPublicKey;
-    return doRequest("/certificate/sign", "POST", creds, body)
-      .then(resp => resp.cert);
+    let body = { publicKey: serializedPublicKey,
+                 duration: lifetime };
+    return Promise.resolve()
+      .then(_ => doRequest("/certificate/sign", "POST", creds, body))
+      .then(resp => resp.cert,
+            err => {dump("HAWK.signCertificate error: "+err+"\n");
+                    throw err;});
   },
 });

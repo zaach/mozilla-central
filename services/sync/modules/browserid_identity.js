@@ -296,27 +296,31 @@ this.BrowserIDManager.prototype = {
   // This is a helper to fetch a sync token for the given user data.
   _fetchTokenForUser: function(userData) {
     let tokenServerURI = Svc.Prefs.get("tokenServerURI");
-    let deferred = Promise.defer();
-    this._log.info("Fetching Sync token from: " + tokenServerURI);
+    let log = this._log;
+    let client = this._tokenServerClient;
+    log.info("Fetching Sync token from: " + tokenServerURI);
 
-    let cb = function (err, token) {
-      if (err) {
-        return deferred.reject(err);
-      }
-      else {
-        token.expiration = this._now() + (token.duration * 1000);
-        return deferred.resolve(token);
-      }
-    }.bind(this);
-
-    try {
-      this._tokenServerClient.getTokenFromBrowserIDAssertion(
-        tokenServerURI, userData.assertion, cb);
-    } catch (err) {
-      this._log.info("TokenServerClient.getTokenFromBrowserIDAssertion() failed with: " + err.message);
-      deferred.reject(err);
+    function getToken(tokenServerURI, assertion) {
+      let deferred = Promise.defer();
+      let cb = function (err, token) {
+        if (err) {
+          log.info("TokenServerClient.getTokenFromBrowserIDAssertion() failed with: " + err.message);
+          return deferred.reject(err);
+        } else {
+          return deferred.resolve(token);
+        }
+      };
+      client.getTokenFromBrowserIDAssertion(tokenServerURI, assertion, cb);
+      return deferred.promise;
     }
-    return deferred.promise;
+
+    let audience = Services.io.newURI(tokenServerURI, null, null).prePath;
+    return this._fxaService.getAssertion(audience)
+      .then(assertion => getToken(tokenServerURI, assertion))
+      .then(token => {
+        token.expiration = this._now() + (token.duration * 1000);
+        return token;
+      });
   },
 
   getResourceAuthenticator: function () {

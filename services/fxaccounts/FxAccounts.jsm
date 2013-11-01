@@ -165,6 +165,9 @@ FxAccounts.prototype = Object.freeze({
   getSignedInUser: function getSignedInUser() {
     return this._getUserAccountData()
       .then(data => {
+        if (!data) {
+          return null;
+        }
         if (!this._isReady(data)) {
           this._whenReady() // kick off the process, it will finish eventually
             .then( () => this._notifyLoginObservers() );
@@ -187,7 +190,7 @@ FxAccounts.prototype = Object.freeze({
     let mustBeValidUntil = this._now() + this.assertionLifetime;
     return this._getUserAccountData()
       .then(data => {
-        if (!this._isReady(data)) {
+        if (!data || !this._isReady(data)) {
           return null;
         }
         return this._getKeyPair(mustBeValidUntil)
@@ -252,7 +255,8 @@ FxAccounts.prototype = Object.freeze({
     // else get our cert signed
     let willBeValidUntil = this._now() + this.certLifetime;
     return this._getCertificateSigned(data.sessionToken,
-                                      keyPair.serializedPublicKey)
+                                      keyPair.serializedPublicKey,
+                                      this.certLifetime)
       .then((cert) => {
         this._cert = { cert: cert,
                        validUntil: willBeValidUntil };
@@ -261,9 +265,11 @@ FxAccounts.prototype = Object.freeze({
   },
 
   _getCertificateSigned: function _getCertificateSigned(sessionToken,
-                                                        serializedPublicKey) {
-    dump(" _getCertificateSigned\n");
-    return HAWK.signCertificate(sessionToken, serializedPublicKey);
+                                                        serializedPublicKey,
+                                                        lifetime) {
+    dump(" _getCertificateSigned: "+sessionToken+" "+serializedPublicKey+"\n");
+    return HAWK.signCertificate(sessionToken,
+                                JSON.parse(serializedPublicKey), lifetime);
   },
 
   _getAssertionFromCert: function _getAssertionFromCert(data, keyPair, cert,
