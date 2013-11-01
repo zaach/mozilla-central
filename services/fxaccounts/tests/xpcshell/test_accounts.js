@@ -181,6 +181,9 @@ add_task(function test_getAssertion() {
   //dump("called _test\n");
   //do_check_eq(2, 2);
 
+  let noData = yield a.getAssertion("nonaudience");
+  do_check_eq(noData, null);
+
   let creds = {
     sessionToken: "sessionToken",
     kA: expandHex("11"),
