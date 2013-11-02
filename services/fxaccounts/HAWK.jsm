@@ -14,8 +14,8 @@ Cu.import("resource://gre/modules/Promise.jsm");
 const XMLHttpRequest =
   Components.Constructor("@mozilla.org/xmlextras/xmlhttprequest;1");
 
-//const HOST = "https://idp.dev.lcip.org/v1";
-const HOST = "http://127.0.0.1:9000/v1";
+const HOST = "https://idp.dev.lcip.org/v1";
+//const HOST = "http://127.0.0.1:9000/v1";
 const PREFIX_NAME = "identity.mozilla.com/picl/v1/";
 
 function deriveCredentials(tokenHex, name) {
