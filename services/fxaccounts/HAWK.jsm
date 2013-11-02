@@ -107,8 +107,15 @@ this.HAWK = Object.freeze({
     let body = { publicKey: serializedPublicKey,
                  duration: lifetime };
     return Promise.resolve()
-      .then(_ => doRequest("/certificate/sign", "POST", creds, body))
-      .then(resp => resp.cert,
+      .then(_ => doRequest("/certificate/sign", "POST", creds,
+                           JSON.stringify(body)))
+      .then(resp => {
+        if (resp.code) {
+          throw new Error("bad code!");
+        } else {
+          return resp.cert;
+        }})
+      .then(cert => cert,
             err => {dump("HAWK.signCertificate error: "+err+"\n");
                     throw err;});
   },
