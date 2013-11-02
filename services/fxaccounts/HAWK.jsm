@@ -39,17 +39,27 @@ function doRequest(path, method, credentials, body) {
   xhr.onerror = deferred.reject;
   xhr.onload = function onload() {
     dump(" ++ hawk response " + xhr.responseText + "\n");
-    deferred.resolve(JSON.parse(xhr.responseText));
+    try {
+      deferred.resolve(JSON.parse(xhr.responseText));
+    } catch (e) {
+      deferred.reject(e);
+    }
   };
-
+  dump("  about to build newURI\n");
   let uri = Services.io.newURI(HOST + path, null, null);
   let options = {credentials: credentials};
   if (body) {
     options.payload = body;
+    options.contentType = "application/json";
+    xhr.setRequestHeader("Content-Type", "application/json");
   }
+  dump("  about to computeHAWK\n");
   let header = CryptoUtils.computeHAWK(uri, method, options);
+  dump("  about to setRequestHeader\n");
   xhr.setRequestHeader("authorization", header.field);
+  dump("  about to send("+body+")\n");
   xhr.send(body);
+  dump("  did send(body)\n");
 
   return deferred.promise;
 }
