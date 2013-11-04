@@ -500,8 +500,9 @@ this.CryptoUtils = {
       CryptoUtils.updateUTF8(options.payload, hasher);
       CryptoUtils.updateUTF8("\n", hasher);
       let hash = hasher.finish(false);
-      // HAWK specifies this .hash to include trailing "==" padding.
-      let hash_b64 = CommonUtils.encodeBase64URL(hash, true);
+      // HAWK specifies this .hash to use +/ (not _-) and include the
+      // trailing "==" padding.
+      let hash_b64 = btoa(hash);
       artifacts.hash = hash_b64;
     }
 
