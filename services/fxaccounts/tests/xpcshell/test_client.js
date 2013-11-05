@@ -4,8 +4,8 @@
 Cu.import("resource://gre/modules/FxAccountsClient.jsm");
 Cu.import("resource://gre/modules/Promise.jsm");
 
+
 function run_test() {
-  initTestLogging("Trace");
   run_next_test();
 }
 
@@ -18,12 +18,12 @@ function deferredStop(server) {
 }
 
 add_task(function test_authenticated_get_request() {
-  _("Ensure that sending a Hawk authenticated GET request works as expected.");
-
-  let message = "Great Success!";
-
-  let id = "eyJleHBpcmVzIjogMTM2NTAxMDg5OC4x";
-  let key = "qTZf4ZFpAMpMoeSsX3zVRjiqmNs=";
+  let message = "{\"msg\": \"Great Success!\"}";
+  let credentials = {
+    id: "eyJleHBpcmVzIjogMTM2NTAxMDg5OC4x",
+    key: "qTZf4ZFpAMpMoeSsX3zVRjiqmNs=",
+    algorithm: "sha256"
+  };
   let method = "GET";
 
   let server = httpd_setup({"/foo": function(request, response) {
@@ -34,12 +34,11 @@ add_task(function test_authenticated_get_request() {
     }
   });
 
-  let result = yield FxAccountsClient._request(server.baseURI + "/foo",
-    method: method,
-    {id: id, key: key, algorithm: "sha256"}
-  );
+  let client = new FxAccountsClient(server.baseURI);
 
-  do_check_eq(message, result.responseText);
+  let result = yield client._request("/foo", method, credentials);
+
+  do_check_eq("Great Success!", result.json.msg);
   do_check_eq(200, result.status);
 
   yield deferredStop(server);
@@ -47,12 +46,11 @@ add_task(function test_authenticated_get_request() {
 });
 
 add_task(function test_authenticated_post_request() {
-  _("Ensure that sending a Hawk authenticated JSON POST request works as expected.");
-
-  let message = "Great Success!";
-
-  let id = "eyJleHBpcmVzIjogMTM2NTAxMDg5OC4x";
-  let key = "qTZf4ZFpAMpMoeSsX3zVRjiqmNs=";
+  let credentials = {
+    id: "eyJleHBpcmVzIjogMTM2NTAxMDg5OC4x",
+    key: "qTZf4ZFpAMpMoeSsX3zVRjiqmNs=",
+    algorithm: "sha256"
+  };
   let method = "POST";
 
   let server = httpd_setup({"/foo": function(request, response) {
@@ -64,11 +62,9 @@ add_task(function test_authenticated_post_request() {
     }
   });
 
-  let result = yield FxAccountsClient._request(server.baseURI + "/foo",
-    method,
-    {id: id, key: key, algorithm: "sha256"},
-    { foo: "bar" }
-  );
+  let client = new FxAccountsClient(server.baseURI);
+
+  let result = yield client._request("/foo", method, credentials, {foo: "bar"});
 
   do_check_eq("bar", result.json.foo);
   do_check_eq(200, result.status);

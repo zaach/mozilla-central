@@ -3,8 +3,6 @@
 
 "use strict";
 
-const {interfaces: Ci, results: Cr, utils: Cu} = Components;
-
 Cu.import("resource://services-common/utils.js");
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/FxAccounts.jsm");
