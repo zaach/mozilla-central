@@ -2,20 +2,26 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-this.EXPORTED_SYMBOLS = ["FxAccountsClient"];
+this.EXPORTED_SYMBOLS = ["fxAccountsClient", "FxAccountsClient"];
 
 const {classes: Cc, interfaces: Ci, utils: Cu} = Components;
 
-Cu.import("resource://services-common/hawkClient.js");
+Cu.import("resource://gre/modules/Promise.jsm");
+Cu.import("resource://gre/modules/Services.jsm");
+Cu.import("resource://services-common/utils.js");
 Cu.import("resource://services-crypto/utils.js");
 
 const HOST = "https://idp.dev.lcip.org";
 const PREFIX_NAME = "identity.mozilla.com/picl/v1/";
 
+const XMLHttpRequest =
+  Components.Constructor("@mozilla.org/xmlextras/xmlhttprequest;1");
 
+function FxAccountsClient(host = HOST) {
+  this.host = host;
+}
 
-
-this.FxAccountsClient = Object.freeze({
+FxAccountsClient.prototype = Object.freeze({
 
   accountCreate: function () {
     return this._request("/recovery_email/status", "GET",
@@ -73,7 +79,7 @@ this.FxAccountsClient = Object.freeze({
   _request: function hawkRequest(path, method, credentials, jsonPayload) {
     let deferred = Promise.defer();
     let xhr = new XMLHttpRequest({mozSystem: true});
-    let URI = HOST + path;
+    let URI = this.host + path;
     let payload;
 
     if (jsonPayload) {
@@ -83,11 +89,15 @@ this.FxAccountsClient = Object.freeze({
     xhr.open(method, URI);
     xhr.onerror = deferred.reject;
     xhr.onload = function onload() {
-      xhr.json = JSON.parse(xhr.responseText);
+      try {
+        xhr.json = JSON.parse(xhr.responseText);
+      } catch (e) {
+        return deferred.reject(e);
+      }
       deferred.resolve(xhr);
     };
 
-    uri = Services.io.newURI(URI, null, null);
+    let uri = Services.io.newURI(URI, null, null);
 
     if (credentials) {
       let header = CryptoUtils.computeHAWK(uri, method, {
@@ -103,3 +113,6 @@ this.FxAccountsClient = Object.freeze({
     return deferred.promise;
   }
 });
+
+fxAccountsClient = new FxAccountsClient();
+
