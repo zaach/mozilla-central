@@ -39,13 +39,39 @@ function FxAccounts(signedInUserStorage = undefined) {
     });
   }
   this._signedInUserStorage = signedInUserStorage;
-  this._isPollingEmailStatus = false;
-  this._whenVerifiedPromises = [];
+  // these two promises only exist while we're querying the server
+  this._whenVerifiedPromise = null;
+  this._whenKeysReadyPromise = null;
 }
 
 FxAccounts.prototype = Object.freeze({
   // data format version
   version: 1,
+
+  getReady: function() {
+    // kick things off. This must be called after construction. I return a
+    // promise that fires when everything is ready to go, but the caller is
+    // free to ignore it.
+    this._getUserAccountData()
+      .then(data => {
+        if (data && !this._isReady(data)) {
+          return this._startVerifiedCheck(data);
+        }
+        return data;
+      });
+  },
+
+  // set() makes sure that polling is happening, if necessary
+  // get() does not wait for verification, and returns an object even if
+  // unverified. The caller of get() must check .isVerified .
+  // The "fxaccounts:onlogin" event will fire only when the verified state
+  // goes from false to true, so callers must register their event handler
+  // and then call get(). In particular, it will not fire when the account
+  // was found to be verified in a previous boot: if our stored state says
+  // the account is verified, the event will never fire. So callers must do:
+  //  register event handler (go)
+  //  userdata = get()
+  //  if (userdata.isVerified()) go()
 
   /**
    * Set the current user signed in to Firefox Accounts (FxA)
@@ -61,72 +87,77 @@ FxAccounts.prototype = Object.freeze({
    *          keyFetchToken: an unused keyFetchToken
    *        }
    *
+   * @param waitForReady
+   *        If true, the returned promise will not fire until the
+   *        email address has been verified and we have fetched the
+   *        keys. If false or undefined, it will fire as soon as we
+   *        have saved the data successfully.
+   *
    * @return Promise
-   *         The promise resolves to null on success or is rejected on error
+   *         The promise resolves to null when the data is saved
+   *         successfully (or, if waitForReady=true, when verification and
+   *         key-fetch are done), or is rejected on error
    */
-  setSignedInUser: function setSignedInUser(credentials) {
+  setSignedInUser: function setSignedInUser(credentials, waitForReady) {
     let record = { version: this.version, accountData: credentials };
     // cache a clone of the credentials object
     this._signedInUser = JSON.parse(JSON.stringify(record));
 
+    this._whenVerifiedPromise = Promise.defer();
+
+    // note: this waits for storage, but not for verification
     return this._signedInUserStorage.set(record)
-      .then(() => this._whenReady() )
-      .then(() => this._notifyLoginObservers() )
-    ;
+      .then(() => {
+        if (!this._isReady(credentials)) {
+          this._startVerifiedCheck(credentials);
+        }
+      });
   },
 
   _isReady: function _isReady(data) {
-    if (data.isVerified && data.kA && data.kB)
+    if (data && data.isVerified && data.kA && data.kB)
       return true;
     return false;
   },
 
-  _whenReady: function _whenReady() {
-    // fires when email is verified and keys fetched
-    return this._whenVerified()
-      .then( data => data.keyFetchToken ?
-             this._fetchAndUnwrapKeys(data.keyFetchToken) : undefined );
+  _startVerifiedCheck: function(data) {
+    // get us to the verified state, then get the keys. This returns a
+    // promise that will fire when we are completely ready.
+    return this._getVerified(data)
+      .then(data => this._getKeys(data));
+    // if and when getKeys() obtains and stores kA/kB, it will notify any
+    // observers
   },
 
-  _whenVerified: function _whenVerified() {
-    // fires when email is verified
-    let deferred = Promise.defer();
-    this._whenVerifiedPromises.push(deferred);
-    if (!this._isPollingEmailStatus) {
-      this._isPollingEmailStatus = true;
-      this._pollEmailStatus();
+  _getVerified: function(data) {
+    if (data.isVerified) {
+      return Promise.resolve(data);
     }
-    dump("== _whenVerified returning promise\n");
-    return deferred.promise;
+    if (!this._whenVerifiedPromise) {
+      this._whenVerifiedPromise = Promise.defer();
+      this._pollEmailStatus(data.sessionToken, "start");
+    }
+    return this._whenVerifiedPromise.promise;
   },
 
-  _pollEmailStatus: function _pollEmailStatus(why) {
+  _pollEmailStatus: function _pollEmailStatus(sessionToken, why) {
     dump(" entering _pollEmailStatus ("+(why||"")+")\n");
-    this._getUserAccountData()
-      .then(data => {
-        if (!data) {
-          dump("Huh? _pollEmailStatus got empty _getUserAccountData\n");
-        } else if (data.isVerified) {
-          this._notifyVerified(data);
-        } else {
-          this._checkEmailStatus(data.sessionToken)
-            .then(response => {
-              dump(" - response: "+JSON.stringify(response)+"\n");
-              if (response && response.verified) {
-                this._getUserAccountData()
-                  .then(data => {
-                    data.isVerified = true;
-                    return this._setUserAccountData(data);
-                  })
-                  .then(() => {
-                    this._isPollingEmailStatus = false;
-                    this._notifyVerified(data);
-                  });
-              } else {
-                dump("-=*=- starting setTimeout()\n");
-                setTimeout(() => this._pollEmailStatus("timer"), 1000);
-              }
+    this._checkEmailStatus(sessionToken)
+      .then(response => {
+        dump(" - response: "+JSON.stringify(response)+"\n");
+        if (response && response.verified) {
+          this._getUserAccountData()
+            .then(data => {
+              data.isVerified = true;
+              return this._setUserAccountData(data);
+            })
+            .then(() => {
+              this._whenVerifiedPromise.resolve(data);
+              delete this._whenVerifiedPromise;
             });
+        } else {
+          dump("-=*=- starting setTimeout()\n");
+          setTimeout(() => this._pollEmailStatus(sessionToken, "timer"), 1000);
         }
       });
     },
@@ -135,12 +166,52 @@ FxAccounts.prototype = Object.freeze({
     return HAWK.recoveryEmailStatus(sessionToken);
   },
 
-  _notifyVerified: function _notifyVerified(data) {
-    dump("== _notifyVerified "+this._whenVerifiedPromises.length+"\n");
-    while (this._whenVerifiedPromises.length) {
-      let d = this._whenVerifiedPromises.shift();
-      d.resolve(data);
+  _getKeys: function(data) {
+    if (data.kA && data.kB);
+      return Promise.resolve(data);
+    if (!this._whenKeysReadyPromise) {
+      this._whenKeysReadyPromise = Promise.defer();
+      this._fetchAndUnwrapKeys(data.keyFetchToken)
+        .then(data => {
+          this._whenKeysReadyPromise.resolve(data);
+        });
     }
+    return this._whenKeysReadyPromise.promise;
+  },
+
+  _fetchAndUnwrapKeys: function (keyFetchToken) {
+    dump("== _fetchAndUnwrapKeys\n");
+    return Task.spawn(function task() {
+      // Sign out if we don't have a key fetch token.
+      if (!keyFetchToken) {
+        yield this.signOut();
+        return;
+      }
+
+      let {kA, wrapKB} = yield this._fetchKeys(keyFetchToken);
+
+      let data = yield this._getUserAccountData();
+      let kB_hex = CryptoUtils.xor(CommonUtils.hexToBytes(data.unwrapBKey),
+                                   wrapKB);
+      data.kA = CommonUtils.bytesAsHex(kA); // store kA/kB as hex
+      data.kB = CommonUtils.bytesAsHex(kB_hex);
+      delete data.keyFetchToken;
+      dump("Keys Obtained: kA="+data.kA+", kB="+data.kB+"\n");
+      yield this._setUserAccountData(data);
+      // we are now ready for business. This should only be invoked once per
+      // setSignedInUser(), regardless of whether we've rebooted since
+      // setSignedInUser() was called
+      this._notifyLoginObservers();
+      yield data;
+    }.bind(this));
+  },
+
+  _fetchKeys: function _fetchKeys(keyFetchToken) {
+    return HAWK.accountKeys(keyFetchToken);
+  },
+
+  _notifyLoginObservers: function () {
+    Services.obs.notifyObservers(null, "fxaccounts:onlogin", null);
   },
 
   /**
@@ -164,18 +235,7 @@ FxAccounts.prototype = Object.freeze({
    */
   getSignedInUser: function getSignedInUser() {
     return this._getUserAccountData()
-      .then(data => {
-        if (!data) {
-          return null;
-        }
-        if (!this._isReady(data)) {
-          this._whenReady() // kick off the process, it will finish eventually
-            .then( () => this._notifyLoginObservers() );
-          // but our caller doesn't wait for that
-          return null;
-        }
-        return data;
-      });
+      .then(data => this._isReady(data) ? data : null);
   },
 
   keyLifetime: 12*3600*1000, // 12 hours
@@ -190,7 +250,7 @@ FxAccounts.prototype = Object.freeze({
     let mustBeValidUntil = this._now() + this.assertionLifetime;
     return this._getUserAccountData()
       .then(data => {
-        if (!data || !this._isReady(data)) {
+        if (!this._isReady(data)) {
           return null;
         }
         return this._getKeyPair(mustBeValidUntil)
@@ -209,14 +269,6 @@ FxAccounts.prototype = Object.freeze({
 
   _now: function() {
     return Date.now();
-  },
-
-  _test: function() {
-    let d = Promise.defer();
-    jwcrypto.generateKeyPair("DS160", (err, kp) => {
-      d.resolve("yay");
-    });
-    return d.promise;
   },
 
   _getKeyPair: function _getKeyPair(mustBeValidUntil) {
@@ -283,6 +335,7 @@ FxAccounts.prototype = Object.freeze({
       if (err) {
         d.reject(err);
       } else {
+        dump(" _getAssertionFromCert returning signed: "+signed+"\n");
         d.resolve(signed);
       }
     });
@@ -351,36 +404,6 @@ FxAccounts.prototype = Object.freeze({
       key: CommonUtils.bytesAsHex(out.slice(32, 64))
     };
   },
-
-  _fetchAndUnwrapKeys: function (keyFetchToken) {
-    dump("== _fetchAndUnwrapKeys\n");
-    return Task.spawn(function task() {
-      // Sign out if we don't have a key fetch token.
-      if (!keyFetchToken) {
-        yield this.signOut();
-        return;
-      }
-
-      let {kA, wrapKB} = yield this._fetchKeys(keyFetchToken);
-
-      let data = yield this._getUserAccountData();
-      let kB_hex = CryptoUtils.xor(CommonUtils.hexToBytes(data.unwrapBKey),
-                                   wrapKB);
-      data.kA = CommonUtils.bytesAsHex(kA); // store kA/kB as hex
-      data.kB = CommonUtils.bytesAsHex(kB_hex);
-      delete data.keyFetchToken;
-      dump("Keys Obtained: kA="+data.kA+", kB="+data.kB+"\n");
-      yield this._setUserAccountData(data);
-    }.bind(this));
-  },
-
-  _fetchKeys: function _fetchKeys(keyFetchToken) {
-    return HAWK.accountKeys(keyFetchToken);
-  },
-
-  _notifyLoginObservers: function () {
-    Services.obs.notifyObservers(null, "fxaccounts:onlogin", null);
-  }
 });
 
 
