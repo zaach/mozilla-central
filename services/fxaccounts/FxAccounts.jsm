@@ -103,8 +103,6 @@ FxAccounts.prototype = Object.freeze({
     // cache a clone of the credentials object
     this._signedInUser = JSON.parse(JSON.stringify(record));
 
-    this._whenVerifiedPromise = Promise.defer();
-
     // note: this waits for storage, but not for verification
     return this._signedInUserStorage.set(record)
       .then(() => {
@@ -123,13 +121,13 @@ FxAccounts.prototype = Object.freeze({
   _startVerifiedCheck: function(data) {
     // get us to the verified state, then get the keys. This returns a
     // promise that will fire when we are completely ready.
-    return this._getVerified(data)
+    return this._whenVerified(data)
       .then(data => this._getKeys(data));
     // if and when getKeys() obtains and stores kA/kB, it will notify any
     // observers
   },
 
-  _getVerified: function(data) {
+  _whenVerified: function(data) {
     if (data.isVerified) {
       return Promise.resolve(data);
     }
@@ -151,7 +149,7 @@ FxAccounts.prototype = Object.freeze({
               data.isVerified = true;
               return this._setUserAccountData(data);
             })
-            .then(() => {
+            .then((data) => {
               this._whenVerifiedPromise.resolve(data);
               delete this._whenVerifiedPromise;
             });
@@ -167,8 +165,9 @@ FxAccounts.prototype = Object.freeze({
   },
 
   _getKeys: function(data) {
-    if (data.kA && data.kB);
+    if (data.kA && data.kB) {
       return Promise.resolve(data);
+    }
     if (!this._whenKeysReadyPromise) {
       this._whenKeysReadyPromise = Promise.defer();
       this._fetchAndUnwrapKeys(data.keyFetchToken)
@@ -437,5 +436,7 @@ JSONStorage.prototype = Object.freeze({
 
 // A getter for the instance to export
 XPCOMUtils.defineLazyGetter(this, "fxAccounts", function() {
-  return new FxAccounts();
+  let a = new FxAccounts();
+  a.getReady();
+  return a;
 });

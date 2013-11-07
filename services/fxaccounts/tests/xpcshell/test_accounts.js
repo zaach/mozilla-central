@@ -89,6 +89,19 @@ function expandBytes(two_hex) {
   return CommonUtils.hexToBytes(expandHex(two_hex));
 };
 
+let Storage = function() {
+  this.data = null;
+};
+Storage.prototype = Object.freeze({
+  set: function (contents) {
+    this.data = contents;
+    return Promise.resolve(null);
+  },
+  get: function () {
+    return Promise.resolve(this.data);
+  },
+});
+
 let _MockFXA = function() {
   FxAccounts.apply(this, arguments);
   this._check_count = 0;
@@ -121,19 +134,19 @@ _MockFXA.prototype = {
 };
 
 add_task(function test_verification_poll() {
-  let a = new _MockFXA();
+  let a = new _MockFXA(new Storage());
   let creds = {
     sessionToken: "sessionToken",
     keyFetchToken: "keyFetchToken",
     unwrapBKey: expandHex("44"),
   };
-  a.setSignedInUser(creds);
+  yield a.setSignedInUser(creds);
   let data = yield a._getUserAccountData();
   do_check_eq(a._isReady(data), false);
   data = yield a.getSignedInUser();
   do_check_eq(data, null);
-  yield a._whenVerified();
   data = yield a._getUserAccountData();
+  data = yield a._whenVerified(data);
   do_check_eq(a._isReady(data), false);
   do_check_eq(data.isVerified, true);
 
@@ -142,7 +155,8 @@ add_task(function test_verification_poll() {
     wrapKB: expandBytes("22"),
   });
 
-  yield a._whenReady();
+  data = yield a._getUserAccountData();
+  yield a._getKeys(data);
   data = yield a._getUserAccountData();
   do_check_eq(a._isReady(data), true);
   do_check_eq(data.kA, expandHex("11"));
@@ -154,7 +168,6 @@ add_task(function test_verification_poll() {
   do_check_eq(data.kB, expandHex("66"));
   do_check_eq(data.keyFetchToken, undefined);
 
-  // now wait until the polling timer started by setSignedInUser() retires
   dump("----- DONE1 ---\n");
 });
 
@@ -171,7 +184,7 @@ function stall() {
 add_task(function test_getAssertion() {
   dump("----- START ----\n");
   //let a = new FxAccounts();
-  let a = new _MockFXA();
+  let a = new _MockFXA(new Storage());
 
   //do_check_eq(1, 1);
   //dump("calling stall\n");
@@ -190,12 +203,10 @@ add_task(function test_getAssertion() {
     kB: expandHex("66"),
     isVerified: true,
   };
-  let record = { version: a.version, accountData: creds };
-  // skip ahead to the "we're ready" stage: just set a._signedInUser instead
-  // of calling a.setSignedInUser() and waiting for it to poll
-  a._signedInUser = record;
+  // by putting kA/kB/isVerified in "creds", we skip ahead to the "we're
+  // ready" stage
+  yield a.setSignedInUser(creds);
 
-  yield a._whenReady();
   dump("== ready to go\n");
   let now = 138000000*1000;
   let start = Date.now();
