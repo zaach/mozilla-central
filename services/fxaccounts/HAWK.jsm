@@ -71,7 +71,12 @@ this.HAWK = Object.freeze({
   },
 
   accountKeys: function (keyFetchTokenHex) {
-    let creds = deriveCredentials(keyFetchTokenHex, "account/keys");
+    let creds = deriveCredentials(keyFetchTokenHex, "keyFetchToken");
+    let keyRequestKey = creds.extra.slice(0, 32);
+    let morecreds = CryptoUtils.hkdf(keyRequestKey, undefined,
+                                     PREFIX_NAME + "account/keys", 3 * 32);
+    let respHMACKey = morecreds.slice(0, 32);
+    let respXORKey = morecreds.slice(32, 96);
 
     return doRequest("/account/keys", "GET", creds).then(resp => {
       if (!resp.bundle) {
@@ -81,9 +86,6 @@ this.HAWK = Object.freeze({
       let bundle = CommonUtils.hexToBytes(resp.bundle);
       let mac = bundle.slice(-32);
 
-      let respHMACKey = creds.extra.slice(0, 32);
-      let respXORKey = creds.extra.slice(32, 96);
-
       let hasher = CryptoUtils.makeHMACHasher(Ci.nsICryptoHMAC.SHA256,
         CryptoUtils.makeHMACKey(respHMACKey));
 
@@ -92,7 +94,7 @@ this.HAWK = Object.freeze({
         throw new Error("error unbundling encryption keys");
       }
 
-      let keyAWrapB = CryptoUtils.xor(creds.extra.slice(-64), bundle.slice(0, 64));
+      let keyAWrapB = CryptoUtils.xor(respXORKey, bundle.slice(0, 64));
 
       return {
         kA: keyAWrapB.slice(0, 32),
@@ -102,7 +104,7 @@ this.HAWK = Object.freeze({
   },
 
   signCertificate: function (sessionTokenHex, serializedPublicKey, lifetime) {
-    let creds = deriveCredentials(sessionTokenHex, "session");
+    let creds = deriveCredentials(sessionTokenHex, "sessionToken");
 
     let body = { publicKey: serializedPublicKey,
                  duration: lifetime };
