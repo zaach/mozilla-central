@@ -23,9 +23,28 @@ function FxAccountsClient(host = HOST) {
 
 FxAccountsClient.prototype = Object.freeze({
 
-  accountCreate: function () {
-    return this._request("/recovery_email/status", "GET",
-      this._deriveHawkCredentials(sessionTokenHex, "session", 2 * 32));
+  signUp: function (email, password) {
+    let uuid; // XXX store this somewhere?
+    let sessionTokenPromise = null;
+    let hexEmail = email.toString('hex');
+    let uuidPromise = this._request("/raw_password/account/create", "POST", null,
+                          {email: hexEmail, password: password});
+    let self = this;
+
+    uuidPromise.then(function(result) {
+      uuid = result;
+      return self.signIn(email, password);
+    },
+    function(err) {
+      throw new Error("FxAccountsClient.signUp() failed with: " + err);
+    });
+    return uuidPromise;
+  },
+
+  signIn: function signIn(email, password) {
+    let hexEmail = email.toString('hex');
+    return this._request("/raw_password/session/create", "POST", null,
+                         {email: hexEmail, password: password});
   },
 
   recoveryEmailStatus: function (sessionTokenHex) {
