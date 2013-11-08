@@ -23,7 +23,7 @@ let credentials = {
   kB: "cafe"
 };
 
-/*add_test(function test_non_https_remote_server_uri() {
+add_test(function test_non_https_remote_server_uri() {
 
   Services.prefs.setCharPref("firefox.accounts.remoteUrl",
                              "http://example.com/browser/browser/base/content/test/general/accounts_testRemoteCommands.html");
@@ -34,7 +34,7 @@ let credentials = {
   Services.prefs.clearUserPref("firefox.accounts.remoteUrl");
 
   run_next_test();
-});*/
+});
 
 /*
 add_task(function test_get_signed_in_user_initially_unset() {
@@ -171,28 +171,10 @@ add_task(function test_verification_poll() {
   dump("----- DONE1 ---\n");
 });
 
-Cu.import("resource://gre/modules/Timer.jsm");
-function stall() {
-  let d = Promise.defer();
-  setTimeout(() => {dump(" hhhsser\n"); d.resolve(23);}, 1000);
-  dump(" did setTimeout()\n");
-  //d.resolve(true);
-  //dump(" p "+JSON.stringify(d.promise)+"\n");
-  return d.promise;
-}
-
 add_task(function test_getAssertion() {
   dump("----- START ----\n");
   //let a = new FxAccounts();
   let a = new _MockFXA(new Storage());
-
-  //do_check_eq(1, 1);
-  //dump("calling stall\n");
-  //yield stall();
-  //dump("calling _test\n");
-  //yield a._test();
-  //dump("called _test\n");
-  //do_check_eq(2, 2);
 
   let noData = yield a.getAssertion("nonaudience");
   do_check_eq(noData, null);
