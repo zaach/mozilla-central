@@ -95,9 +95,6 @@ let wrapper = {
       case "login":
         this.onLogin(data);
         break;
-      case "verified":
-        this.onVerified(data);
-        break;
       case "session_status":
         this.onSessionStatus(data);
         break;
