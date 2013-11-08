@@ -72,3 +72,34 @@ add_task(function test_authenticated_post_request() {
   yield deferredStop(server);
   run_next_test();
 });
+
+add_task(function test_signUp() {
+  let sessionMessage = JSON.stringify({sessionToken: "NotARealToken"});
+  let creationMessage = JSON.stringify({uid: "NotARealUid"});
+
+  let server = httpd_setup(
+    {
+      "/raw_password/account/create": function(request, response) {
+        response.setStatusLine(request.httpVersion, 200, "OK");
+        response.bodyOutputStream.write(creationMessage, creationMessage.length);
+      },
+      "/raw_password/session/create": function(request, response) {
+        response.setStatusLine(request.httpVersion, 200, "OK");
+        response.bodyOutputStream.write(sessionMessage, sessionMessage.length);
+      },
+    }
+  );
+
+  let client = new FxAccountsClient(server.baseURI);
+
+  let result = yield client.signUp('you@example.com', 'biggersecret');
+  do_check_eq("NotARealUid", result.json.uid);
+  do_check_eq(200, result.status);
+
+  let result = yield client.signIn('me@example.com', 'bigsecret');
+  do_check_eq("NotARealToken", result.json.sessionToken);
+  do_check_eq(200, result.status);
+
+  yield deferredStop(server);
+  run_next_test();
+});
