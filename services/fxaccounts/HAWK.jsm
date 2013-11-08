@@ -67,7 +67,7 @@ function doRequest(path, method, credentials, body) {
 this.HAWK = Object.freeze({
   recoveryEmailStatus: function (sessionTokenHex) {
     return doRequest("/recovery_email/status", "GET",
-      deriveCredentials(sessionTokenHex, "session"));
+      deriveCredentials(sessionTokenHex, "sessionToken"));
   },
 
   accountKeys: function (keyFetchTokenHex) {
