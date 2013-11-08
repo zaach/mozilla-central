@@ -17,14 +17,6 @@ function checkStatusValue(payload, expectedValue) {
 
 let tests = [
 {
-  info: "Check account verification",
-  event: "verified",
-  payloadType: "message",
-  validateResponse: function(payload) {
-    return checkStatusValue(payload, "verified");
-  },
-},
-{
   info: "Check account log in",
   event: "login",
   payloadType: "message",
