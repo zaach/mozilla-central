@@ -439,3 +439,6 @@ XPCOMUtils.defineLazyGetter(this, "fxAccounts", function() {
   a.getReady();
   return a;
 });
+
+this.FxAccounts = FxAccounts;
+

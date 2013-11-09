@@ -29,7 +29,7 @@ function do_check_throws(aFunc, aResult, aStack) {
   try {
     aFunc();
   } catch (e) {
-    do_check_eq(e.result, aResult, aStack);
+    do_check_eq(e.message, aResult, aStack);
     return;
   }
   do_throw("Expected result " + aResult + ", none thrown.", aStack);

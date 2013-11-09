@@ -11,6 +11,7 @@ Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://services-common/utils.js");
 Cu.import("resource://services-crypto/utils.js");
 
+// TODO make this URL a pref
 const HOST = "https://idp.dev.lcip.org";
 const PREFIX_NAME = "identity.mozilla.com/picl/v1/";
 
@@ -135,3 +136,4 @@ FxAccountsClient.prototype = Object.freeze({
 
 fxAccountsClient = new FxAccountsClient();
 
+this.FxAccountsClient = FxAccountsClient;
