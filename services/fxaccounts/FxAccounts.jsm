@@ -11,7 +11,7 @@ Cu.import("resource://gre/modules/Promise.jsm");
 Cu.import("resource://gre/modules/osfile.jsm");
 Cu.import("resource://services-common/utils.js");
 Cu.import("resource://services-crypto/utils.js");
-Cu.import("resource://gre/modules/HAWK.jsm");
+Cu.import("resource://gre/modules/FxAccountsClient.jsm");
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource://gre/modules/Timer.jsm");
@@ -165,7 +165,7 @@ FxAccounts.prototype = Object.freeze({
     },
 
   _checkEmailStatus: function _checkEmailStatus(sessionToken) {
-    return HAWK.recoveryEmailStatus(sessionToken);
+    return fxAccountsClient.recoveryEmailStatus(sessionToken);
   },
 
   _getKeys: function(data) {
@@ -210,7 +210,7 @@ FxAccounts.prototype = Object.freeze({
   },
 
   _fetchKeys: function _fetchKeys(keyFetchToken) {
-    return HAWK.accountKeys(keyFetchToken);
+    return fxAccountsClient.accountKeys(keyFetchToken);
   },
 
   _notifyLoginObservers: function () {
@@ -323,7 +323,7 @@ FxAccounts.prototype = Object.freeze({
                                                         serializedPublicKey,
                                                         lifetime) {
     log(" _getCertificateSigned: "+sessionToken+" "+serializedPublicKey+"\n");
-    return HAWK.signCertificate(sessionToken,
+    return fxAccountsClient.signCertificate(sessionToken,
                                 JSON.parse(serializedPublicKey), lifetime);
   },
 
@@ -391,20 +391,6 @@ FxAccounts.prototype = Object.freeze({
       throw new Error("Firefox Accounts server must use HTTPS");
     }
     return url;
-  },
-
-  _deriveHawkCredentials: function (sessionToken) {
-    let bytes = [];
-    for (let i=0; i <  sessionToken.length-1; i += 2) {
-      bytes.push(parseInt(sessionToken.substr(i, 2), 16));
-    }
-    let key = String.fromCharCode.apply(String, bytes);
-    let out = CryptoUtils.hkdf(key, undefined, "identity.mozilla.com/picl/v1/session", 2*32);
-    return {
-      algorithm: "sha256",
-      id: CommonUtils.bytesAsHex(out.slice(0, 32)),
-      key: CommonUtils.bytesAsHex(out.slice(32, 64))
-    };
   },
 });
 

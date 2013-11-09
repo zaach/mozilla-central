@@ -3,6 +3,7 @@
 
 Cu.import("resource://gre/modules/FxAccountsClient.jsm");
 Cu.import("resource://gre/modules/Promise.jsm");
+Cu.import("resource://services-common/utils.js");
 
 
 function run_test() {
@@ -16,6 +17,18 @@ function deferredStop(server) {
     });
     return deferred.promise;
 }
+
+
+add_test(function test_hawk_credentials() {
+  let sessionToken = "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf";
+  let client = new FxAccountsClient();
+  let result = client._deriveHawkCredentials(sessionToken, "session");
+
+  do_check_eq(result.id, "639503a218ffbb62983e9628be5cd64a0438d0ae81b2b9dadeb900a83470bc6b");
+  do_check_eq(CommonUtils.bytesAsHex(result.key), "3a0188943837ab228fe74e759566d0e4837cbcc7494157aac4da82025b2811b2");
+
+  run_next_test();
+});
 
 add_task(function test_authenticated_get_request() {
   let message = "{\"msg\": \"Great Success!\"}";

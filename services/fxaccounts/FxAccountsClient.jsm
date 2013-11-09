@@ -50,22 +50,26 @@ FxAccountsClient.prototype = Object.freeze({
 
   recoveryEmailStatus: function (sessionTokenHex) {
     return this._request("/recovery_email/status", "GET",
-      this._deriveHawkCredentials(sessionTokenHex, "session", 2 * 32));
+      this._deriveHawkCredentials(sessionTokenHex, "sessionToken"))
+      .then(xhr => xhr.json);
   },
 
   accountKeys: function (keyFetchTokenHex) {
-    let creds = CryptoUtils.deriveCredentials(keyFetchTokenHex, PREFIX_NAME + "account/keys", 5 * 32);
+    let creds = this._deriveHawkCredentials(keyFetchTokenHex, "keyFetchToken");
+    let keyRequestKey = creds.extra.slice(0, 32);
+    let morecreds = CryptoUtils.hkdf(keyRequestKey, undefined,
+                                     PREFIX_NAME + "account/keys", 3 * 32);
+    let respHMACKey = morecreds.slice(0, 32);
+    let respXORKey = morecreds.slice(32, 96);
 
-    return doRequest("/account/keys", "GET", creds).then(resp => {
+    return this._request("/account/keys", "GET", creds).then(xhr => {
+      let resp = xhr.json;
       if (!resp.bundle) {
         throw new Error("failed to retrieve keys");
       }
 
       let bundle = CommonUtils.hexToBytes(resp.bundle);
       let mac = bundle.slice(-32);
-
-      let respHMACKey = creds.extra.slice(0, 32);
-      let respXORKey = creds.extra.slice(32, 96);
 
       let hasher = CryptoUtils.makeHMACHasher(Ci.nsICryptoHMAC.SHA256,
         CryptoUtils.makeHMACKey(respHMACKey));
@@ -75,18 +79,37 @@ FxAccountsClient.prototype = Object.freeze({
         throw new Error("error unbundling encryption keys");
       }
 
-      let keyAWrapB = CryptoUtils.xor(creds.extra.slice(-64), bundle.slice(0, 64));
+      let keyAWrapB = CryptoUtils.xor(respXORKey, bundle.slice(0, 64));
 
       return {
         kA: keyAWrapB.slice(0, 32),
         wrapKB: keyAWrapB.slice(32)
-      }
+      };
     });
+  },
+
+  signCertificate: function (sessionTokenHex, serializedPublicKey, lifetime) {
+    let creds = this._deriveHawkCredentials(sessionTokenHex, "sessionToken");
+
+    let body = { publicKey: serializedPublicKey,
+                 duration: lifetime };
+    return Promise.resolve()
+      .then(_ => this._request("/certificate/sign", "POST", creds, body))
+      .then(xhr => {
+        let resp = xhr.json;
+        if (resp.code) {
+          throw new Error("bad code!");
+        } else {
+          return resp.cert;
+        }})
+      .then(cert => cert,
+            err => {dump("HAWK.signCertificate error: "+err+"\n");
+                    throw err;});
   },
 
   _deriveHawkCredentials: function (tokenHex, context, size) {
     let token = CommonUtils.hexToBytes(tokenHex);
-    let out = CryptoUtils.hkdf(token, undefined, PREFIX_NAME + context, size || 2 * 32);
+    let out = CryptoUtils.hkdf(token, undefined, PREFIX_NAME + context, size || 5 * 32);
 
     return {
       algorithm: "sha256",
