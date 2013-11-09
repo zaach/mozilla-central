@@ -22,6 +22,10 @@ XPCOMUtils.defineLazyModuleGetter(this, "jwcrypto",
 
 const defaultStorageFilename = "signedInUser.json";
 
+function log(msg) {
+  //dump(msg);
+}
+
 /**
  * FxAccounts constructor
  *
@@ -139,10 +143,10 @@ FxAccounts.prototype = Object.freeze({
   },
 
   _pollEmailStatus: function _pollEmailStatus(sessionToken, why) {
-    dump(" entering _pollEmailStatus ("+(why||"")+")\n");
+    log(" entering _pollEmailStatus ("+(why||"")+")\n");
     this._checkEmailStatus(sessionToken)
       .then(response => {
-        dump(" - response: "+JSON.stringify(response)+"\n");
+        log(" - response: "+JSON.stringify(response)+"\n");
         if (response && response.verified) {
           this._getUserAccountData()
             .then(data => {
@@ -154,7 +158,7 @@ FxAccounts.prototype = Object.freeze({
               delete this._whenVerifiedPromise;
             });
         } else {
-          dump("-=*=- starting setTimeout()\n");
+          log("-=*=- starting setTimeout()\n");
           setTimeout(() => this._pollEmailStatus(sessionToken, "timer"), 1000);
         }
       });
@@ -179,7 +183,7 @@ FxAccounts.prototype = Object.freeze({
   },
 
   _fetchAndUnwrapKeys: function (keyFetchToken) {
-    dump("== _fetchAndUnwrapKeys\n");
+    log("== _fetchAndUnwrapKeys\n");
     return Task.spawn(function task() {
       // Sign out if we don't have a key fetch token.
       if (!keyFetchToken) {
@@ -195,7 +199,7 @@ FxAccounts.prototype = Object.freeze({
       data.kA = CommonUtils.bytesAsHex(kA); // store kA/kB as hex
       data.kB = CommonUtils.bytesAsHex(kB_hex);
       delete data.keyFetchToken;
-      dump("Keys Obtained: kA="+data.kA+", kB="+data.kB+"\n");
+      log("Keys Obtained: kA="+data.kA+", kB="+data.kB+"\n");
       yield this._setUserAccountData(data);
       // we are now ready for business. This should only be invoked once per
       // setSignedInUser(), regardless of whether we've rebooted since
@@ -242,7 +246,7 @@ FxAccounts.prototype = Object.freeze({
   assertionLifetime: 5*1000, // 5 minutes
 
   getAssertion: function getAssertion(audience) {
-    dump("--- getAssertion() starts\n");
+    log("--- getAssertion() starts\n");
     // returns a Persona assertion used to enable Sync. All three components
     // (the key, the cert which signs it, and the assertion) must be valid
     // for at least the next 5 minutes.
@@ -262,7 +266,7 @@ FxAccounts.prototype = Object.freeze({
   },
 
   _willBeValidIn: function _willBeValidIn(time, validityPeriod) {
-    dump([" _willBeValidIn", this._now() +validityPeriod, time, validityPeriod].join(" ")+"\n");
+    log([" _willBeValidIn", this._now() +validityPeriod, time, validityPeriod].join(" ")+"\n");
     return (this._now() + validityPeriod < time);
   },
 
@@ -271,12 +275,12 @@ FxAccounts.prototype = Object.freeze({
   },
 
   _getKeyPair: function _getKeyPair(mustBeValidUntil) {
-    dump("_getKeyPair\n");
+    log("_getKeyPair\n");
     if (this._keyPair) {
-      dump(" "+this._keyPair.validUntil+" "+mustBeValidUntil+"\n");
+      log(" "+this._keyPair.validUntil+" "+mustBeValidUntil+"\n");
     }
     if (this._keyPair && this._keyPair.validUntil > mustBeValidUntil) {
-      dump(" _getKeyPair already had one\n");
+      log(" _getKeyPair already had one\n");
       return Promise.resolve(this._keyPair.keyPair);
     }
     // else create a keypair, set validity limit to 12 hours
@@ -286,7 +290,7 @@ FxAccounts.prototype = Object.freeze({
       if (err) {
         d.reject(err);
       } else {
-        dump(" _getKeyPair got keypair\n");
+        log(" _getKeyPair got keypair\n");
         this._keyPair = { keyPair: kp,
                           validUntil: willBeValidUntil };
         delete this._cert;
@@ -297,10 +301,10 @@ FxAccounts.prototype = Object.freeze({
   },
 
   _getCertificate: function _getCertificate(data, keyPair, mustBeValidUntil) {
-    dump("_getCertificate\n");
+    log("_getCertificate\n");
     // TODO: get the lifetime from the cert's .exp field
     if (this._cert && this._cert.validUntil > mustBeValidUntil) {
-      dump(" _getCertificate already had one\n");
+      log(" _getCertificate already had one\n");
       return Promise.resolve(this._cert.cert);
     }
     // else get our cert signed
@@ -318,14 +322,14 @@ FxAccounts.prototype = Object.freeze({
   _getCertificateSigned: function _getCertificateSigned(sessionToken,
                                                         serializedPublicKey,
                                                         lifetime) {
-    dump(" _getCertificateSigned: "+sessionToken+" "+serializedPublicKey+"\n");
+    log(" _getCertificateSigned: "+sessionToken+" "+serializedPublicKey+"\n");
     return HAWK.signCertificate(sessionToken,
                                 JSON.parse(serializedPublicKey), lifetime);
   },
 
   _getAssertionFromCert: function _getAssertionFromCert(data, keyPair, cert,
                                                         audience) {
-    dump("_getAssertionFromCert\n");
+    log("_getAssertionFromCert\n");
     let payload = {};
     let d = Promise.defer();
     // "audience" should be like "http://123done.org"
@@ -334,7 +338,7 @@ FxAccounts.prototype = Object.freeze({
       if (err) {
         d.reject(err);
       } else {
-        dump(" _getAssertionFromCert returning signed: "+signed+"\n");
+        log(" _getAssertionFromCert returning signed: "+signed+"\n");
         d.resolve(signed);
       }
     });
