@@ -489,9 +489,8 @@ this.CryptoUtils = {
 
     let contentType = CryptoUtils.stripHeaderAttributes(options.contentType);
 
-    if (!artifacts.hash &&
-        options.hasOwnProperty("payload") &&
-        options.payload) {
+    if (!artifacts.hash && options.hasOwnProperty("payload")
+        && options.payload) {
       let hasher = Cc["@mozilla.org/security/hash;1"]
                      .createInstance(Ci.nsICryptoHash);
       hasher.init(hash_algo);

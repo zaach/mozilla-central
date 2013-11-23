@@ -8,24 +8,20 @@ Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/FxAccounts.jsm");
 Cu.import("resource://gre/modules/Promise.jsm");
 
+// BackstagePass that gives us atob when building on b2g.
+// (This is not necessary when building browser; I know not why.)
+let atob = Cu.import("resource://gre/modules/Log.jsm").atob;
+
 function run_test() {
   run_next_test();
 }
 
-let credentials = {
-  email: "foo@example.com",
-  uid: "1234@lcip.org",
-  assertion: "foobar",
-  sessionToken: "dead",
-  kA: "beef",
-  kB: "cafe"
-};
 
 add_test(function test_non_https_remote_server_uri() {
 
   Services.prefs.setCharPref("firefox.accounts.remoteUrl",
                              "http://example.com/browser/browser/base/content/test/general/accounts_testRemoteCommands.html");
-  do_check_throws(function () {
+  do_check_throws_message(function () {
     fxAccounts.getAccountsURI();
   }, "Firefox Accounts server must use HTTPS");
 
@@ -34,11 +30,21 @@ add_test(function test_non_https_remote_server_uri() {
   run_next_test();
 });
 
-/*
 add_task(function test_get_signed_in_user_initially_unset() {
+
+  let credentials = {
+    email: "foo@example.com",
+    uid: "1234@lcip.org",
+    assertion: "foobar",
+    sessionToken: "dead",
+    kA: "beef",
+    kB: "cafe",
+    isVerified: true
+  };
+
   // user is initially undefined
   let result = yield fxAccounts.getSignedInUser();
-  do_check_eq(result, undefined);
+  do_check_eq(result, null);
 
   // set user
   yield fxAccounts.setSignedInUser(credentials);
@@ -62,19 +68,9 @@ add_task(function test_get_signed_in_user_initially_unset() {
 
   // user should be undefined after sign out
   let result = yield fxAccounts.getSignedInUser();
-  do_check_eq(result, undefined);
+  do_check_eq(result, null);
 });
-*/
 
-add_test(function test_hawk_credentials() {
-  let sessionToken = "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf";
-  let result = fxAccounts._deriveHawkCredentials(sessionToken);
-
-  do_check_eq(result.id, "639503a218ffbb62983e9628be5cd64a0438d0ae81b2b9dadeb900a83470bc6b");
-  do_check_eq(result.key, "3a0188943837ab228fe74e759566d0e4837cbcc7494157aac4da82025b2811b2");
-
-  run_next_test();
-});
 
 function expandHex(two_hex) {
   // return a 64-character hex string, encoding 32 identical bytes
@@ -111,7 +107,7 @@ let _MockFXA = function() {
 _MockFXA.prototype = {
   __proto__: FxAccounts.prototype,
   _checkEmailStatus: function(sessionToken) {
-    dump("== _checkEmailStatus\n");
+    _("== _checkEmailStatus\n");
     this._check_count += 1;
     if (this._check_count > 2)
       return Promise.resolve({verified: true});
@@ -121,11 +117,11 @@ _MockFXA.prototype = {
     return this._now_is;
   },
   _fetchKeys: function(keyFetchToken) {
-    dump("== _fetchKeys\n");
+    _("== _fetchKeys\n");
     return this._d_fetchKeys.promise;
   },
   _getCertificateSigned: function(sessionToken, serializedPublicKey) {
-    dump("== _signCertificate\n");
+    _("== _signCertificate\n");
     this._getCertificateSigned_calls.push([sessionToken, serializedPublicKey]);
     return this._d_signCertificate.promise;
   },
@@ -142,35 +138,41 @@ add_task(function test_verification_poll() {
   let data = yield a._getUserAccountData();
   do_check_eq(a._isReady(data), false);
   data = yield a.getSignedInUser();
-  do_check_eq(data, null);
-  data = yield a._getUserAccountData();
+  do_check_neq(data, null);
   data = yield a._whenVerified(data);
-  do_check_eq(a._isReady(data), false);
+  do_check_eq(a._isReady(data), true);
   do_check_eq(data.isVerified, true);
+});
 
+add_task(function test_getKeys() {
+  let a = new _MockFXA(new Storage());
+  let creds = {
+    sessionToken: "sessionToken",
+    keyFetchToken: "keyFetchToken",
+    unwrapBKey: expandHex("44"),
+    isVerified: true,
+  };
   a._d_fetchKeys.resolve({
     kA: expandBytes("11"),
     wrapKB: expandBytes("22"),
   });
 
-  data = yield a._getUserAccountData();
-  yield a._getKeys(data);
-  data = yield a._getUserAccountData();
+  yield a.setSignedInUser(creds);
+
+  let data = yield a._getUserAccountData();
+  yield a.getKeys(data);
+
+  data = yield a.getSignedInUser();
   do_check_eq(a._isReady(data), true);
   do_check_eq(data.kA, expandHex("11"));
   do_check_eq(data.kB, expandHex("66"));
   do_check_eq(data.keyFetchToken, undefined);
 
-  data = yield a.getSignedInUser();
-  do_check_eq(data.kA, expandHex("11"));
-  do_check_eq(data.kB, expandHex("66"));
-  do_check_eq(data.keyFetchToken, undefined);
-
-  dump("----- DONE1 ---\n");
+  _("----- DONE1 ---\n");
 });
 
 add_task(function test_getAssertion() {
-  dump("----- START ----\n");
+  _("----- START ----\n");
   //let a = new FxAccounts();
   let a = new _MockFXA(new Storage());
 
@@ -187,34 +189,34 @@ add_task(function test_getAssertion() {
   // ready" stage
   yield a.setSignedInUser(creds);
 
-  dump("== ready to go\n");
+  _("== ready to go\n");
   let now = 138000000*1000;
   let start = Date.now();
   a._now_is = now;
   let d = a.getAssertion("audience.example.com");
   // at this point, a thread has been spawned to generate the keys
-  dump("-- back from a.getAssertion\n");
+  _("-- back from a.getAssertion\n");
   a._d_signCertificate.resolve("cert1");
   let assertion = yield d;
   let finish = Date.now();
   do_check_eq(a._getCertificateSigned_calls.length, 1);
   do_check_eq(a._getCertificateSigned_calls[0][0], "sessionToken");
   do_check_neq(assertion, null);
-  dump("ASSERTION: "+assertion+"\n");
+  _("ASSERTION: "+assertion+"\n");
   let pieces = assertion.split("~");
   do_check_eq(pieces[0], "cert1");
   do_check_neq(a._keyPair, undefined);
-  dump(a._keyPair.validUntil+"\n");
+  _(a._keyPair.validUntil+"\n");
   let p2 = pieces[1].split(".");
   let header = JSON.parse(atob(p2[0]));
-  dump("HEADER: "+JSON.stringify(header)+"\n");
+  _("HEADER: "+JSON.stringify(header)+"\n");
   do_check_eq(header.alg, "DS128");
   let payload = JSON.parse(atob(p2[1]));
-  dump("PAYLOAD: "+JSON.stringify(payload)+"\n");
+  _("PAYLOAD: "+JSON.stringify(payload)+"\n");
   do_check_eq(payload.aud, "audience.example.com");
   do_check_eq(a._keyPair.validUntil, now + a.keyLifetime);
   do_check_eq(a._cert.validUntil, now + a.certLifetime);
-  dump("delta: "+(new Date(payload.exp) - now)+"\n");
+  _("delta: "+(new Date(payload.exp) - now)+"\n");
   let exp = Number(payload.exp);
   // jwcrypto.jsm uses an unmocked Date.now()+2min to decide on the
   // expiration time, so we test that it's inside a specific timebox
@@ -251,5 +253,6 @@ add_task(function test_getAssertion() {
   do_check_true(start + 2*60*1000 <= exp);
   do_check_true(exp <= finish + 2*60*1000);
 
-  dump("----- DONE ----\n");
+  _("----- DONE ----\n");
 });
+

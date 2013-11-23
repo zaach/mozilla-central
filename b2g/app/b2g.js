@@ -831,3 +831,7 @@ pref("b2g.neterror.url", "app://system.gaiamobile.org/net_error.html");
 
 // Enable Web Speech synthesis API
 pref("media.webspeech.synth.enabled", true);
+
+// The URL of the Firefox Accounts auth server backend
+pref("identity.fxaccounts.auth.uri", "https://api-accounts.dev.lcip.org/v1");
+

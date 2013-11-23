@@ -11,16 +11,21 @@ Cu.import("resource://gre/modules/Promise.jsm");
 Cu.import("resource://gre/modules/osfile.jsm");
 Cu.import("resource://services-common/utils.js");
 Cu.import("resource://services-crypto/utils.js");
-Cu.import("resource://gre/modules/HAWK.jsm");
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource://gre/modules/Timer.jsm");
 Cu.import("resource://gre/modules/Task.jsm");
+Cu.import("resource://gre/modules/FxAccountsClient.jsm");
 
 XPCOMUtils.defineLazyModuleGetter(this, "jwcrypto",
                                   "resource://gre/modules/identity/jwcrypto.jsm");
 
+
 const defaultStorageFilename = "signedInUser.json";
+
+function log(msg) {
+  //dump(msg);
+}
 
 /**
  * FxAccounts constructor
@@ -29,7 +34,7 @@ const defaultStorageFilename = "signedInUser.json";
  *                            the signedInUser. Uses JSONStorage by default.
  * @return instance
  */
-function FxAccounts(signedInUserStorage = undefined) {
+this.FxAccounts = function(signedInUserStorage) {
   // We don't reference |profileDir| in the top-level module scope as we may
   // be imported before we know where it is.
   if (!signedInUserStorage) {
@@ -42,9 +47,11 @@ function FxAccounts(signedInUserStorage = undefined) {
   // these two promises only exist while we're querying the server
   this._whenVerifiedPromise = null;
   this._whenKeysReadyPromise = null;
+
+  this._fxAccountsClient = new FxAccountsClient();
 }
 
-FxAccounts.prototype = Object.freeze({
+this.FxAccounts.prototype = Object.freeze({
   // data format version
   version: 1,
 
@@ -65,11 +72,11 @@ FxAccounts.prototype = Object.freeze({
   // get() does not wait for verification, and returns an object even if
   // unverified. The caller of get() must check .isVerified .
   // The "fxaccounts:onlogin" event will fire only when the verified state
-  // goes from false to true, so callers must register their event handler
+  // goes from false to true, so callers must register their observer
   // and then call get(). In particular, it will not fire when the account
   // was found to be verified in a previous boot: if our stored state says
   // the account is verified, the event will never fire. So callers must do:
-  //  register event handler (go)
+  //  register notification observer (go)
   //  userdata = get()
   //  if (userdata.isVerified()) go()
 
@@ -85,6 +92,7 @@ FxAccounts.prototype = Object.freeze({
    *          uid: The user's unique id
    *          sessionToken: Session for the FxA server
    *          keyFetchToken: an unused keyFetchToken
+   *          isVerified: true/false
    *        }
    *
    * @param waitForReady
@@ -113,18 +121,15 @@ FxAccounts.prototype = Object.freeze({
   },
 
   _isReady: function _isReady(data) {
-    if (data && data.isVerified && data.kA && data.kB)
-      return true;
-    return false;
+    return !!(data && data.isVerified);
   },
 
   _startVerifiedCheck: function(data) {
     // get us to the verified state, then get the keys. This returns a
     // promise that will fire when we are completely ready.
     return this._whenVerified(data)
-      .then(data => this._getKeys(data));
-    // if and when getKeys() obtains and stores kA/kB, it will notify any
-    // observers
+      .then(this._notifyLoginObservers)
+      .then(() => data);
   },
 
   _whenVerified: function(data) {
@@ -132,6 +137,8 @@ FxAccounts.prototype = Object.freeze({
       return Promise.resolve(data);
     }
     if (!this._whenVerifiedPromise) {
+      // poll for 5 minutes
+      this._pollTimeRemaining = 5 * 60 * 1000;
       this._whenVerifiedPromise = Promise.defer();
       this._pollEmailStatus(data.sessionToken, "start");
     }
@@ -139,10 +146,10 @@ FxAccounts.prototype = Object.freeze({
   },
 
   _pollEmailStatus: function _pollEmailStatus(sessionToken, why) {
-    dump(" entering _pollEmailStatus ("+(why||"")+")\n");
+    log(" entering _pollEmailStatus ("+(why||"")+")\n");
     this._checkEmailStatus(sessionToken)
       .then(response => {
-        dump(" - response: "+JSON.stringify(response)+"\n");
+        log(" - response: "+JSON.stringify(response)+"\n");
         if (response && response.verified) {
           this._getUserAccountData()
             .then(data => {
@@ -154,17 +161,38 @@ FxAccounts.prototype = Object.freeze({
               delete this._whenVerifiedPromise;
             });
         } else {
-          dump("-=*=- starting setTimeout()\n");
-          setTimeout(() => this._pollEmailStatus(sessionToken, "timer"), 1000);
+          this._pollTimeRemaining -= 3000;
+          if (this._pollTimeRemaining > 0) {
+            log("-=*=- starting setTimeout()\n");
+            setTimeout(() => this._pollEmailStatus(sessionToken, "timer"), 3000);
+          }
         }
       });
     },
 
   _checkEmailStatus: function _checkEmailStatus(sessionToken) {
-    return HAWK.recoveryEmailStatus(sessionToken);
+    return this._fxAccountsClient.recoveryEmailStatus(sessionToken);
   },
 
-  _getKeys: function(data) {
+  /**
+   * Fetches encryption keys for the signed-in-user from the FxA API server.
+   *
+   * @return Promise
+   *        The promise resolves to the credentials object of the signed-in user:
+   *
+   *        {
+   *          email: The user's email address
+   *          uid: The user's unique id
+   *          sessionToken: Session for the FxA server
+   *          kA: An encryption key from the FxA server
+   *          kB: An encryption key derived from the user's FxA password
+   *          isVerified: email verification status
+   *        }
+   *
+   *        or null if no user is signed in
+   *
+   */
+  getKeys: function(data) {
     if (data.kA && data.kB) {
       return Promise.resolve(data);
     }
@@ -179,7 +207,7 @@ FxAccounts.prototype = Object.freeze({
   },
 
   _fetchAndUnwrapKeys: function (keyFetchToken) {
-    dump("== _fetchAndUnwrapKeys\n");
+    log("== _fetchAndUnwrapKeys\n");
     return Task.spawn(function task() {
       // Sign out if we don't have a key fetch token.
       if (!keyFetchToken) {
@@ -195,18 +223,17 @@ FxAccounts.prototype = Object.freeze({
       data.kA = CommonUtils.bytesAsHex(kA); // store kA/kB as hex
       data.kB = CommonUtils.bytesAsHex(kB_hex);
       delete data.keyFetchToken;
-      dump("Keys Obtained: kA="+data.kA+", kB="+data.kB+"\n");
+      log("Keys Obtained: kA="+data.kA+", kB="+data.kB+"\n");
       yield this._setUserAccountData(data);
       // we are now ready for business. This should only be invoked once per
       // setSignedInUser(), regardless of whether we've rebooted since
       // setSignedInUser() was called
-      this._notifyLoginObservers();
       yield data;
     }.bind(this));
   },
 
   _fetchKeys: function _fetchKeys(keyFetchToken) {
-    return HAWK.accountKeys(keyFetchToken);
+    return this._fxAccountsClient.accountKeys(keyFetchToken);
   },
 
   _notifyLoginObservers: function () {
@@ -225,16 +252,15 @@ FxAccounts.prototype = Object.freeze({
    *          sessionToken: Session for the FxA server
    *          kA: An encryption key from the FxA server
    *          kB: An encryption key derived from the user's FxA password
+   *          isVerified: email verification status
    *        }
    *
-   *        or null if the signed in user does not yet have the necessary
-   *        keys, the user data is an unrecognized version, or no user is
-   *        signed in.
+   *        or null if no user is signed in
    *
    */
   getSignedInUser: function getSignedInUser() {
     return this._getUserAccountData()
-      .then(data => this._isReady(data) ? data : null);
+      .then(data => data || null);
   },
 
   keyLifetime: 12*3600*1000, // 12 hours
@@ -242,7 +268,7 @@ FxAccounts.prototype = Object.freeze({
   assertionLifetime: 5*1000, // 5 minutes
 
   getAssertion: function getAssertion(audience) {
-    dump("--- getAssertion() starts\n");
+    log("--- getAssertion() starts\n");
     // returns a Persona assertion used to enable Sync. All three components
     // (the key, the cert which signs it, and the assertion) must be valid
     // for at least the next 5 minutes.
@@ -262,7 +288,7 @@ FxAccounts.prototype = Object.freeze({
   },
 
   _willBeValidIn: function _willBeValidIn(time, validityPeriod) {
-    dump([" _willBeValidIn", this._now() +validityPeriod, time, validityPeriod].join(" ")+"\n");
+    log([" _willBeValidIn", this._now() +validityPeriod, time, validityPeriod].join(" ")+"\n");
     return (this._now() + validityPeriod < time);
   },
 
@@ -271,12 +297,12 @@ FxAccounts.prototype = Object.freeze({
   },
 
   _getKeyPair: function _getKeyPair(mustBeValidUntil) {
-    dump("_getKeyPair\n");
+    log("_getKeyPair\n");
     if (this._keyPair) {
-      dump(" "+this._keyPair.validUntil+" "+mustBeValidUntil+"\n");
+      log(" "+this._keyPair.validUntil+" "+mustBeValidUntil+"\n");
     }
     if (this._keyPair && this._keyPair.validUntil > mustBeValidUntil) {
-      dump(" _getKeyPair already had one\n");
+      log(" _getKeyPair already had one\n");
       return Promise.resolve(this._keyPair.keyPair);
     }
     // else create a keypair, set validity limit to 12 hours
@@ -286,7 +312,7 @@ FxAccounts.prototype = Object.freeze({
       if (err) {
         d.reject(err);
       } else {
-        dump(" _getKeyPair got keypair\n");
+        log(" _getKeyPair got keypair\n");
         this._keyPair = { keyPair: kp,
                           validUntil: willBeValidUntil };
         delete this._cert;
@@ -297,10 +323,10 @@ FxAccounts.prototype = Object.freeze({
   },
 
   _getCertificate: function _getCertificate(data, keyPair, mustBeValidUntil) {
-    dump("_getCertificate\n");
+    log("_getCertificate\n");
     // TODO: get the lifetime from the cert's .exp field
     if (this._cert && this._cert.validUntil > mustBeValidUntil) {
-      dump(" _getCertificate already had one\n");
+      log(" _getCertificate already had one\n");
       return Promise.resolve(this._cert.cert);
     }
     // else get our cert signed
@@ -318,14 +344,14 @@ FxAccounts.prototype = Object.freeze({
   _getCertificateSigned: function _getCertificateSigned(sessionToken,
                                                         serializedPublicKey,
                                                         lifetime) {
-    dump(" _getCertificateSigned: "+sessionToken+" "+serializedPublicKey+"\n");
-    return HAWK.signCertificate(sessionToken,
+    log(" _getCertificateSigned: "+sessionToken+" "+serializedPublicKey+"\n");
+    return this._fxAccountsClient.signCertificate(sessionToken,
                                 JSON.parse(serializedPublicKey), lifetime);
   },
 
   _getAssertionFromCert: function _getAssertionFromCert(data, keyPair, cert,
                                                         audience) {
-    dump("_getAssertionFromCert\n");
+    log("_getAssertionFromCert\n");
     let payload = {};
     let d = Promise.defer();
     // "audience" should be like "http://123done.org"
@@ -334,7 +360,7 @@ FxAccounts.prototype = Object.freeze({
       if (err) {
         d.reject(err);
       } else {
-        dump(" _getAssertionFromCert returning signed: "+signed+"\n");
+        log(" _getAssertionFromCert returning signed: "+signed+"\n");
         d.resolve(signed);
       }
     });
@@ -381,26 +407,13 @@ FxAccounts.prototype = Object.freeze({
     });
   },
 
+  // returns the URI of the remote UI flows
   getAccountsURI: function () {
     let url = Services.urlFormatter.formatURLPref("firefox.accounts.remoteUrl");
     if (!/^https:/.test(url)) {
       throw new Error("Firefox Accounts server must use HTTPS");
     }
     return url;
-  },
-
-  _deriveHawkCredentials: function (sessionToken) {
-    let bytes = [];
-    for (let i=0; i <  sessionToken.length-1; i += 2) {
-      bytes.push(parseInt(sessionToken.substr(i, 2), 16));
-    }
-    let key = String.fromCharCode.apply(String, bytes);
-    let out = CryptoUtils.hkdf(key, undefined, "identity.mozilla.com/picl/v1/session", 2*32);
-    return {
-      algorithm: "sha256",
-      id: CommonUtils.bytesAsHex(out.slice(0, 32)),
-      key: CommonUtils.bytesAsHex(out.slice(32, 64))
-    };
   },
 });
 
@@ -439,3 +452,4 @@ XPCOMUtils.defineLazyGetter(this, "fxAccounts", function() {
   a.getReady();
   return a;
 });
+
