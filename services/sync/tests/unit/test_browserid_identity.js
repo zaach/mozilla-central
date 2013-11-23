@@ -20,7 +20,7 @@ let _MockFXA = function(blob) {
 };
 _MockFXA.prototype = {
   __proto__: FxAccounts.prototype,
-  getSignedInUser: function getSignedInUser() {
+  _getUserAccountData: function _getUserAccountData() {
     let deferred = Promise.defer();
     deferred.resolve(this.user);
     return deferred.promise;

@@ -311,7 +311,8 @@ this.BrowserIDManager.prototype = {
     }
 
     let audience = Services.io.newURI(tokenServerURI, null, null).prePath;
-    return this._fxaService.getAssertion(audience)
+    return this._fxaService.getKeys()
+      .then(() => this._fxaService.getAssertion(audience))
       .then(assertion => getToken(tokenServerURI, assertion))
       .then(token => {
         token.expiration = this._now() + (token.duration * 1000);
