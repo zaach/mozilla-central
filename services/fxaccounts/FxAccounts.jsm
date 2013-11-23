@@ -192,18 +192,21 @@ this.FxAccounts.prototype = Object.freeze({
    *        or null if no user is signed in
    *
    */
-  getKeys: function(data) {
-    if (data.kA && data.kB) {
-      return Promise.resolve(data);
-    }
-    if (!this._whenKeysReadyPromise) {
-      this._whenKeysReadyPromise = Promise.defer();
-      this._fetchAndUnwrapKeys(data.keyFetchToken)
-        .then(data => {
-          this._whenKeysReadyPromise.resolve(data);
-        });
-    }
-    return this._whenKeysReadyPromise.promise;
+  getKeys: function() {
+    return this._getUserAccountData()
+      .then(data => {
+        if (data.kA && data.kB) {
+          return Promise.resolve(data);
+        }
+        if (!this._whenKeysReadyPromise) {
+          this._whenKeysReadyPromise = Promise.defer();
+          this._fetchAndUnwrapKeys(data.keyFetchToken)
+            .then(data => {
+              this._whenKeysReadyPromise.resolve(data);
+            });
+        }
+        return this._whenKeysReadyPromise.promise;
+      });
   },
 
   _fetchAndUnwrapKeys: function (keyFetchToken) {
